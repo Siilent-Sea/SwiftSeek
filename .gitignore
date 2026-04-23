@@ -1,0 +1,21 @@
+# SwiftPM build artefacts
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Local app bundle (built by scripts/build.sh + codesign)
+SwiftSeek.app/
+
+# Xcode (if ever opened with Xcode.app)
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# Misc
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
