@@ -433,7 +433,7 @@ Codex P1 round 1 发现：取消命中 break 之后仍执行 post-loop `insertFi
    - 进程存活：`PID=75684 STAT=SN`
    - 控制台日志：
      ```
-     2026-04-23 10:46:44.912 SwiftSeek[75684:7527414] SwiftSeek: database ready at /Users/zjp/Library/Application Support/SwiftSeek/index.sqlite3 schema=1
+     2026-04-23 10:46:44.912 SwiftSeek[75684:7527414] SwiftSeek: database ready at ~/Library/Application Support/SwiftSeek/index.sqlite3 schema=1
      ```
 4. 结束进程后校验数据落盘：
    - `ls -la "$HOME/Library/Application Support/SwiftSeek/"` 显示：
@@ -517,7 +517,7 @@ swift run --disable-sandbox SwiftSeek
 ### 22. P4 完成后受限沙箱下的可观察证据（2026-04-23 Claude round 1）
 （在不支持真实 GUI 的沙箱中，只做"能启动不崩溃"的最小可见证据）
 - `swift run --disable-sandbox SwiftSeek` 后台跑 4 秒然后 `kill`：
-  - stdout/stderr 只含 `SwiftSeek: database ready at /Users/zjp/Library/Application Support/SwiftSeek/index.sqlite3 schema=2`
+  - stdout/stderr 只含 `SwiftSeek: database ready at ~/Library/Application Support/SwiftSeek/index.sqlite3 schema=2`
   - 未打印 `hotkey registration failed` → ⌥Space 注册成功
   - 进程未 panic / crash 报告
 - `swift run --disable-sandbox SwiftSeekSmokeTest` 36/36 全绿（含 7 条 P4）
