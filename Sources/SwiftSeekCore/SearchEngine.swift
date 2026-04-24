@@ -24,6 +24,32 @@ public struct SearchResult: Equatable {
     }
 }
 
+/// E2 result sort keys. Default is `.score` which reproduces the ranking
+/// order returned by `SearchEngine.search()`. Other keys re-order the same
+/// result set without re-running the query. Ties break on shorter path then
+/// alphabetical path so the order is total and reproducible.
+public enum SearchSortKey: String, Sendable {
+    case score
+    case name
+    case path
+    case mtime
+    case size
+}
+
+public struct SearchSortOrder: Equatable, Sendable {
+    public var key: SearchSortKey
+    public var ascending: Bool
+
+    public init(key: SearchSortKey, ascending: Bool) {
+        self.key = key
+        self.ascending = ascending
+    }
+
+    /// Default order: score descending. Matches the native ranking order
+    /// returned by `SearchEngine.search()`.
+    public static let scoreDescending = SearchSortOrder(key: .score, ascending: false)
+}
+
 public enum SearchError: Error, CustomStringConvertible {
     case closedDatabase
     case prepareFailed(Int32, String, String)
@@ -384,10 +410,60 @@ public final class SearchEngine {
                                 mtime: row.mtime,
                                 score: s)
         }
-        return scored.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
+        return SearchEngine.sort(scored, by: .scoreDescending)
+    }
+
+    /// E2 re-sort a result set by the requested key without re-querying.
+    /// Tie-breaks on shorter path, then alphabetical path so the order is
+    /// deterministic across runs. Uses a stable sort so equal-key groups
+    /// preserve relative score order — that way switching to name-asc then
+    /// back to score-desc is lossless.
+    public static func sort(_ results: [SearchResult],
+                            by order: SearchSortOrder) -> [SearchResult] {
+        return results.sorted { lhs, rhs in
+            let primary: Int
+            switch order.key {
+            case .score:
+                // score is a natural "higher is better" key; flip if ascending.
+                if lhs.score == rhs.score { primary = 0 }
+                else {
+                    primary = order.ascending
+                        ? (lhs.score < rhs.score ? -1 : 1)
+                        : (lhs.score > rhs.score ? -1 : 1)
+                }
+            case .name:
+                primary = compareString(lhs.name.lowercased(),
+                                        rhs.name.lowercased(),
+                                        ascending: order.ascending)
+            case .path:
+                primary = compareString(lhs.path.lowercased(),
+                                        rhs.path.lowercased(),
+                                        ascending: order.ascending)
+            case .mtime:
+                primary = compareInt(lhs.mtime, rhs.mtime, ascending: order.ascending)
+            case .size:
+                primary = compareInt(lhs.size, rhs.size, ascending: order.ascending)
+            }
+            if primary != 0 { return primary < 0 }
+            // Deterministic tie-break: shorter path first, then alphabetical.
             if lhs.path.count != rhs.path.count { return lhs.path.count < rhs.path.count }
             return lhs.path < rhs.path
         }
+    }
+
+    private static func compareString(_ l: String,
+                                      _ r: String,
+                                      ascending: Bool) -> Int {
+        if l == r { return 0 }
+        let less = l < r
+        return ascending ? (less ? -1 : 1) : (less ? 1 : -1)
+    }
+
+    private static func compareInt(_ l: Int64,
+                                   _ r: Int64,
+                                   ascending: Bool) -> Int {
+        if l == r { return 0 }
+        let less = l < r
+        return ascending ? (less ? -1 : 1) : (less ? 1 : -1)
     }
 }

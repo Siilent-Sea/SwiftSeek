@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -1469,6 +1469,93 @@ reporter.check("E1 SearchEngine.Options.limit default is the configured floor, n
                          "default limit \(opt.limit) below floor \(SearchLimitBounds.minimum)")
     try reporter.require(opt.limit > 20,
                          "default limit \(opt.limit) still hardcoded at the legacy 20")
+}
+
+// MARK: - E2 (result view + sort switching)
+
+// Hand-built fixture rows — avoids DB overhead and lets us pin mtime/size.
+func makeE2Fixture() -> [SearchResult] {
+    return [
+        SearchResult(path: "/a/apple.txt",  name: "apple.txt",  isDir: false, size: 100, mtime: 1000, score: 880),
+        SearchResult(path: "/a/banana.txt", name: "banana.txt", isDir: false, size:  50, mtime: 2000, score: 600),
+        SearchResult(path: "/a/cherry.txt", name: "cherry.txt", isDir: false, size: 300, mtime: 1500, score: 500),
+        SearchResult(path: "/b/date.txt",   name: "date.txt",   isDir: false, size: 200, mtime: 3000, score: 880),
+    ]
+}
+
+reporter.check("E2 default sort is score descending (match native ranking)") {
+    let input = makeE2Fixture()
+    let out = SearchEngine.sort(input, by: .scoreDescending)
+    try reporter.require(out.count == input.count,
+                         "sort should preserve cardinality: \(out.count) vs \(input.count)")
+    // Score-desc tie-break: shorter path first, then alphabetical. The two
+    // 880-score entries are /a/apple.txt (12 chars) and /b/date.txt (11),
+    // so date.txt must win the tie.
+    try reporter.require(out[0].name == "date.txt",
+                         "tie-break: date.txt should win, got \(out[0].name)")
+    try reporter.require(out[1].name == "apple.txt",
+                         "second should be apple.txt, got \(out[1].name)")
+    try reporter.require(out.map(\.score) == [880, 880, 600, 500],
+                         "score column order broken: \(out.map(\.score))")
+}
+
+reporter.check("E2 sort by name ascending / descending is total and reversible") {
+    let input = makeE2Fixture()
+    let asc = SearchEngine.sort(input, by: .init(key: .name, ascending: true))
+    try reporter.require(asc.map(\.name) == ["apple.txt", "banana.txt", "cherry.txt", "date.txt"],
+                         "name asc order broken: \(asc.map(\.name))")
+    let desc = SearchEngine.sort(input, by: .init(key: .name, ascending: false))
+    try reporter.require(desc.map(\.name) == ["date.txt", "cherry.txt", "banana.txt", "apple.txt"],
+                         "name desc order broken: \(desc.map(\.name))")
+}
+
+reporter.check("E2 sort by mtime descending places newest first") {
+    let input = makeE2Fixture()
+    let out = SearchEngine.sort(input, by: .init(key: .mtime, ascending: false))
+    try reporter.require(out.map(\.mtime) == [3000, 2000, 1500, 1000],
+                         "mtime desc order broken: \(out.map(\.mtime))")
+}
+
+reporter.check("E2 sort by size ascending places smallest first") {
+    let input = makeE2Fixture()
+    let out = SearchEngine.sort(input, by: .init(key: .size, ascending: true))
+    try reporter.require(out.map(\.size) == [50, 100, 200, 300],
+                         "size asc order broken: \(out.map(\.size))")
+}
+
+reporter.check("E2 sort is reversible: switching away and back to default restores ranking") {
+    let input = makeE2Fixture()
+    let defaultOrder = SearchEngine.sort(input, by: .scoreDescending)
+    let viaName = SearchEngine.sort(input, by: .init(key: .name, ascending: true))
+    let backToDefault = SearchEngine.sort(viaName, by: .scoreDescending)
+    try reporter.require(backToDefault == defaultOrder,
+                         "default order not restored after re-sort")
+}
+
+reporter.check("E2 sort handles equal primary keys with deterministic tie-break (shorter path, then alphabetical)") {
+    // Two rows with identical score + mtime + size: order must come from
+    // the path tie-break rule (shorter path wins, then alphabetical).
+    let input: [SearchResult] = [
+        SearchResult(path: "/a/longer/zzz.txt", name: "zzz.txt", isDir: false, size: 0, mtime: 0, score: 500),
+        SearchResult(path: "/a/z.txt",          name: "z.txt",   isDir: false, size: 0, mtime: 0, score: 500),
+        SearchResult(path: "/a/y.txt",          name: "y.txt",   isDir: false, size: 0, mtime: 0, score: 500),
+    ]
+    let out = SearchEngine.sort(input, by: .scoreDescending)
+    // Shortest paths first: /a/y.txt and /a/z.txt both have length 8.
+    // Alphabetical tie-break → y before z. Longer /a/longer/zzz.txt last.
+    try reporter.require(out.map(\.path) == ["/a/y.txt", "/a/z.txt", "/a/longer/zzz.txt"],
+                         "tie-break order broken: \(out.map(\.path))")
+}
+
+reporter.check("E2 sort by name is case-insensitive") {
+    // Ensure "Apple" and "apple" sort together even if one is uppercased.
+    let input: [SearchResult] = [
+        SearchResult(path: "/a/Banana.txt", name: "Banana.txt", isDir: false, size: 0, mtime: 0, score: 500),
+        SearchResult(path: "/a/apple.txt",  name: "apple.txt",  isDir: false, size: 0, mtime: 0, score: 500),
+    ]
+    let out = SearchEngine.sort(input, by: .init(key: .name, ascending: true))
+    try reporter.require(out[0].name == "apple.txt",
+                         "case-insensitive asc broken: \(out.map(\.name))")
 }
 
 exit(reporter.summary())

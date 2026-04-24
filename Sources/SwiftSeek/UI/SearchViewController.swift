@@ -28,6 +28,17 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     private let hintLabel = NSTextField(labelWithString: "")
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
 
+    // E2: sort state. Default to the native ranking order returned by
+    // SearchEngine.search. User clicking a column header cycles through
+    // ascending / descending on that key; clicking the "score" column
+    // (or the Reset action) returns to scoreDescending.
+    private var sortOrder: SearchSortOrder = .scoreDescending
+    private var rawResults: [SearchResult] = [] // unsorted from engine
+    private static let col_name = NSUserInterfaceItemIdentifier("name")
+    private static let col_path = NSUserInterfaceItemIdentifier("path")
+    private static let col_mtime = NSUserInterfaceItemIdentifier("mtime")
+    private static let col_size = NSUserInterfaceItemIdentifier("size")
+
     init(database: Database) {
         self.database = database
         self.engine = SearchEngine(database: database)
@@ -57,12 +68,18 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         scroll.borderType = .bezelBorder
         scroll.autohidesScrollers = true
 
-        tableView.headerView = nil
-        tableView.rowHeight = 36
+        // E2: multi-column high-density layout with click-to-sort headers.
+        tableView.headerView = NSTableHeaderView()
+        tableView.rowHeight = 22
+        tableView.intercellSpacing = NSSize(width: 8, height: 2)
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = true
         tableView.style = .fullWidth
+        tableView.columnAutoresizingStyle = .sequentialColumnAutoresizingStyle
+        tableView.allowsColumnSelection = false
+        tableView.allowsColumnReordering = false
+        tableView.allowsColumnResizing = true
         tableView.target = self
         tableView.doubleAction = #selector(onRowDoubleClick(_:))
         tableView.dataSource = self
@@ -70,10 +87,11 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         tableView.menu = buildRowContextMenu()
         tableView.setDraggingSourceOperationMask([.copy, .link], forLocal: false)
 
-        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("result"))
-        col.title = ""
-        col.resizingMask = .autoresizingMask
-        tableView.addTableColumn(col)
+        addColumn(id: Self.col_name,   title: "名称", minWidth: 180, width: 260, sortKey: "name")
+        addColumn(id: Self.col_path,   title: "路径", minWidth: 180, width: 320, sortKey: "path")
+        addColumn(id: Self.col_mtime,  title: "修改时间", minWidth: 100, width: 120, sortKey: "mtime")
+        addColumn(id: Self.col_size,   title: "大小", minWidth: 70, width: 80, sortKey: "size")
+
         scroll.documentView = tableView
         root.addSubview(scroll)
 
@@ -155,6 +173,20 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         return b
     }
 
+    private func addColumn(id: NSUserInterfaceItemIdentifier,
+                           title: String,
+                           minWidth: CGFloat,
+                           width: CGFloat,
+                           sortKey: String) {
+        let col = NSTableColumn(identifier: id)
+        col.title = title
+        col.minWidth = minWidth
+        col.width = width
+        col.resizingMask = .userResizingMask
+        col.sortDescriptorPrototype = NSSortDescriptor(key: sortKey, ascending: true)
+        tableView.addTableColumn(col)
+    }
+
     private func buildRowContextMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(withTitle: "打开", action: #selector(openSelected), keyEquivalent: "")
@@ -218,6 +250,7 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.queryGeneration == generation else { return }
                 self.statusLabel.stringValue = "查询失败：\(error)"
+                self.rawResults = []
                 self.results = []
                 self.currentQuery = raw
                 self.selection.setResultCount(0)
@@ -229,10 +262,13 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         let ms = Int(Date().timeIntervalSince(start) * 1000)
         DispatchQueue.main.async { [weak self] in
             guard let self, self.queryGeneration == generation else { return }
-            self.results = hits
+            // E2: keep the raw ranked list around so re-sort can switch back
+            // to score order without re-querying the DB.
+            self.rawResults = hits
+            self.results = SearchEngine.sort(hits, by: self.sortOrder)
             self.currentQuery = raw
             self.lastQueryLimit = limit
-            self.selection.setResultCount(hits.count)
+            self.selection.setResultCount(self.results.count)
             self.tableView.reloadData()
             if self.selection.currentIndex >= 0 {
                 self.tableView.selectRowIndexes(IndexSet(integer: self.selection.currentIndex),
@@ -402,16 +438,84 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     func tableView(_ tableView: NSTableView,
                    viewFor tableColumn: NSTableColumn?,
                    row: Int) -> NSView? {
+        guard row < results.count, let col = tableColumn else { return nil }
         let hit = results[row]
-
-        let id = NSUserInterfaceItemIdentifier("ResultCell")
-        var cell = tableView.makeView(withIdentifier: id, owner: nil) as? ResultCell
-        if cell == nil {
-            cell = ResultCell()
-            cell!.identifier = id
+        let q = SearchEngine.normalize(currentQuery)
+        let tokens = SearchEngine.tokenize(currentQuery)
+        switch col.identifier {
+        case Self.col_name:
+            let cell = reuseCell(id: Self.col_name) { NameColumnCell() }
+            cell.configure(hit: hit, tokens: tokens)
+            return cell
+        case Self.col_path:
+            let cell = reuseCell(id: Self.col_path) { PathColumnCell() }
+            cell.configure(hit: hit, tokens: tokens, query: q)
+            return cell
+        case Self.col_mtime:
+            let cell = reuseCell(id: Self.col_mtime) { PlainColumnCell(alignment: .right) }
+            cell.configure(text: MtimeFormatter.relative(hit.mtime))
+            return cell
+        case Self.col_size:
+            let cell = reuseCell(id: Self.col_size) { PlainColumnCell(alignment: .right) }
+            cell.configure(text: SizeFormatter.formatted(hit: hit))
+            return cell
+        default:
+            return nil
         }
-        cell!.configure(hit: hit, query: SearchEngine.normalize(currentQuery))
-        return cell
+    }
+
+    private func reuseCell<T: NSView>(id: NSUserInterfaceItemIdentifier,
+                                      _ make: () -> T) -> T {
+        if let reused = tableView.makeView(withIdentifier: id, owner: nil) as? T {
+            return reused
+        }
+        let fresh = make()
+        fresh.identifier = id
+        return fresh
+    }
+
+    // E2: respond to header-click sort changes. We map the AppKit sort
+    // descriptor back to our pure-Swift SearchSortOrder and re-sort the
+    // already-ranked list; no DB round-trip. Empty descriptors (the
+    // "no sort" state) fall back to the default score descending order.
+    func tableView(_ tableView: NSTableView,
+                   sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        let newOrder: SearchSortOrder
+        if let primary = tableView.sortDescriptors.first, let key = primary.key {
+            let mapped: SearchSortKey?
+            switch key {
+            case "name": mapped = .name
+            case "path": mapped = .path
+            case "mtime": mapped = .mtime
+            case "size": mapped = .size
+            default: mapped = nil
+            }
+            if let m = mapped {
+                newOrder = SearchSortOrder(key: m, ascending: primary.ascending)
+            } else {
+                newOrder = .scoreDescending
+            }
+        } else {
+            newOrder = .scoreDescending
+        }
+        sortOrder = newOrder
+        // Preserve the currently selected result (if any) across re-sort.
+        let previouslySelected: SearchResult? = {
+            let i = selection.currentIndex
+            return (i >= 0 && i < results.count) ? results[i] : nil
+        }()
+        results = SearchEngine.sort(rawResults, by: newOrder)
+        selection.setResultCount(results.count)
+        if let prev = previouslySelected,
+           let newIdx = results.firstIndex(of: prev) {
+            selection.setIndex(newIdx)
+        }
+        self.tableView.reloadData()
+        if selection.currentIndex >= 0 {
+            self.tableView.selectRowIndexes(IndexSet(integer: selection.currentIndex),
+                                            byExtendingSelection: false)
+            self.tableView.scrollRowToVisible(selection.currentIndex)
+        }
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -455,104 +559,21 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     }
 }
 
-// MARK: - Reusable result cell with match highlighting + metadata
+// MARK: - E2 multi-column cells
 
-private final class ResultCell: NSView {
-    private let iconView = NSImageView()
-    private let primaryLabel = NSTextField(labelWithString: "")
-    private let metaLabel = NSTextField(labelWithString: "")
-
-    private static let dateFormatter: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .short
-        f.locale = Locale(identifier: "zh_CN")
-        return f
-    }()
-    private static let sizeFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        return f
-    }()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        iconView.heightAnchor.constraint(equalToConstant: 18).isActive = true
-
-        primaryLabel.usesSingleLineMode = true
-        primaryLabel.lineBreakMode = .byTruncatingMiddle
-        primaryLabel.allowsDefaultTighteningForTruncation = true
-        primaryLabel.maximumNumberOfLines = 1
-        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        metaLabel.usesSingleLineMode = true
-        metaLabel.font = NSFont.systemFont(ofSize: 10)
-        metaLabel.textColor = .tertiaryLabelColor
-        metaLabel.alignment = .right
-        metaLabel.translatesAutoresizingMaskIntoConstraints = false
-        metaLabel.setContentHuggingPriority(.required, for: .horizontal)
-        metaLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        let stack = NSStackView(views: [iconView, primaryLabel, metaLabel])
-        stack.orientation = .horizontal
-        stack.spacing = 8
-        stack.alignment = .centerY
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError("unused") }
-
-    func configure(hit: SearchResult, query: String) {
-        let name = hit.name
-        let path = hit.path
-        let attr = NSMutableAttributedString()
-        let prefix = hit.isDir ? "📁 " : "📄 "
-
-        let nameAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .medium)
-        ]
-        let pathAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-
-        attr.append(NSAttributedString(string: prefix, attributes: nameAttrs))
-
-        let nameStart = attr.length
-        attr.append(NSAttributedString(string: name, attributes: nameAttrs))
-        ResultCell.highlight(attr: attr, segment: name, start: nameStart, query: query)
-
-        attr.append(NSAttributedString(string: "   ", attributes: nameAttrs))
-
-        let pathStart = attr.length
-        attr.append(NSAttributedString(string: path, attributes: pathAttrs))
-        ResultCell.highlight(attr: attr, segment: path, start: pathStart, query: query)
-
-        primaryLabel.attributedStringValue = attr
-
-        iconView.image = hit.isDir
-            ? NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-            : NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
-
-        metaLabel.stringValue = Self.metaString(for: hit)
-    }
-
-    private static func highlight(attr: NSMutableAttributedString,
-                                  segment: String,
-                                  start: Int,
-                                  query: String) {
-        guard !query.isEmpty else { return }
-        let lower = segment.lowercased()
+/// Highlights every case-insensitive occurrence of each token in `segment`
+/// with a translucent yellow background. Shared by name + path cells so
+/// the highlight behaviour is identical in both columns.
+private func highlightTokens(_ attr: NSMutableAttributedString,
+                             segment: String,
+                             start: Int,
+                             tokens: [String]) {
+    let lower = segment.lowercased()
+    for token in tokens {
+        guard !token.isEmpty else { continue }
         var searchFrom = lower.startIndex
         while searchFrom < lower.endIndex,
-              let range = lower.range(of: query, options: [], range: searchFrom..<lower.endIndex) {
+              let range = lower.range(of: token, options: [], range: searchFrom..<lower.endIndex) {
             let nsLoc = start + lower.distance(from: lower.startIndex, to: range.lowerBound)
             let nsLen = lower.distance(from: range.lowerBound, to: range.upperBound)
             attr.addAttributes([
@@ -561,16 +582,147 @@ private final class ResultCell: NSView {
             searchFrom = range.upperBound
         }
     }
+}
 
-    private static func metaString(for hit: SearchResult) -> String {
-        var parts: [String] = []
-        if hit.mtime > 0 {
-            let date = Date(timeIntervalSince1970: TimeInterval(hit.mtime))
-            parts.append(dateFormatter.localizedString(for: date, relativeTo: Date()))
+private final class NameColumnCell: NSView {
+    private let iconView = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+    private var iconLoadPath: String?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        iconView.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        label.usesSingleLineMode = true
+        label.lineBreakMode = .byTruncatingMiddle
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let stack = NSStackView(views: [iconView, label])
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    func configure(hit: SearchResult, tokens: [String]) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular)
+        ]
+        let attr = NSMutableAttributedString(string: hit.name, attributes: attrs)
+        highlightTokens(attr, segment: hit.name, start: 0, tokens: tokens)
+        label.attributedStringValue = attr
+
+        // E2 preserves the E1 UX polish pattern: show a generic SF Symbol
+        // immediately, kick off the real Finder icon fetch on a utility
+        // queue so scroll + re-sort stay smooth even when results cross
+        // onto slow volumes.
+        iconView.image = hit.isDir
+            ? NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+            : NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+        iconLoadPath = hit.path
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let img = NSWorkspace.shared.icon(forFile: hit.path)
+            img.size = NSSize(width: 16, height: 16)
+            DispatchQueue.main.async {
+                guard self?.iconLoadPath == hit.path else { return }
+                self?.iconView.image = img
+            }
         }
-        if !hit.isDir, hit.size > 0 {
-            parts.append(sizeFormatter.string(fromByteCount: hit.size))
-        }
-        return parts.joined(separator: " · ")
+    }
+}
+
+private final class PathColumnCell: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.usesSingleLineMode = true
+        label.lineBreakMode = .byTruncatingMiddle
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    func configure(hit: SearchResult, tokens: [String], query: String) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        // Show the parent directory in the path column; the name column
+        // already shows the basename. That avoids redundant content and
+        // makes the row easier to scan in dense multi-result views.
+        let url = URL(fileURLWithPath: hit.path)
+        let parent = url.deletingLastPathComponent().path
+        let attr = NSMutableAttributedString(string: parent, attributes: attrs)
+        highlightTokens(attr, segment: parent, start: 0, tokens: tokens)
+        label.attributedStringValue = attr
+        label.toolTip = hit.path
+        _ = query // reserved for future full-path highlight mode
+    }
+}
+
+private final class PlainColumnCell: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    init(alignment: NSTextAlignment = .left) {
+        super.init(frame: .zero)
+        label.usesSingleLineMode = true
+        label.lineBreakMode = .byTruncatingTail
+        label.alignment = alignment
+        label.font = NSFont.systemFont(ofSize: 11)
+        label.textColor = .tertiaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("unused") }
+
+    func configure(text: String) { label.stringValue = text }
+}
+
+/// Localized "2 天前" / "刚刚" relative date formatting. Hoisted out of the
+/// cell so the formatter is not re-allocated for every row.
+private enum MtimeFormatter {
+    private static let shared: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        f.locale = Locale(identifier: "zh_CN")
+        return f
+    }()
+
+    static func relative(_ mtime: Int64) -> String {
+        guard mtime > 0 else { return "—" }
+        let d = Date(timeIntervalSince1970: TimeInterval(mtime))
+        return shared.localizedString(for: d, relativeTo: Date())
+    }
+}
+
+private enum SizeFormatter {
+    private static let shared: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return f
+    }()
+
+    static func formatted(hit: SearchResult) -> String {
+        if hit.isDir { return "—" }
+        if hit.size <= 0 { return "—" }
+        return shared.string(fromByteCount: hit.size)
     }
 }
