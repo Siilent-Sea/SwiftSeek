@@ -1,14 +1,14 @@
 {
   "track": "everything-usage",
-  "stage": "H3",
+  "stage": "H4",
   "session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e",
   "updated_at": "2026-04-24",
-  "purpose": "Current active track acceptance state after H2 PASS. Continue everything-usage in the same Codex acceptance session and move to H3; do not reuse archived everything-footprint session.",
+  "purpose": "Current active track acceptance state after H3 PASS. Continue everything-usage in the same Codex acceptance session and move to H4; do not reuse archived everything-footprint session.",
   "last_verdict": "PASS",
   "last_verdict_round": 1,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "H2 passed on commit b05a216: SearchResult usage fields, LEFT JOIN file_usage across search SQL, score-only usage tie-break, result columns plus sort/width persistence, smoke 150/150, and H2 documentation are all in place.",
-  "passed_stages": ["H1", "H2"],
+  "last_verdict_reason": "H3 passed on commit 28ab4c9: explicit recent:/frequent: modes, usageCandidates routing, filter/plain-token composition, normal-query isolation, smoke 156/156, and H3 documentation are all in place.",
+  "passed_stages": ["H1", "H2", "H3"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -30,6 +30,6 @@
       "previous_session_id": "019dbdf8-b2c9-7c03-b316-dbbf7040d5d9"
     }
   ],
-  "commit_at_review": "b05a216e0b9e2075e30319963bfc5e18ad0053e4",
-  "notes": "Active session for everything-usage track. H1 and H2 have passed; next target stage is H3. .txt file mirrors this session id."
+  "commit_at_review": "28ab4c9ddffb4ae7c57b95d65491c4db2e608253",
+  "notes": "Active session for everything-usage track. H1, H2, and H3 have passed; next target stage is H4. .txt file mirrors this session id."
 }

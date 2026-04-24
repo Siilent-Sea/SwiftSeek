@@ -4,7 +4,7 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-usage`
-- 当前阶段：`H3`
+- 当前阶段：`H4`
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint`
 - 当前轨道任务书：`docs/everything_usage_taskbook.md`
 - 当前差距清单：`docs/everything_usage_gap.md`
@@ -39,41 +39,42 @@
 - `Sources/SwiftSeekCore/SearchEngine.swift` 的 `SearchResult` 已新增 `openCount` / `lastOpenedAt`，所有搜索 SQL 分支统一 `LEFT JOIN file_usage`，`.score` 相等时按 usage 做 tie-break，且新增 `.openCount` / `.lastOpenedAt` 排序键。
 - `Sources/SwiftSeek/UI/SearchViewController.swift` 结果表已新增“打开次数”“最近打开”两列，并接好列头排序与列宽持久化。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已新增 `result_col_width_open_count` / `result_col_width_last_opened`。
-- `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 + H2 共 12 条 usage 相关 smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `150/150` 通过。
+- `Sources/SwiftSeekCore/SearchEngine.swift` 已新增 `UsageMode`、`ParsedQuery.usageMode`、`usageCandidates(mode:, limit:)`，显式支持 `recent:` / `frequent:` 查询。
+- `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 + H2 + H3 共 18 条 usage 相关 smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `156/156` 通过。
 
-## 当前阶段：`H3` - 最近打开 / 常用项体验
+## 当前阶段：`H4` - 使用历史管理与隐私控制
 
 ### 当前阶段目标
-补齐 `recent:` / `frequent:` 或等价入口，让用户能直接回到最近或高频目标，同时保持普通搜索语义稳定不被污染。
+让 usage history 变成可控、可清理、可解释的隐私数据，而不是只能累加不能管理的内部状态。
 
 ### 当前阶段必须做
-- 提供 `recent:` 或等价最近打开入口。
-- 提供 `frequent:` 或等价常用项入口。
-- recent 按 `lastOpenedAt DESC` 返回，frequent 按 `openCount DESC` 返回。
-- 普通 query 不被 recent/frequent 模式污染。
-- 若实现空查询展示，行为必须可解释、可验证。
+- 设置页增加“记录使用历史”开关与“清空使用历史”入口。
+- 开关持久化到 settings。
+- 关闭记录后 `.open` 不再写入 usage。
+- 清空后 `file_usage` 为空，结果列 / 排序 / recent/frequent 立即反映。
+- DB stats 暴露 usage 表行数或体积信息。
 
 ### 当前阶段禁止事项
-- 不做设置页“关闭记录 / 清空历史”。
 - 不做 usage benchmark。
-- 不做复杂仪表盘或大范围 UI 重写。
+- 不做复杂隐私面板或大范围 UI 重写。
 - 不读取 macOS 全局启动次数或系统最近项目。
 - 不使用 private API。
 - 不扫描系统隐私数据。
 - 不上传、不同步、不做遥测。
 
 ### 当前阶段完成判定标准
-1. `recent:` 或等价入口能返回最近打开项。
-2. `frequent:` 或等价入口能返回高频项。
-3. 普通搜索不受 recent/frequent 模式污染。
-4. 若有空查询展示，行为是可解释和可验证的。
-5. 文档明确 recent/frequent 只来自 SwiftSeek 内部行为，不承诺 macOS 全局历史。
+1. usage history 开关持久化成功。
+2. 关闭后 `.open` 不再写入 usage。
+3. 清空后 `file_usage` 为空，结果列 / 排序 / recent/frequent 立即反映。
+4. DB stats 能展示 usage 表信息。
+5. 文档明确关闭/清空与隐私边界。
 
 ## 当前最新 Codex 结论
 - `everything-usage / H1` 已于 2026-04-24 在提交 `4e48f45` 通过验收。
 - `everything-usage / H2` 已于 2026-04-24 在提交 `b05a216` 通过验收。
-- 当前待实现阶段切换为 `H3`。
-- H2 通过边界：仅包含 usage join、score tie-break、`openCount/lastOpenedAt` 排序键、结果列、列宽/排序持久化、smoke 与文档收口；不包含 recent/frequent、history 开关/清空、usage benchmark。
+- `everything-usage / H3` 已于 2026-04-24 在提交 `28ab4c9` 通过验收。
+- 当前待实现阶段切换为 `H4`。
+- H3 通过边界：仅包含 `recent:` / `frequent:` 显式入口、usage-mode 路由、filter 组合、普通 query 不回退、smoke 与文档收口；不包含 history 开关/清空、usage benchmark。
 
 ## 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`
