@@ -58,8 +58,8 @@
 
 ### 搜索相关性
 - 当前已有 plain token AND、basename / token boundary / path segment / extension bonus。
-- 但它仍是启发式相关性，不是成熟 Everything ranking 模型。
-- usage-based tie-break 尚未实现，属于当前 `everything-usage` 轨道。
+- H2 已补上 usage-based tie-break：同 score 下按 openCount DESC → lastOpenedAt DESC 排序。
+- 但它仍是启发式相关性，不是成熟 Everything ranking 模型；进一步的 learning-to-rank / 统计模型不在本轨道范围。
 
 ### 查询 DSL
 - 已支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:`。

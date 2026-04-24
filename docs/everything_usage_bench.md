@@ -65,19 +65,14 @@
 5. **`recordOpen` 仍在 8 微秒**：100k file_usage 的 UPSERT 增量更新没有显著变慢；B-tree 在 100k rowid 下依然低成本。H1 同步调用承诺 @500k 成立。
 6. **F1 目标旧基线（10k 3+char 30ms med / 100ms p95）** 在 500k 规模下两种模式都超（这点 G5 已诚实记录）；H5 的 `recent:` / 3+char(w/usage) 维持同量级，没有 usage 路径自身导致的回退。
 
-## 对 H1-H4 合同的结论
+## 对 H1-H4 合同的最终结论
 
-- **H1 recordOpen 写入延迟** 100k+usage=10k 7μs / 500k+usage=100k 8μs —— 微秒级，打开文件时同步记录不会被用户感知
-- **H2 usage JOIN** 500k+100k usage 下把 3+char 中位从 90.33ms 推到 94.33ms（+4ms），p95 实际更低；JOIN 成本可忽略，tie-break 逻辑零延迟
-- **H3 `recent:` / `frequent:`** 500k 规模下 16-90ms 中位数；没有 F1 10k 基线的 30ms p95 目标，但体感仍在瞬间级（sub-100ms 中位）
-- **H4 隐私开关 / 清空** 不在 benchmark 路径里；功能由 smoke 覆盖（5 条）
+合同验证结果严格贴合 100k / 500k 实测表格数据：
 
-## 对 H1-H4 合同的结论
-
-- **H1 recordOpen 写入延迟** 微秒级，符合 "打开文件时同步记录不卡用户" 的承诺
-- **H2 usage JOIN** 在 500k 规模下不显著增加搜索延迟，H2 的 tie-break 效果无性能代价
-- **H3 `recent:` / `frequent:`** 查询比普通 3+char 显著更快（候选池天生小）
-- **H4 隐私开关 / 清空** 不涉及 benchmark 路径；功能由 smoke 覆盖
+- **H1 recordOpen 写入延迟**：100k+10k usage 时 7μs 中位 / 500k+100k usage 时 8μs 中位。两种规模下都是微秒级，同步调用不会被用户感知。
+- **H2 usage JOIN**：500k+100k usage 把 3+char 中位从 90.33ms 推到 94.33ms（+4ms，约 4% 开销）；p95 实际从 249.88ms 收紧到 99.11ms（第二次预热后 SQLite page cache 稳定）。JOIN 成本可忽略，tie-break 无额外延迟。
+- **H3 `recent:` / `frequent:`**：100k 规模下 sub-10ms 中位（`recent:` 8.25ms / `frequent:` 1.95ms）；500k 规模下 `recent:` 89.44ms、`frequent:` 16.87ms 中位数，与同规模普通 3+char 同量级。**不是"显著更快"**，只是 candidate pool 是 file_usage 表而非 gram 表；`recent:` 在 500k+100k usage 下甚至与 3+char(w/usage) 持平（90 vs 94ms）。
+- **H4 隐私开关 / 清空**：不在 bench 测量路径；由 smoke 5 条覆盖（toggle round-trip / 关闭不写 / 清空后表空 / recent:frequent: 清空后返空 / DBStats.fileUsageRowCount 跟随变化）。
 
 ## 如何复现
 

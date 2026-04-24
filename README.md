@@ -26,7 +26,7 @@ macOS 原生本地极速文件搜索器。
 - **Footprint**：500k 实测 compact 1.07 GB vs fullpath 3.46 GB；首次索引 44.87s vs 197.62s
 
 ## 当前限制
-SwiftSeek 当前尚未记录“通过 SwiftSeek 打开”的次数，也没有 Run Count / 最近打开列或 usage-based ranking。macOS 全局启动次数不在承诺范围内；后续 Run Count 只表示 SwiftSeek 内部行为。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
+Run Count / 最近打开 / `recent:` / `frequent:` / usage tie-break 已在 H1-H5 落地（见 [docs/everything_usage_bench.md](docs/everything_usage_bench.md)），且只记录通过 SwiftSeek 打开的次数 —— macOS 全局启动次数不在承诺范围，不读系统隐私数据。剩余限制仍然集中在：500k 规模下 warm 3+char 超出 F1 旧 10k 基线（规模效应，G5 已记录），启发式相关性模型、查询 DSL（不支持 OR/NOT/括号/引号短语/复杂布尔）等。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
 ## 明确不做
 全文内容搜索、OCR、AI 语义搜索、云盘实时一致性、跨平台、Electron / Web UI 替代原生、APFS 原始解析、Finder 插件、App Store 沙盒适配、代码签名 / 公证、macOS 全局启动次数读取、系统隐私数据扫描。

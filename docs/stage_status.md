@@ -41,7 +41,7 @@
 - `Sources/SwiftSeek/UI/SearchViewController.swift` 结果表已新增“打开次数”“最近打开”两列，并接好列头排序与列宽持久化。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已新增 `result_col_width_open_count` / `result_col_width_last_opened`。
 - `Sources/SwiftSeekCore/SearchEngine.swift` 已新增 `UsageMode`、`ParsedQuery.usageMode`、`usageCandidates(mode:, limit:)`，显式支持 `recent:` / `frequent:` 查询。
-- `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 + H2 + H3 共 18 条 usage 相关 smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `156/156` 通过。
+- `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 + H2 + H3 + H4 共 23 条 usage 相关 smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `161/161` 通过。
 
 ## 当前阶段：`H5` - benchmark 与轨道收口
 
