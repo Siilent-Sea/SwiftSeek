@@ -47,10 +47,6 @@
 - 清空不会改开关：如果想同时关闭后续记录，用户需另勾复选框。
 - `DatabaseStats.fileUsageRowCount` 字段 + CLI `SwiftSeekDBStats` / Settings → 维护 tab stats 区都会显示 file_usage 行数。per-table fallback 也已加 `file_usage`。
 - 隐私边界重申：usage 只保存本地 SwiftSeek DB；不上传、不同步、不遥测；关闭 → 停止新增；清空 → 移除已有；Run Count 永远只表示通过 SwiftSeek 打开的次数。
-- 设置页没有“记录使用历史”开关。
-- 设置页没有“清空使用历史”入口。
-- DB stats 尚未展示 usage 表大小和行数。
-- 后续引入 usage 后必须补隐私控制，否则不应进入最终收口。
 
 ## 已归档轨道后的保留限制
 
