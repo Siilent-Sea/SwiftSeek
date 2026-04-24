@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -2860,8 +2860,12 @@ reporter.check("G3 schema v5: fresh DB has compact tables + migration_progress")
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
-    try reporter.require(db.schemaVersion == 5,
-                         "fresh DB should be at v5, got \(db.schemaVersion)")
+    // H1 bumped currentVersion to 6; G3's compact tables still exist
+    // from v5 — we just need a DB that's migrated past v5.
+    try reporter.require(db.schemaVersion >= 5,
+                         "fresh DB should be at least v5, got \(db.schemaVersion)")
+    try reporter.require(db.schemaVersion == Schema.currentVersion,
+                         "fresh DB should reach currentVersion \(Schema.currentVersion), got \(db.schemaVersion)")
     for table in ["file_name_grams", "file_name_bigrams", "file_path_segments", "migration_progress"] {
         try reporter.require(try db.tableExists(table),
                              "\(table) missing after v5 migration")
@@ -2906,8 +2910,8 @@ reporter.check("G3 index mode: fresh DB default = compact, v4 upgrade default = 
     let db = try Database.open(at: v4URL)
     defer { db.close() }
     try db.migrate()
-    try reporter.require(db.schemaVersion == 5,
-                         "v4 upgrade should reach v5, got \(db.schemaVersion)")
+    try reporter.require(db.schemaVersion == Schema.currentVersion,
+                         "v4 upgrade should reach currentVersion \(Schema.currentVersion), got \(db.schemaVersion)")
     let upgradedMode = try db.getIndexMode()
     try reporter.require(upgradedMode == .fullpath,
                          "v4 upgrade should default to fullpath, got \(upgradedMode)")
@@ -3221,6 +3225,118 @@ reporter.check("G4 mode switch does not leak pre-switch candidate cache") {
     // the compact tables, not cached fullpath candidates.
     try reporter.require(hits.isEmpty,
                          "compact should return [] when compact tables empty; got \(hits.map(\.name))")
+}
+
+// MARK: - H1 usage data model + recordOpen
+
+// Helper: fresh DB + single indexed file; returns (db, fileId, path).
+// Wraps the "open/migrate/insert/lookupFileId" dance so the H1 tests
+// only talk about the usage behavior they actually exercise.
+func makeH1Fixture() throws -> (Database, Int64, String, URL) {
+    let dbDir = try makeTempDir()
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    try db.migrate()
+    let filesRoot = try makeTempDir()
+    let filePath = filesRoot.appendingPathComponent("demo.txt").path
+    try "".write(to: URL(fileURLWithPath: filePath), atomically: true, encoding: .utf8)
+    let row = FileRow(path: filePath,
+                      pathLower: filePath.lowercased(),
+                      name: "demo.txt",
+                      nameLower: "demo.txt",
+                      isDir: false,
+                      size: 0,
+                      mtime: 0)
+    try db.insertFiles([row])
+    guard let fileId = try db.lookupFileId(path: filePath) else {
+        throw SmokeFailure(message: "H1 fixture: lookupFileId returned nil right after insert")
+    }
+    return (db, fileId, filePath, dbDir)
+}
+
+reporter.check("H1 schema v6 has file_usage table") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(Schema.currentVersion == 6,
+                         "Schema.currentVersion should be 6 for H1, got \(Schema.currentVersion)")
+    try reporter.require(try db.tableExists("file_usage"),
+                         "file_usage table missing after v6 migrate")
+    // Initial state: no usage rows on a fresh DB with no .open yet.
+    let count = try db.countRows(in: "file_usage")
+    try reporter.require(count == 0,
+                         "fresh DB should have 0 file_usage rows, got \(count)")
+}
+
+reporter.check("H1 getUsageByPath returns nil before any recordOpen") {
+    let (db, _, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    let pre = try db.getUsageByPath(path)
+    try reporter.require(pre == nil,
+                         "usage row should not exist before first recordOpen, got \(String(describing: pre))")
+}
+
+reporter.check("H1 recordOpen(path:) first call creates row with open_count=1") {
+    let (db, fileId, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    let ok = try db.recordOpen(path: path, now: 1_700_000_000)
+    try reporter.require(ok, "recordOpen should return true for indexed path")
+    guard let row = try db.getUsageByPath(path) else {
+        throw SmokeFailure(message: "usage row missing after first recordOpen")
+    }
+    try reporter.require(row.fileId == fileId, "fileId mismatch: \(row.fileId) vs \(fileId)")
+    try reporter.require(row.openCount == 1, "open_count should be 1, got \(row.openCount)")
+    try reporter.require(row.lastOpenedAt == 1_700_000_000,
+                         "last_opened_at should be 1_700_000_000, got \(row.lastOpenedAt)")
+    try reporter.require(row.updatedAt == 1_700_000_000,
+                         "updated_at should be 1_700_000_000, got \(row.updatedAt)")
+}
+
+reporter.check("H1 recordOpen repeated accumulates open_count and updates timestamps") {
+    let (db, _, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    _ = try db.recordOpen(path: path, now: 1_700_000_000)
+    _ = try db.recordOpen(path: path, now: 1_700_000_050)
+    _ = try db.recordOpen(path: path, now: 1_700_000_100)
+    guard let row = try db.getUsageByPath(path) else {
+        throw SmokeFailure(message: "usage row missing after repeated recordOpen")
+    }
+    try reporter.require(row.openCount == 3, "open_count should be 3, got \(row.openCount)")
+    try reporter.require(row.lastOpenedAt == 1_700_000_100,
+                         "last_opened_at should track most recent, got \(row.lastOpenedAt)")
+    try reporter.require(row.updatedAt == 1_700_000_100,
+                         "updated_at should track most recent, got \(row.updatedAt)")
+}
+
+reporter.check("H1 recordOpen on unknown path returns false and does not write") {
+    let (db, _, _, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    let bogus = "/tmp/definitely-not-indexed-\(UUID().uuidString).txt"
+    let ok = try db.recordOpen(path: bogus, now: 1_700_000_000)
+    try reporter.require(!ok, "recordOpen should return false for unknown path")
+    let count = try db.countRows(in: "file_usage")
+    try reporter.require(count == 0,
+                         "recordOpen on unknown path must not write; got \(count) rows")
+}
+
+reporter.check("H1 usage row cascades on files row delete") {
+    let (db, fileId, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    _ = try db.recordOpen(path: path, now: 1_700_000_000)
+    try reporter.require(try db.getUsageByFileId(fileId) != nil,
+                         "usage row should exist before file delete")
+    let removed = try db.deleteFiles(atOrUnderPath: path)
+    try reporter.require(removed == 1, "expected 1 file removed, got \(removed)")
+    // FOREIGN KEY ON DELETE CASCADE is enabled at Database.open via
+    // PRAGMA foreign_keys=ON; the usage row should be gone.
+    try reporter.require(try db.getUsageByFileId(fileId) == nil,
+                         "usage row should be cascaded away after files row delete")
+    let count = try db.countRows(in: "file_usage")
+    try reporter.require(count == 0,
+                         "file_usage should be empty after cascade, got \(count)")
 }
 
 exit(reporter.summary())

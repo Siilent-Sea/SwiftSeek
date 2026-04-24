@@ -1,50 +1,52 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前用户真实会感知到的限制。历史轨道已经完成的能力不重复包装成新成果；当前重点是 `everything-footprint` 暴露的大库体积和维护问题。
+本文档记录当前用户真实会感知到的限制。历史轨道已经完成的能力不重复包装成新成果；当前重点是 `everything-usage` 暴露的使用历史、打开次数和 Everything-like 体验差距。
 
 ## 当前活跃轨道相关限制
 
-### 1. 500k+ 文件下 DB 体积（G1-G5 已解决根治路径）
-- **Compact 模式（默认）**：只对 basename 做 gram + path segment 前缀索引。500k 实测（release，2026-04-24）main DB **1.07 GB** vs fullpath **3.46 GB**（0.31×，3.2× 更小），索引行数 23.0M vs 118.9M（0.19×，5.2× 更少），首次全量索引 44.87s vs 197.62s（4.4× 更快）。与用户报告的真实 586k=3.4GB 吻合。
-- **Full path substring 模式**：保留 v4 行为，path 中间子串可搜；体积大。
-- 现有 fullpath v4 DB 升级到 v5 默认保留为 fullpath；可在设置 → 常规 → 索引模式切换到 compact，维护 tab 按 "开始 / 继续 compact 回填" 后台回填，期间不阻主。
-- G3 migrate CREATE-only：关闭 populated 500k DB 再重新 open + migrate() 实测 reopen 0.001s / migrate 0.000s，不会"启动时卡几分钟"。
-- VACUUM 仍作为临时压实入口保留（维护 tab），但已不是根治方案 —— 根治靠 compact 模式 + 一次性回填。
+### 1. 不能读取 macOS 全局启动次数
+- SwiftSeek 不应承诺读取系统级 Run Count、全局 App 启动次数或其他工具的打开历史。
+- macOS 没有适合作为普通 App 稳定读取这类数据的公开、低风险接口。
+- 后续 `Run Count` 语义必须限定为：**通过 SwiftSeek 打开的次数**。
+- 不使用 private API，不扫描系统隐私数据。
 
-### 2. `file_bigrams + file_grams` 是主要体积来源
-- `Gram.indexGrams(nameLower:pathLower:)` 与 `Gram.indexBigrams(nameLower:pathLower:)` 都把完整路径纳入滑窗。
-- full path 往往比文件名长得多，深目录和长路径会产生大量 gram 行。
-- `PRIMARY KEY(file_id, gram)` 只能去掉同一个文件内重复 gram，不能减少跨文件共同路径前缀带来的行数规模。
+### 2. SwiftSeek 内部 open count 已在 H1 落地
+- Schema v6 新增 `file_usage` 表，字段：`file_id`（PK，`ON DELETE CASCADE` 关联 `files.id`）/ `open_count` / `last_opened_at` / `updated_at`。
+- `ResultActionRunner.perform(.open)` 返回 Bool（`NSWorkspace.shared.open(url)` 结果）。
+- `SearchViewController.openSelected()` 成功后调 `Database.recordOpen(path:)`，UPSERT `open_count+=1` + 两个时间戳。
+- 打开失败或目标路径不在 DB → 不累加；未索引 path 会 `NSLog` 诊断，不 silent fail。
+- 文件从 `files` 删除后 usage 记录随外键级联清理（`PRAGMA foreign_keys=ON`）。
+- **Run Count 语义**：仅表示通过 SwiftSeek 触发 `.open` 的次数。**不代表 macOS 全局启动次数**；不读 system 最近项目、不用 private API。
+- H1 只做数据模型 + 动作记录。ranking tie-break / 结果列 / 最近打开入口 / 隐私开关留给 H2-H4。
 
-### 3. v5 migration 已避开巨型事务（G3 已解决）
-- `Database.migrate()` v4→v5 分支 CREATE-only + seed `settings.index_mode`，不跑 backfill
-- compact backfill 由 `MigrationCoordinator` 后台分批执行（默认 5000 行/批，每批独立事务 + WAL PASSIVE checkpoint），可中断续跑（`migration_progress.compact_backfill_last_file_id`）
-- v2→v4 迁移仍有旧的 backfill（`file_grams` / `file_bigrams`），但那是 v3→v4 跃迁，G3 没动；新库一般直接命中 v5。
+### 3. 当前排序不含 usage tie-break
+- `SearchResult` 只有 path/name/isDir/size/mtime/score。
+- `SearchEngine.sort` 只支持 score/name/path/mtime/size。
+- 同等文本相关性下，常用文件不会因为打开次数更高而靠前。
 
-### 4. DB footprint 观测（G1 已解决）
-- CLI `SwiftSeekDBStats`：main/wal/shm 大小、page 信息、六张表行数、平均 grams per file、dbstat per-table 明细（支持时）/ row-count fallback
-- Settings → 维护 tab：DB 体积 block 同上 + 刷新 / WAL checkpoint / Optimize / VACUUM 按钮（VACUUM 二次确认）
-- `SwiftSeekBench --mode both`：compact vs fullpath 对比报告
+### 4. 当前结果视图没有 Run Count / 最近打开信息
+- 结果表已有名称 / 路径 / 修改时间 / 大小。
+- 但没有打开次数、最近打开、usage score 或 Run Count 列。
+- 用户也无法按打开次数或最近打开排序。
 
-### 5. App 内维护入口（G1 / G4 已解决）
-- 设置 → 维护 tab 提供 WAL checkpoint / Optimize / VACUUM（二次确认 + 风险说明）/ 开始或继续 compact 回填
-- CLI `SwiftSeekDBStats --run {checkpoint,optimize,vacuum}` 等价命令行入口
-- 所有维护走后台队列，GUI 不阻塞
+### 5. 当前没有使用历史清理 / 隐私控制
+- 设置页没有“记录使用历史”开关。
+- 设置页没有“清空使用历史”入口。
+- DB stats 尚未展示 usage 表大小和行数。
+- 后续引入 usage 后必须补隐私控制，否则不应进入最终收口。
 
-### 6. 索引策略可配置（G3 / G4 已解决）
-- 设置 → 常规 → 索引模式下拉：Compact（推荐）/ Full path substring（高级）
-- 每个新 DB 默认 compact；v4 升级默认 fullpath（保留用户现有搜索能力）
-- 切换有二次确认 + 引导回填 / 重建
+## 已归档轨道后的保留限制
 
-## 仍然存在但已非当前主线的问题
+### DB footprint（G1-G5 已解决主路径）
+- Compact 模式（默认）已将 500k 实测 main DB 从 fullpath 3.46 GB 降到 1.07 GB。
+- Full path substring 模式仍可选，但体积更大。
+- VACUUM / checkpoint 仍是维护入口，不是替代 compact 的根治方案。
+- 500k 下 warm 3+char 会超出 F1 在 10k 规模时设定的旧目标，这是已记录的规模效应事实，不是 usage 轨道范围。
 
 ### 搜索相关性
-- 当前已经有 plain token AND、basename / token boundary / path segment / extension bonus。
-- 但它仍是第一版启发式相关性，不是成熟 Everything ranking 模型。
-
-### 结果视图
-- 当前已经有名称 / 路径 / 修改时间 / 大小四列、列头排序、较高密度显示。
-- 但与成熟文件搜索器相比，仍有进一步打磨空间。
+- 当前已有 plain token AND、basename / token boundary / path segment / extension bonus。
+- 但它仍是启发式相关性，不是成熟 Everything ranking 模型。
+- usage-based tie-break 尚未实现，属于当前 `everything-usage` 轨道。
 
 ### 查询 DSL
 - 已支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:`。
@@ -53,7 +55,7 @@
 ### RootHealth
 - 已有 ready / indexing / paused / offline / unavailable。
 - 设置页 roots 列表和搜索 0 结果空态会暴露部分状态。
-- 但 root 级索引体积归因尚未接入，这属于 `everything-footprint` 后续范围。
+- RootHealth 与 usage 无直接关系，本轨道不扩 root 状态模型。
 
 ## 环境约束
 
@@ -86,6 +88,8 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 - APFS 原始解析
 - Finder 插件
 - App Store 沙盒适配
+- macOS 全局启动次数读取
+- 系统隐私数据扫描
 
 ## 运行时补充说明
 

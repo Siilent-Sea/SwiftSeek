@@ -499,7 +499,19 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
 
     @objc func openSelected() {
         if let target = selectedTarget() {
-            ResultActionRunner.perform(.open, target: target)
+            // H1: only bump Run Count after NSWorkspace reports success.
+            // A failed `open` (missing handler, broken alias, unreachable
+            // volume, etc.) must not increment open_count. recordOpen
+            // itself tolerates "path not in index" by returning false +
+            // NSLog; we intentionally do not swallow that signal silently.
+            let opened = ResultActionRunner.perform(.open, target: target)
+            if opened {
+                do {
+                    _ = try database.recordOpen(path: target.path)
+                } catch {
+                    NSLog("SwiftSeek: recordOpen failed for \(target.path): \(error)")
+                }
+            }
             view.window?.orderOut(nil)
         }
     }

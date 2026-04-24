@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Schema {
-    public static let currentVersion: Int32 = 5
+    public static let currentVersion: Int32 = 6
 
     public struct Migration {
         public let target: Int32
@@ -116,6 +116,30 @@ public enum Schema {
             CREATE TABLE IF NOT EXISTS migration_progress (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+            """
+        ]),
+        // H1 Schema v6: usage data model. One row per file, keyed on
+        // `files.id` with ON DELETE CASCADE so usage is cleaned up
+        // automatically when a file leaves the index. CREATE-only; no
+        // backfill (fresh DB starts with 0 usage rows, and existing
+        // files only gain a row on the first .open via recordOpen()).
+        // Run Count semantics: SwiftSeek-internal open count only, NOT
+        // the macOS global launch count. See
+        // docs/everything_usage_taskbook.md §H1.
+        //
+        // No secondary indexes here — H1 only reads/writes per-file
+        // usage keyed on the primary key (file_id). H2 will add
+        // open_count / last_opened_at indexes when ranking / recent
+        // entry points are introduced. Keeping v6 lean avoids
+        // over-building ahead of H2's proposal.
+        Migration(target: 6, statements: [
+            """
+            CREATE TABLE IF NOT EXISTS file_usage (
+                file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+                open_count INTEGER NOT NULL DEFAULT 0,
+                last_opened_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
             );
             """
         ])

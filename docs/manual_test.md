@@ -717,6 +717,28 @@ chmod a-w /tmp/readonly.sqlite3
    - Compact：`myproj`（路径中间子串）不再命中路径下的文件；`path:docs` 能命中
    - Fullpath：`myproj` 能命中包含 `myproj-old/` 路径的文件
 
+### 33h. H1 usage 数据模型 + `.open` 动作记录
+前置：用 release 包启动 SwiftSeek，并确保已索引至少一个可打开的目标文件（如 `~/Documents/<name>.pdf` 或一个 `.md`）。
+
+1. DB 路径 `~/Library/Application Support/SwiftSeek/swiftseek.sqlite3`，先用 `sqlite3` CLI 核 schema：
+   ```bash
+   sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 \
+     'SELECT name FROM sqlite_master WHERE type="table" AND name="file_usage";'
+   ```
+   应返回 `file_usage` 一行。`PRAGMA user_version;` 应返回 `6`。
+2. 打开 SwiftSeek 搜索窗，输入文件名 query，回车打开。
+3. 再次 sqlite3 核：
+   ```bash
+   sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 \
+     "SELECT f.path, u.open_count, u.last_opened_at, u.updated_at FROM file_usage u JOIN files f ON f.id = u.file_id ORDER BY u.last_opened_at DESC LIMIT 5;"
+   ```
+   刚打开的文件 `open_count >= 1`，`last_opened_at` 和 `updated_at` 是最近时间戳（Unix epoch 秒）。
+4. 同一目标连续回车打开 3 次，重复 sqlite3 查询，`open_count` 应累加到 4（或原值 +3）。
+5. 打开一个**无默认处理器**的文件（如随便 `touch /tmp/swiftseek-h1-bogus.xxnoextxxx` 然后 `SwiftSeekIndex` 索引它再搜索打开） — `NSWorkspace.open` 应返 false，查 DB `file_usage` 不应有这个文件的行。
+6. Reveal in Finder（⌘+Enter）和 Copy Path（⌘+Shift+C） **不**应累加 `open_count`（只有 `.open` 算 Run Count）。
+7. 从索引中删除某个已有 usage 行的文件（在设置里 remove 其所在 root，或手动 `DELETE FROM files WHERE path=?`），再核 `file_usage` 不应留该行（`ON DELETE CASCADE`）。
+8. 若打开成功但 `SearchViewController` 调 `recordOpen` 时目标路径不在 `files` 表（edge case：刚 exclude 或 root disable），应看到 Console 日志 `SwiftSeek: recordOpen skipped, path not in index: ...`；DB 保持不变。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求
