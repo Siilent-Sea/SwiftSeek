@@ -1,46 +1,23 @@
-# 下一阶段任务书（过渡 F4 → F5）
+# 下一阶段任务书
 
-## Track
-`everything-performance`
+## 当前状态
+**F5 最终收尾中，等待 Codex PROJECT COMPLETE 判定。**
 
-## Stage
-F4 当前刚落地（等待 Codex 验收）。本文件是 F4 → F5 过渡骨架。
+F1-F4 均已 PASS：
+- F1 round 1 PASS（搜索热路径性能）
+- F2 round 2 PASS（CLI limit parity + ranking regression matrix）
+- F3 round 2 PASS（高密度视图 + sort/column-width 持久化）
+- F4 round 2 PASS（DSL filter-only + RootHealth 搜索空态暴露）
 
-## F5 目标（预告）
-索引自动化与最终收尾，把轨道带到 PROJECT COMPLETE。
+## 如 Codex 颁发 PROJECT COMPLETE
+- `everything-performance` 与上一条 `everything-alignment` 一样进入归档状态
+- 本文件变为"无活跃轨道"
+- 新轨道启动由用户发起
 
-### 必须做
-- 继续打磨 add root 自动后台索引（E4/F-系列已起步，可考虑 `--watch-seconds` 或 polling-watcher 的 UI 可感知）
-- hidden / exclude 变化后可感知生效链路（当前已有弹窗 / 立即清理）
-- 如成本可控，可引入轻量 usage-based tie-break（不破坏现有相关性）
-- 收口 README / manual_test / known_issues
-- 为本轨道准备最终验收
+## 如 Codex REJECT
+- 按 required fix 修复后重验
+- 不进入新轨道
 
-### 明确不做
-- 不引入新的大搜索后端
-- 不做大规模 UI 重写
-- 不碰 F1-F4 已 sealed 的能力
-
-### 涉及关键文件
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-- `Sources/SwiftSeekCore/RebuildCoordinator.swift`
-- `Sources/SwiftSeekCore/SearchEngine.swift`
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-- `README.md`
-- `docs/manual_test.md`
-- `docs/known_issues.md`
-- `docs/codex_acceptance.md`
-
-### 验收标准
-1. 设置改动后系统行为更自解释
-2. root 添加、后台索引、状态反馈链路顺畅
-3. 如引入 usage tie-break 不破坏基础相关性
-4. 文档 / 手测 / 已知限制与最终代码对齐
-5. 具备 PROJECT COMPLETE 的条件
-
----
-
-## 过渡期说明
-F4 round 1 验收完成后本文件需要刷新：
-1. 若 F4 PASS，正文展开为完整 F5 任务书
-2. 若 F4 REJECT，维持 F4 状态按 Codex required fix 修后重验
+## 历史归档完成
+- `v1-baseline`（P0-P6）：2026-04-23
+- `everything-alignment`（E1-E5）：2026-04-24

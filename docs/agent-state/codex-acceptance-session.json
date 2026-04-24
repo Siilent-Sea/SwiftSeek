@@ -1,21 +1,22 @@
 {
   "track": "everything-performance",
-  "stage": "F4",
+  "stage": "F5",
   "session_id": "019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90",
   "last_verdict": "PASS",
   "last_verdict_round": 2,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "F3 round 2 PASS after real density improvements + manual test; F4 functional complete + docs pre-synced",
+  "last_verdict_reason": "F4 round 2 PASS; F5 is final roll-up, awaiting PROJECT COMPLETE",
   "passed_stages": [
     { "stage": "F1", "verdict": "PASS", "round": 1, "date": "2026-04-24" },
     { "stage": "F2", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "F3", "verdict": "PASS", "round": 2, "date": "2026-04-24" }
+    { "stage": "F3", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
+    { "stage": "F4", "verdict": "PASS", "round": 2, "date": "2026-04-24" }
   ],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     { "track": "everything-alignment", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-24",
       "previous_session_id": "019dbd4c-e0c9-7370-8a0c-1d4263a9f19b" }
   ],
-  "commit_at_review": "pending-f4-r1",
-  "notes": "F4 round 1 pending Codex review."
+  "commit_at_review": "pending-f5",
+  "notes": "F5 final roll-up; awaits PROJECT COMPLETE verdict."
 }

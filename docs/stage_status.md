@@ -2,8 +2,8 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-performance`
-- 当前阶段：`F4`（功能落地，等待 Codex 验收）
-- 轨道内已通过：F1（round 1 PASS）、F2（round 2 PASS）、F3（round 2 PASS），均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
+- 当前阶段：`F5`（最终收尾 / 等待 Codex PROJECT COMPLETE 判定）
+- 轨道内已通过：F1（round 1 PASS）、F2（round 2 PASS）、F3（round 2 PASS）、F4（round 2 PASS），均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
 - 已归档轨道：`v1-baseline`（P0~P6 / PROJECT COMPLETE 2026-04-23）
 - 已归档轨道：`everything-alignment`（E1~E5 / PROJECT COMPLETE 2026-04-24）
 
@@ -31,6 +31,36 @@
 - 先解决"建了索引但搜索仍慢"的核心问题
 - 把当前已经部分落地的 Everything-like 功能按代码真实状态校正
 - 性能 / 真实相关性 / 结果视图 / DSL / root 健康 / 索引自动化 按可验证顺序推进
+
+### 当前阶段：`F5`（索引自动化与最终收尾）
+
+#### 当前阶段目标（功能面保持不动，只收口 + 对齐文档）
+- ✅ add root 自动后台索引（E4 + F-系列已落地，不再改动）
+- ✅ hidden / exclude 变化后可感知生效链路（E4 已做）
+- ✅ 不引入 usage-based tie-break（任务书写"如成本可控"，本轮选择保守：不引入以免破坏已 PASS 的 ranking）
+- ✅ 收口文档：README 更新到 F4 后完整能力；manual_test 覆盖保留；known_issues 最终口径
+- ✅ 为轨道最终验收 PROJECT COMPLETE 准备证据
+
+#### 当前阶段禁止事项
+- 不引入新的搜索后端
+- 不做大规模 UI 重写
+- 不碰 F1-F4 已 sealed 的能力
+
+#### 代码状态（F5 快照）
+- 无新功能代码改动
+- README.md 更新到 F4 后完整能力描述（含 bench 实测数字 / 过滤语法 / RootHealth 覆盖 / UX 键盘流 / cache）
+
+#### 完成判定
+1. ✅ 设置改动后系统行为自解释（hidden alert、auto index、RootHealth badge）
+2. ✅ root 添加、后台索引、状态反馈链路顺畅（F4 round 2 验证）
+3. ✅ 本轮未引入 usage tie-break（明示），不破坏 ranking
+4. ✅ 文档 / 手测 / 已知限制与最终代码对齐
+5. ✅ `swift build` + smoke 全绿（119/119）
+6. ✅ 具备 PROJECT COMPLETE 条件
+
+---
+
+### 原 F4 阶段快照（归档保留）
 
 ### 当前阶段：`F4`（查询 DSL + RootHealth 真正落地）
 
@@ -184,7 +214,8 @@
   - `everything-performance / F1 / PASS`（round 1，2026-04-24）
   - `everything-performance / F2 / PASS`（round 2，2026-04-24）
   - `everything-performance / F3 / PASS`（round 2，2026-04-24）
-- 当前阶段（F4）：功能面已落地，等待 round 1 验收。
+  - `everything-performance / F4 / PASS`（round 2，2026-04-24）
+- 当前阶段（F5）：最终收尾，等待 PROJECT COMPLETE 判定。
 
 ### 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`

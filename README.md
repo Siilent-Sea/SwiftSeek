@@ -4,13 +4,25 @@ macOS 原生本地极速文件搜索器。
 
 当前仓库不是空项目：`v1-baseline` 已完成，`everything-alignment` 已归档；当前开启的新活跃轨道是 `everything-performance`。
 
-## v1 baseline 能力
-- Swift + AppKit + SQLite + FSEvents，macOS 13+
-- 本地文件 / 文件夹搜索（文件名 / 路径优先，3-gram 倒排）
-- 首次全量索引 + FSEvents + 文件系统 polling 双 backend 增量更新
-- 全局热键 ⌥Space 呼出浮动搜索窗口
-- 键盘流：↑/↓ 移动 · ⏎ 打开 · ⌘⏎ Reveal · ⌘⇧C 复制路径 · ESC 隐藏
-- 设置页真实连线：索引目录（roots）/ 排除目录 / 隐藏文件开关 / 重建索引 / 诊断信息
+## 当前能力（截至 `everything-performance` F4）
+- **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
+- **索引**：首次全量扫描 + FSEvents / polling 双 backend 增量；3-gram + 2-gram（F1）倒排
+- **搜索**：
+  - 多词 AND 语义（E1）
+  - basename / token boundary / path segment / extension bonus（E1）
+  - 过滤语法：`ext:` / `kind:` / `path:` / `root:` / `hidden:`（E3/F4）
+  - filter-only 候选路径分层：path-gram > ext-scan > root-prefix > kind > fallback（F4）
+  - 热路径：prepared statement cache + roots/settings cache（F1）
+  - Bench 实测（10k 合成文件，release）：warm 2-char median ~3ms，warm 3+-char median ~3ms
+- **结果窗**：
+  - ⌥Space 浮动呼出；热键可在预设中切换（E5）
+  - 4 列视图（名称 / 路径 / 修改时间 / 大小）；列头排序；列宽 + 排序跨重启持久化（E2/F3）
+  - 行高 18px 密度，等宽数字对齐，folder/doc 图标分色（F3）
+  - 键盘流：↑/↓ 移动 · ⏎ 打开 · ⌘⏎ Reveal · ⌘⇧C 复制路径 · ⌘Y QuickLook · ESC 隐藏
+  - 右键菜单、结果拖出、substring 高亮（E5 UX polish）
+  - 0 结果空态标注 offline / unavailable / paused 的 root（F4）
+- **设置页**：索引目录、排除目录、隐藏文件开关、热键预设、结果上限、重建索引、诊断信息
+- **RootHealth** 5 档（E4/F4）：ready / indexing / paused / offline / unavailable，设置页 badge + 搜索空态双重暴露
 
 ## 明确不做
 全文内容搜索、OCR、AI 语义搜索、云盘实时一致性、跨平台、Electron / Web UI 替代原生、APFS 原始解析、Finder 插件、App Store 沙盒适配、代码签名 / 公证。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
@@ -18,9 +30,9 @@ macOS 原生本地极速文件搜索器。
 ## 当前进度
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
-- 已归档轨道：`v1-baseline`
+- 已归档轨道：`v1-baseline`、`everything-alignment`
 - 当前活跃轨道：`everything-performance`
-- 当前阶段：`F1`
+- 当前阶段：轨道内 F1 / F2 / F3 / F4 全部 PASS；F5 为最终收尾 + PROJECT COMPLETE
 
 ## 快速上手（本地交付）
 
@@ -39,11 +51,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 ```
 
 构建完成后二进制在 `.build/release/` 下：
-- `SwiftSeek`
-- `SwiftSeekIndex`
-- `SwiftSeekSearch`
-- `SwiftSeekStartup`
-- `SwiftSeekSmokeTest`
+- `SwiftSeek` — GUI 主程序
+- `SwiftSeekIndex` — CLI 首次 / 增量索引
+- `SwiftSeekSearch` — CLI 搜索入口（默认 limit 读 `settings.search_limit`，F2 起 GUI/CLI 同源）
+- `SwiftSeekStartup` — 非 GUI 启动检查（headless）
+- `SwiftSeekSmokeTest` — 冒烟测试（119+ 用例）
+- `SwiftSeekBench` — 搜索热路径 perf probe（F1，`--enforce-targets` 验收用）
 
 ## 构建与验证
 
