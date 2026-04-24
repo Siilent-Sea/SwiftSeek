@@ -1,14 +1,14 @@
 {
   "track": "everything-ux-parity",
-  "stage": "J3",
+  "stage": "J4",
   "session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df",
   "updated_at": "2026-04-25",
   "purpose": "Current active track acceptance state for everything-ux-parity. A new Codex acceptance session must be created for this track; do not reuse archived everything-usage or earlier track sessions.",
-  "last_verdict": "REJECT",
-  "last_verdict_round": 2,
+  "last_verdict": "PASS",
+  "last_verdict_round": 3,
   "last_verdict_date": "2026-04-25",
-  "last_verdict_reason": "J3 round 2 rejected on commit 83d6026: pure OR bounded fallback is fixed, but OR groups that contain pure wildcard alternatives still skip those alts during retrieval, so queries like *|foo or *|? do not preserve OR semantics.",
-  "passed_stages": ["J1", "J2"],
+  "last_verdict_reason": "J3 accepted on commit 695b1ae: pure OR union retrieval remains intact and wildcard-only OR alternatives now trigger bounded-scan union, so *|foo and *|? preserve OR semantics; smoke passed 186/186.",
+  "passed_stages": ["J1", "J2", "J3"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -36,5 +36,5 @@
       "previous_session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e"
     }
   ],
-  "notes": "Active session for everything-ux-parity track (J1 PASS on 14c94ab, J2 PASS on 69a7098, J3 round 1 REJECT on c12db20, J3 round 2 REJECT on 83d6026). Current target remains J3. .txt file mirrors this session id."
+  "notes": "Active session for everything-ux-parity track (J1 PASS on 14c94ab, J2 PASS on 69a7098, J3 round 1 REJECT on c12db20, J3 round 2 REJECT on 83d6026, J3 PASS on 695b1ae). Next target stage is J4. .txt file mirrors this session id."
 }

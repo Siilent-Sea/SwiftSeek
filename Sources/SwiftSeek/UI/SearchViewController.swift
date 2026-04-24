@@ -199,7 +199,13 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
                                           keyModifierMask: [.command],
                                           action: #selector(togglePreviewPanel))
 
-        let stack = NSStackView(views: [openBtn, revealBtn, copyBtn, previewBtn, NSView(), statusLabel])
+        // J4: recent queries / saved filters dropdown.
+        let historyBtn = NSButton(title: "最近/收藏",
+                                  target: self,
+                                  action: #selector(showHistoryMenu(_:)))
+        historyBtn.bezelStyle = .rounded
+        historyBtn.toolTip = "最近查询、已保存的过滤器；保存当前查询；清空历史"
+        let stack = NSStackView(views: [openBtn, revealBtn, copyBtn, previewBtn, historyBtn, NSView(), statusLabel])
         stack.orientation = .horizontal
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -294,6 +300,141 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         item.toolTip = "清除持久化的结果表列宽，恢复程序默认值。用于恢复“打开次数 / 最近打开”等被历史宽度压掉的列。"
         m.addItem(item)
         return m
+    }
+
+    // MARK: - J4 recent / saved filters menu
+
+    /// Show NSMenu anchored at the button with recent queries +
+    /// saved filters + management entries. Built on demand so entries
+    /// always reflect the current DB state.
+    @objc private func showHistoryMenu(_ sender: Any?) {
+        let menu = NSMenu()
+        // Recent queries
+        let recents = (try? database.listRecentQueries(limit: 10)) ?? []
+        if recents.isEmpty {
+            let empty = NSMenuItem(title: "（暂无最近查询）", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        } else {
+            for r in recents {
+                // Truncate very long queries so the menu stays usable.
+                let display = r.query.count > 50
+                    ? String(r.query.prefix(48)) + "…"
+                    : r.query
+                let item = NSMenuItem(title: "🕒 \(display)",
+                                      action: #selector(applyQueryMenuItem(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = r.query
+                menu.addItem(item)
+            }
+        }
+        menu.addItem(NSMenuItem.separator())
+        // Saved filters
+        let saved = (try? database.listSavedFilters()) ?? []
+        if saved.isEmpty {
+            let empty = NSMenuItem(title: "（暂无已保存过滤器）", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        } else {
+            for f in saved {
+                let item = NSMenuItem(title: "★ \(f.name)",
+                                      action: #selector(applyQueryMenuItem(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = f.query
+                item.toolTip = f.query
+                menu.addItem(item)
+            }
+        }
+        menu.addItem(NSMenuItem.separator())
+        // Management entries
+        let saveItem = NSMenuItem(title: "保存当前查询…",
+                                  action: #selector(saveCurrentAsFilter),
+                                  keyEquivalent: "")
+        saveItem.target = self
+        saveItem.isEnabled = !currentQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        menu.addItem(saveItem)
+        let clearItem = NSMenuItem(title: "清空搜索历史…",
+                                   action: #selector(clearSearchHistory),
+                                   keyEquivalent: "")
+        clearItem.target = self
+        clearItem.isEnabled = !recents.isEmpty
+        menu.addItem(clearItem)
+
+        // Pop up below the button itself.
+        if let btn = sender as? NSButton {
+            let p = NSPoint(x: 0, y: btn.bounds.maxY + 4)
+            menu.popUp(positioning: nil, at: p, in: btn)
+        } else {
+            // Fallback — pop at mouse location.
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        }
+    }
+
+    @objc private func applyQueryMenuItem(_ sender: NSMenuItem) {
+        guard let q = sender.representedObject as? String else { return }
+        inputField.stringValue = q
+        currentQuery = q
+        performSearchImmediate()
+    }
+
+    @objc private func saveCurrentAsFilter() {
+        let q = currentQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return }
+        let alert = NSAlert()
+        alert.messageText = "保存当前查询为过滤器"
+        alert.informativeText = "为以下查询取一个易记的名字（仅保存在本地，不同步、不遥测）：\n\n\(q)"
+        alert.alertStyle = .informational
+        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        nameField.placeholderString = "例：周报 / 项目 X / 本周未读"
+        alert.accessoryView = nameField
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty {
+                showToast("未保存：名字不能为空")
+                return
+            }
+            do {
+                let ok = try database.saveFilter(name: name, query: q)
+                if ok { showToast("✓ 已保存 “\(name)”") }
+                else { showToast("未保存：名字或查询为空") }
+            } catch {
+                showToast("保存失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    @objc private func clearSearchHistory() {
+        let alert = NSAlert()
+        alert.messageText = "清空搜索历史？"
+        alert.informativeText = """
+        将删除全部 `query_history` 记录。
+
+        此操作不可撤销。已保存的过滤器不受影响。
+
+        提示：不想今后记录搜索历史，可去设置 → 维护 tab 的"搜索历史"开关关闭记录；清空不改开关。
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "清空")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        do {
+            let removed = try database.clearQueryHistory()
+            showToast("✓ 已清空 \(removed) 条搜索历史")
+        } catch {
+            showToast("清空失败：\(error.localizedDescription)")
+        }
+    }
+
+    /// Trigger a search for the current query. Reuses the same
+    /// debounced `scheduleQuery` path the type-to-search field uses,
+    /// so the semantics (including result ordering + selection
+    /// preservation) match clicking through.
+    private func performSearchImmediate() {
+        scheduleQuery(currentQuery)
     }
 
     @objc private func resetColumnWidths() {
@@ -595,6 +736,18 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
                     _ = try database.recordOpen(path: target.path)
                 } catch {
                     NSLog("SwiftSeek: recordOpen failed for \(target.path): \(error)")
+                }
+                // J4: record the query that led to this action as
+                // search history. We deliberately record on
+                // user-commit (= .open), not on every keystroke, so
+                // the history reflects intent rather than typos.
+                // recordQueryHistory itself no-ops on empty string
+                // OR when the history toggle is disabled.
+                let q = currentQuery
+                do {
+                    _ = try database.recordQueryHistory(q)
+                } catch {
+                    NSLog("SwiftSeek: recordQueryHistory failed for `\(q)`: \(error)")
                 }
             }
             view.window?.orderOut(nil)

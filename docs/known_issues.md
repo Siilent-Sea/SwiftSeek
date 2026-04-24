@@ -52,12 +52,17 @@
 - 仍不支持：括号表达式、regex、全文内容搜索（J3 明确不做）。
 - GUI 与 CLI 共用 `SearchEngine.search`，语义一致。
 
-### 6. 搜索历史 / Saved Filters 仍缺失
-- 当前没有最近查询历史。
-- 当前没有 Saved Filters / 收藏查询。
-- 当前没有快速过滤器入口。
-- 这会让高频用户反复输入相同 `ext:` / `path:` / `root:` 组合。
-- J4 处理这些能力，并且必须保持本地、不上传、不遥测。
+### 6. 搜索历史 / Saved Filters 已在 J4 落地
+- Schema v7 新增 `query_history(query PK, last_used_at, use_count)` 与 `saved_filters(name PK, query, created_at, updated_at)`。
+- **记录语义**：用户在结果列表上执行 `.open` 时，当前查询被写入 `query_history`（UPSERT by query）。这锚定于"用户意图成立"的信号，避免 typo 污染。
+- **隐私开关**：`SettingsKey.queryHistoryEnabled` 默认 on；设置 → 维护 tab "搜索历史与 Saved Filters" 段复选框控制。关闭后 `Database.recordQueryHistory` 直接 `NSLog` + 返 false，不写。
+- **清空**：维护 tab + 搜索窗口"最近/收藏"菜单都可触发 `Database.clearQueryHistory()`；二次确认。清空不改开关。
+- **搜索窗入口**：底部动作栏加 "最近/收藏" 按钮 → NSMenu 下拉：
+  - 最近 10 条（按 last_used_at DESC，🕒 前缀，点即填入搜索框并触发搜索）
+  - Saved Filters（按 name 字典序，★ 前缀）
+  - "保存当前查询…" / "清空搜索历史…"
+- **Saved Filters 管理**：设置 → 维护 tab 有下拉列表 + "新建 Saved Filter…"（双栏对话框：name + query）+ "删除所选…"（二次确认）。
+- **本地边界**：所有数据保存在 SwiftSeek 的 SQLite DB；不上传、不同步、不遥测、不读取系统级搜索历史。
 
 ### 7. 上下文菜单动作不足
 - 当前结果右键菜单只有：

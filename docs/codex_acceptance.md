@@ -4,31 +4,30 @@
 
 ## 当前有效状态
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J3`
-- 当前阶段验收结论：`J3 REJECT`
+- 当前阶段：`J4`
+- 当前阶段验收结论：`J3 PASS`
 - 当前正式验收 session：`019dc07b-55f0-7712-9d7f-74441d7c81df`
 - 日期：2026-04-25
 
 ### 当前审计结论
-`83d6026` 仍不能通过 J3 验收。上一轮“纯 OR 落到 bounded fallback”的主 blocker 已修掉，但 OR 中包含纯 wildcard alt 的语义仍不成立。
+`695b1ae` 已满足 J3 的自动化与文档要求，可以放行到 J4。
 
 本轮实际确认：
-- `search()` 现在在 `requireAnchors` 为空但 `orGroups` 非空时，确实会走 `orUnionCandidates()`，上一轮“纯 OR bounded fallback”问题已被修掉。
-- 新增 smoke 也覆盖了“大于 bounded window 的纯 OR 命中”场景，`184/184` 全绿。
-- 但 `orUnionCandidates()` 明确把纯 wildcard alt（如 `*` / `?`）直接跳过，只依赖其他 alt 驱动候选检索；如果 query 是 `*|foo`，最终只会返回 `foo` 候选，不会返回 `*` 本该覆盖的其它结果。
-- 当一个 OR group 全部由纯 wildcard alt 组成（如 `*|?`）时，`orUnionCandidates()` 会返回空集，post-filter 根本没有行可评估，语义直接失真。
-- 这与当前文档“wildcard 可在 OR 中使用”的写法冲突，因此 J3 仍不能放行。
+- `orUnionCandidates()` 现在会在遇到纯 wildcard alt 时拉起一次 bounded scan union，补齐 `*|foo` / `*|?` 这类无 anchor alt 的覆盖面。
+- `Sources/SwiftSeekSmokeTest/main.swift` 新增 round 3 smoke，明确验证 `*|foo` 不再退化成只返回 foo 命中，`*|?` 也不再返回空集。
+- J3 round 1 的纯 OR bounded-window 回归 smoke、J3 round 3 的 wildcard-in-OR smoke、以及既有 wildcard / phrase / NOT / 容错 smoke 全部通过。
+- `Sources/` 本轮只改了 `SearchEngine.swift` 与 `SwiftSeekSmokeTest/main.swift`，没有碰 J1/J2 行为，也没有改 H2 usage tie-break。
+- build 与 smoke 实跑通过：`swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 为 `186/186`。
 
 ## 当前验收要求
-J3 当前仍未通过。修复后必须重新验收，重点是把纯 `OR` 查询接到“完整但可控”的候选检索路径，而不是 bounded fallback。
+J3 已 `PASS`。进入 J4 后，必须补齐搜索历史、Saved Filters 与快速过滤器，但不能把搜索历史和 file usage 混成同一张表，也不能引入云同步或遥测。
 
-J3 验收时必须检查：
-- `*` / `?` wildcard、quoted phrase、OR、NOT 的语义清晰且与现有 `ext:` / `path:` / `recent:` / `frequent:` 可组合。
-- 非法语法不崩溃，能容错为字面量或空结果。
-- GUI 与 CLI 查询语义一致。
-- build / smoke 仍通过；复杂语法不能把热路径明显拖垮。
-- 纯 `OR` 查询在真实库里结果完整，不会因为候选池截断而漏命中。
-- wildcard 出现在 OR alt 时语义仍成立；`*|foo` 不能退化成仅 `foo`。
+J4 验收时必须检查：
+- 普通查询执行后写入最近查询历史。
+- 重复查询去重并更新时间。
+- 可以清空历史，清空后 UI 立即反映。
+- 可以保存当前查询为 Saved Filter，并支持删除。
+- 入口不干扰普通 typing 搜索性能，文档明确隐私边界。
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23

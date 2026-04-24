@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3264,10 +3264,11 @@ reporter.check("H1 schema v6 has file_usage table") {
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
-    try reporter.require(Schema.currentVersion == 6,
-                         "Schema.currentVersion should be 6 for H1, got \(Schema.currentVersion)")
+    // J4 bumped currentVersion to 7; H1 just needs file_usage to exist.
+    try reporter.require(Schema.currentVersion >= 6,
+                         "Schema.currentVersion should be >= 6 for H1, got \(Schema.currentVersion)")
     try reporter.require(try db.tableExists("file_usage"),
-                         "file_usage table missing after v6 migrate")
+                         "file_usage table missing after v6+ migrate")
     // Initial state: no usage rows on a fresh DB with no .open yet.
     let count = try db.countRows(in: "file_usage")
     try reporter.require(count == 0,
@@ -4069,6 +4070,135 @@ reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     _ = try engine.search("!!foo")
     // Empty OR + filter combo.
     _ = try engine.search("alpha|| ext:md")
+}
+
+// MARK: - J4 search history + saved filters
+
+func makeJ4DB() throws -> (Database, URL) {
+    let dbDir = try makeTempDir()
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    try db.migrate()
+    return (db, dbDir)
+}
+
+reporter.check("J4 schema v7: query_history + saved_filters present") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    try reporter.require(Schema.currentVersion >= 7,
+                         "Schema.currentVersion should be >= 7 for J4, got \(Schema.currentVersion)")
+    try reporter.require(try db.tableExists("query_history"),
+                         "query_history missing after v7 migrate")
+    try reporter.require(try db.tableExists("saved_filters"),
+                         "saved_filters missing after v7 migrate")
+    try reporter.require(try db.countRows(in: "query_history") == 0,
+                         "query_history should start empty")
+    try reporter.require(try db.countRows(in: "saved_filters") == 0,
+                         "saved_filters should start empty")
+}
+
+reporter.check("J4 queryHistoryEnabled defaults to on + round-trips") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    try reporter.require(try db.isQueryHistoryEnabled(),
+                         "fresh DB should default to enabled")
+    try db.setQueryHistoryEnabled(false)
+    try reporter.require(try !db.isQueryHistoryEnabled(),
+                         "disabled after set(false)")
+    try db.setQueryHistoryEnabled(true)
+    try reporter.require(try db.isQueryHistoryEnabled(),
+                         "enabled after set(true)")
+}
+
+reporter.check("J4 recordQueryHistory creates + UPSERTs by query") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    let ok1 = try db.recordQueryHistory("alpha", now: 1_700_000_000)
+    try reporter.require(ok1, "first record should return true")
+    let ok2 = try db.recordQueryHistory("alpha", now: 1_700_000_050)
+    try reporter.require(ok2, "second record should also return true (UPSERT)")
+    let recent = try db.listRecentQueries(limit: 10)
+    try reporter.require(recent.count == 1,
+                         "dedup on query: expected 1 row, got \(recent.count)")
+    try reporter.require(recent[0].query == "alpha" && recent[0].useCount == 2,
+                         "expected alpha/useCount=2, got \(recent[0])")
+    try reporter.require(recent[0].lastUsedAt == 1_700_000_050,
+                         "lastUsedAt should track latest, got \(recent[0].lastUsedAt)")
+}
+
+reporter.check("J4 recordQueryHistory rejects empty/whitespace + honors disabled toggle") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    try reporter.require(!(try db.recordQueryHistory("")),
+                         "empty query should return false")
+    try reporter.require(!(try db.recordQueryHistory("   \n")),
+                         "whitespace-only query should return false")
+    try db.setQueryHistoryEnabled(false)
+    try reporter.require(!(try db.recordQueryHistory("alpha")),
+                         "disabled toggle should reject")
+    try reporter.require(try db.countRows(in: "query_history") == 0,
+                         "no rows should have been written")
+}
+
+reporter.check("J4 listRecentQueries is ordered by last_used_at DESC") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    _ = try db.recordQueryHistory("alpha",   now: 1_700_000_100)
+    _ = try db.recordQueryHistory("beta",    now: 1_700_000_300)  // newest
+    _ = try db.recordQueryHistory("gamma",   now: 1_700_000_200)
+    let recent = try db.listRecentQueries(limit: 10)
+    try reporter.require(recent.map(\.query) == ["beta", "gamma", "alpha"],
+                         "recent order wrong: \(recent.map(\.query))")
+}
+
+reporter.check("J4 clearQueryHistory empties the table; returns pre-delete count") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    _ = try db.recordQueryHistory("a", now: 1_700_000_000)
+    _ = try db.recordQueryHistory("b", now: 1_700_000_100)
+    let removed = try db.clearQueryHistory()
+    try reporter.require(removed == 2, "expected 2 rows cleared, got \(removed)")
+    try reporter.require(try db.countRows(in: "query_history") == 0,
+                         "table should be empty")
+}
+
+reporter.check("J4 saveFilter / list / remove round-trip") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    try reporter.require(try db.saveFilter(name: "weekly", query: "ext:md recent:", now: 1_700_000_000),
+                         "saveFilter should return true")
+    try reporter.require(try db.saveFilter(name: "zeta-project", query: "path:projects/zeta", now: 1_700_000_050),
+                         "second saveFilter should return true")
+    let list = try db.listSavedFilters()
+    try reporter.require(list.map(\.name) == ["weekly", "zeta-project"],
+                         "saved filter order (alpha asc) wrong: \(list.map(\.name))")
+    // Update existing by saving again with same name.
+    _ = try db.saveFilter(name: "weekly", query: "ext:md frequent:", now: 1_700_000_100)
+    let list2 = try db.listSavedFilters()
+    try reporter.require(list2.count == 2, "should still be 2 filters after update")
+    try reporter.require(list2.first(where: { $0.name == "weekly" })?.query == "ext:md frequent:",
+                         "weekly should have new query")
+    // Remove
+    try reporter.require(try db.removeSavedFilter(name: "weekly"),
+                         "remove should return true")
+    try reporter.require(!(try db.removeSavedFilter(name: "weekly")),
+                         "second remove on same name should return false")
+    let final = try db.listSavedFilters()
+    try reporter.require(final.map(\.name) == ["zeta-project"],
+                         "unexpected filters after remove: \(final.map(\.name))")
+}
+
+reporter.check("J4 saveFilter rejects empty name or empty query") {
+    let (db, dbDir) = try makeJ4DB()
+    defer { db.close(); cleanup(dbDir) }
+    try reporter.require(!(try db.saveFilter(name: "", query: "ext:md")),
+                         "empty name should be rejected")
+    try reporter.require(!(try db.saveFilter(name: "ok", query: "")),
+                         "empty query should be rejected")
+    try reporter.require(!(try db.saveFilter(name: "   ", query: "ext:md")),
+                         "whitespace-only name should be rejected")
+    try reporter.require(try db.countRows(in: "saved_filters") == 0,
+                         "no rows should have been written")
 }
 
 // MARK: - J2 result column width reset + usage visibility

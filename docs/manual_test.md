@@ -877,6 +877,22 @@ chmod a-w /tmp/readonly.sqlite3
 10. **CLI 一致**：用同一 query 跑 `./.build/release/SwiftSeekSearch "alpha|beta"`，结果集应与 GUI 搜索窗一致（注意 GUI 按相关性默认排序 + H2 tie-break，CLI 排序按 SearchEngine 默认）。
 11. **不回归**：`ext:md` / `kind:file` / `path:docs` / `recent:` / `frequent:` 与 H2 tie-break / J2 列可见性与 J1 生命周期均应不变。
 
+### 33p. J4 搜索历史与 Saved Filters
+前置：J4 .app bundle 已更新。若用户有老 DB 可能需触发 migration v6→v7；启动即走。
+
+1. **首次启动**：主搜索窗底部动作栏应多一个 "最近/收藏" 按钮；点击弹出 NSMenu。
+2. **菜单初始**：空 DB 下显示 "（暂无最近查询）" + "（暂无已保存过滤器）" + 启用 "保存当前查询…"（若搜索框非空） + "清空搜索历史…"（禁用，因为无数据）。
+3. **记录历史**：在搜索框输入 `alpha`，上下移动选中某行，Enter 打开。再次点 "最近/收藏"，应看到 🕒 alpha 条目。
+4. **顺序**：重复搜索 `beta` 并打开、再 `gamma` 并打开。再点菜单，应按 last_used_at DESC：gamma / beta / alpha。点 gamma 应把搜索框填为 gamma 并自动重新搜索。
+5. **重复不膨胀**：重复打开 alpha 3 次，`sqlite3 ... "SELECT query, use_count FROM query_history"` 应看到 `alpha | 3+`（use_count 累计，不是多条 row）。
+6. **保存**：输入 `ext:md recent:`，点菜单 → "保存当前查询…"，输入名字 `本周未读 md` → 保存。菜单再次打开应看到 ★ 本周未读 md；点击后搜索框填 `ext:md recent:`。
+7. **隐私开关**：设置 → 维护 tab → 滚到最下 → "搜索历史与 Saved Filters" → 取消勾选 "记录我在 SwiftSeek 里打开文件时使用的查询"。继续做搜索 + 打开，`query_history` 行数不应增加。Console 可看到 "recordQueryHistory skipped, query history disabled: ..." 日志。
+8. **重新勾选**：勾选 → 做 open → 行数恢复累加。
+9. **清空**：维护 tab "清空搜索历史…" → 二次确认 → 状态栏显示清空行数。点菜单 → 🕒 列空。Saved Filters **不受影响**。
+10. **Saved Filter 管理**：维护 tab → 下拉可选已有 filters → "新建 Saved Filter…" 弹双栏对话框 → 保存 → 下拉出现新条目。点"删除所选…"二次确认 → 条目消失。
+11. **同名覆盖**：新建同名 Saved Filter → 下拉仍只一条（name PK，UPSERT）；点看 query 已更新为新值。
+12. **本地隐私**：DB 位置 `~/Library/Application Support/SwiftSeek/swiftseek.sqlite3`，两表与隐私开关全部在本地。`grep` 项目源没有任何上传 / 网络调用。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

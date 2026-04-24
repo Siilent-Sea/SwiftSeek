@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Schema {
-    public static let currentVersion: Int32 = 6
+    public static let currentVersion: Int32 = 7
 
     public struct Migration {
         public let target: Int32
@@ -139,6 +139,34 @@ public enum Schema {
                 file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
                 open_count INTEGER NOT NULL DEFAULT 0,
                 last_opened_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            """
+        ]),
+        // J4 Schema v7: search history + saved filters.
+        // * query_history: recent queries the user committed to an
+        //   `.open` action; PRIMARY KEY on `query` makes dedup
+        //   natural (UPSERT bumps last_used_at + use_count). No
+        //   foreign keys — this table is independent of files.
+        // * saved_filters: user-named query templates (e.g.
+        //   "weekly reports"). PRIMARY KEY on `name` so renaming is
+        //   a delete+insert, not a collision-prone update.
+        // Both tables are local-only. Privacy boundary documented in
+        // docs/known_issues.md §6. No upload / sync / telemetry.
+        Migration(target: 7, statements: [
+            """
+            CREATE TABLE IF NOT EXISTS query_history (
+                query TEXT PRIMARY KEY,
+                last_used_at INTEGER NOT NULL DEFAULT 0,
+                use_count INTEGER NOT NULL DEFAULT 0
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_query_history_last_used_at ON query_history(last_used_at);",
+            """
+            CREATE TABLE IF NOT EXISTS saved_filters (
+                name TEXT PRIMARY KEY,
+                query TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL DEFAULT 0
             );
             """

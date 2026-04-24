@@ -993,6 +993,16 @@ private final class MaintenancePane: NSViewController {
                                          target: nil, action: nil)
     private let clearUsageBtn = NSButton(title: "清空使用历史…", target: nil, action: nil)
     private let usageRowLabel = NSTextField(wrappingLabelWithString: "")
+    // J4 search history + saved filters block.
+    private let queryHistoryTitle = NSTextField(labelWithString: "搜索历史与 Saved Filters")
+    private let queryHistoryCheckbox = NSButton(checkboxWithTitle: "记录我在 SwiftSeek 里打开文件时使用的查询（仅本地，不同步）",
+                                                target: nil, action: nil)
+    private let clearQueryHistoryBtn = NSButton(title: "清空搜索历史…", target: nil, action: nil)
+    private let queryHistoryStatsLabel = NSTextField(wrappingLabelWithString: "")
+    private let savedFiltersBox = NSTextField(wrappingLabelWithString: "")
+    private let addSavedFilterBtn = NSButton(title: "新建 Saved Filter…", target: nil, action: nil)
+    private let removeSavedFilterBtn = NSButton(title: "删除所选…", target: nil, action: nil)
+    private let savedFiltersList = NSPopUpButton()
 
     init(database: Database, rebuildCoordinator: RebuildCoordinator) {
         self.database = database
@@ -1088,9 +1098,42 @@ private final class MaintenancePane: NSViewController {
         usageRowLabel.textColor = .secondaryLabelColor
         usageRowLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        // J4 search history controls
+        queryHistoryTitle.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        queryHistoryTitle.translatesAutoresizingMaskIntoConstraints = false
+        queryHistoryCheckbox.target = self
+        queryHistoryCheckbox.action = #selector(onToggleQueryHistory(_:))
+        queryHistoryCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        clearQueryHistoryBtn.bezelStyle = .rounded
+        clearQueryHistoryBtn.controlSize = .small
+        clearQueryHistoryBtn.target = self
+        clearQueryHistoryBtn.action = #selector(onClearQueryHistory)
+        clearQueryHistoryBtn.translatesAutoresizingMaskIntoConstraints = false
+        queryHistoryStatsLabel.font = NSFont.systemFont(ofSize: 11)
+        queryHistoryStatsLabel.textColor = .secondaryLabelColor
+        queryHistoryStatsLabel.translatesAutoresizingMaskIntoConstraints = false
+        savedFiltersBox.font = NSFont.systemFont(ofSize: 11)
+        savedFiltersBox.textColor = .secondaryLabelColor
+        savedFiltersBox.translatesAutoresizingMaskIntoConstraints = false
+        savedFiltersList.translatesAutoresizingMaskIntoConstraints = false
+        savedFiltersList.addItem(withTitle: "—")
+        addSavedFilterBtn.bezelStyle = .rounded
+        addSavedFilterBtn.controlSize = .small
+        addSavedFilterBtn.target = self
+        addSavedFilterBtn.action = #selector(onAddSavedFilter)
+        addSavedFilterBtn.translatesAutoresizingMaskIntoConstraints = false
+        removeSavedFilterBtn.bezelStyle = .rounded
+        removeSavedFilterBtn.controlSize = .small
+        removeSavedFilterBtn.target = self
+        removeSavedFilterBtn.action = #selector(onRemoveSavedFilter)
+        removeSavedFilterBtn.translatesAutoresizingMaskIntoConstraints = false
+
         [title, note, rebuildButton, progressIndicator, statusLabel,
          statsTitle, statsLabel, maintRow, compactRow, maintStatus,
-         usageTitle, usageCheckbox, clearUsageBtn, usageRowLabel].forEach { root.addSubview($0) }
+         usageTitle, usageCheckbox, clearUsageBtn, usageRowLabel,
+         queryHistoryTitle, queryHistoryCheckbox, clearQueryHistoryBtn,
+         queryHistoryStatsLabel, savedFiltersBox, savedFiltersList,
+         addSavedFilterBtn, removeSavedFilterBtn].forEach { root.addSubview($0) }
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -1142,7 +1185,35 @@ private final class MaintenancePane: NSViewController {
             usageRowLabel.topAnchor.constraint(equalTo: clearUsageBtn.bottomAnchor, constant: 8),
             usageRowLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             usageRowLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            usageRowLabel.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
+
+            // J4 search history section — below usage history.
+            queryHistoryTitle.topAnchor.constraint(equalTo: usageRowLabel.bottomAnchor, constant: 24),
+            queryHistoryTitle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            queryHistoryCheckbox.topAnchor.constraint(equalTo: queryHistoryTitle.bottomAnchor, constant: 8),
+            queryHistoryCheckbox.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            clearQueryHistoryBtn.topAnchor.constraint(equalTo: queryHistoryCheckbox.bottomAnchor, constant: 8),
+            clearQueryHistoryBtn.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            queryHistoryStatsLabel.topAnchor.constraint(equalTo: clearQueryHistoryBtn.bottomAnchor, constant: 8),
+            queryHistoryStatsLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            queryHistoryStatsLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            savedFiltersList.topAnchor.constraint(equalTo: queryHistoryStatsLabel.bottomAnchor, constant: 10),
+            savedFiltersList.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            savedFiltersList.widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
+
+            addSavedFilterBtn.leadingAnchor.constraint(equalTo: savedFiltersList.trailingAnchor, constant: 8),
+            addSavedFilterBtn.centerYAnchor.constraint(equalTo: savedFiltersList.centerYAnchor),
+
+            removeSavedFilterBtn.leadingAnchor.constraint(equalTo: addSavedFilterBtn.trailingAnchor, constant: 8),
+            removeSavedFilterBtn.centerYAnchor.constraint(equalTo: savedFiltersList.centerYAnchor),
+
+            savedFiltersBox.topAnchor.constraint(equalTo: savedFiltersList.bottomAnchor, constant: 8),
+            savedFiltersBox.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            savedFiltersBox.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            savedFiltersBox.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
         ])
         self.view = root
     }
@@ -1154,6 +1225,7 @@ private final class MaintenancePane: NSViewController {
         refreshStatsLabel()
         reflectCompactBackfillState()
         reflectUsageHistoryState()
+        reflectQueryHistoryState()
     }
 
     // MARK: - G1 stats + maintenance
@@ -1317,6 +1389,139 @@ private final class MaintenancePane: NSViewController {
             sender.state = wantEnabled ? .off : .on
         }
         reflectUsageHistoryState()
+    }
+
+    // MARK: - J4 search history & saved filters
+
+    private func reflectQueryHistoryState() {
+        let enabled: Bool
+        do { enabled = try database.isQueryHistoryEnabled() }
+        catch {
+            NSLog("SwiftSeek: isQueryHistoryEnabled failed: \(error)")
+            enabled = true
+        }
+        queryHistoryCheckbox.state = enabled ? .on : .off
+        let count = (try? database.countRows(in: "query_history")) ?? -1
+        queryHistoryStatsLabel.stringValue = "当前记录 \(DatabaseStats.humanCount(count)) 条查询历史。搜索历史和 Saved Filters 只保存在本地，不同步、不遥测、不读取系统级搜索历史。"
+        clearQueryHistoryBtn.isEnabled = count > 0
+        // Populate saved filters popup.
+        let filters = (try? database.listSavedFilters()) ?? []
+        savedFiltersList.removeAllItems()
+        if filters.isEmpty {
+            savedFiltersList.addItem(withTitle: "—")
+            savedFiltersList.isEnabled = false
+            removeSavedFilterBtn.isEnabled = false
+            savedFiltersBox.stringValue = "暂无 Saved Filter。在搜索窗口里点“最近/收藏” → “保存当前查询…”，或者这里点“新建 Saved Filter…”。"
+        } else {
+            savedFiltersList.isEnabled = true
+            for f in filters {
+                let item = NSMenuItem(title: f.name, action: nil, keyEquivalent: "")
+                item.representedObject = f.query
+                item.toolTip = f.query
+                savedFiltersList.menu?.addItem(item)
+            }
+            removeSavedFilterBtn.isEnabled = true
+            if let first = filters.first {
+                savedFiltersBox.stringValue = "已选：“\(first.name)” → \(first.query)"
+            }
+            savedFiltersList.target = self
+            savedFiltersList.action = #selector(onSavedFilterPicked(_:))
+        }
+    }
+
+    @objc private func onToggleQueryHistory(_ sender: NSButton) {
+        let wantEnabled = (sender.state == .on)
+        do { try database.setQueryHistoryEnabled(wantEnabled) }
+        catch {
+            NSLog("SwiftSeek: setQueryHistoryEnabled(\(wantEnabled)) failed: \(error)")
+            sender.state = wantEnabled ? .off : .on
+        }
+        reflectQueryHistoryState()
+    }
+
+    @objc private func onClearQueryHistory() {
+        let alert = NSAlert()
+        alert.messageText = "清空搜索历史？"
+        alert.informativeText = """
+        将删除全部 `query_history` 记录。
+
+        清空不改“记录搜索历史”开关状态。Saved Filters 不受影响。
+        此操作不可撤销。
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "清空")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        do {
+            let removed = try database.clearQueryHistory()
+            maintStatus.stringValue = "搜索历史已清空，移除 \(DatabaseStats.humanCount(removed)) 条记录。"
+        } catch {
+            maintStatus.stringValue = "清空搜索历史失败：\(error)"
+        }
+        reflectQueryHistoryState()
+    }
+
+    @objc private func onSavedFilterPicked(_ sender: NSPopUpButton) {
+        guard let item = sender.selectedItem,
+              let query = item.representedObject as? String else {
+            savedFiltersBox.stringValue = ""
+            return
+        }
+        savedFiltersBox.stringValue = "已选：“\(item.title)” → \(query)"
+    }
+
+    @objc private func onAddSavedFilter() {
+        let alert = NSAlert()
+        alert.messageText = "新建 Saved Filter"
+        alert.informativeText = "输入过滤器名字和完整查询（可包含 ext:/path:/recent: 等）。"
+        alert.alertStyle = .informational
+        let form = NSStackView()
+        form.orientation = .vertical
+        form.spacing = 6
+        form.translatesAutoresizingMaskIntoConstraints = false
+        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        nameField.placeholderString = "例：本周未读 / Project X"
+        let queryField = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        queryField.placeholderString = "例：recent: ext:md"
+        form.addArrangedSubview(nameField)
+        form.addArrangedSubview(queryField)
+        form.frame = NSRect(x: 0, y: 0, width: 320, height: 60)
+        alert.accessoryView = form
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        if alert.runModal() == .alertFirstButtonReturn {
+            let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let query = queryField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            do {
+                let ok = try database.saveFilter(name: name, query: query)
+                maintStatus.stringValue = ok
+                    ? "已保存 Saved Filter “\(name)”。"
+                    : "未保存：名字或查询为空。"
+            } catch {
+                maintStatus.stringValue = "保存失败：\(error)"
+            }
+            reflectQueryHistoryState()
+        }
+    }
+
+    @objc private func onRemoveSavedFilter() {
+        guard let name = savedFiltersList.selectedItem?.title, name != "—" else { return }
+        let alert = NSAlert()
+        alert.messageText = "删除 Saved Filter “\(name)”？"
+        alert.informativeText = "只会删除这条过滤器；搜索历史不受影响。此操作不可撤销。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "删除")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        do {
+            let ok = try database.removeSavedFilter(name: name)
+            maintStatus.stringValue = ok
+                ? "已删除 Saved Filter “\(name)”。"
+                : "未找到同名 Saved Filter “\(name)”。"
+        } catch {
+            maintStatus.stringValue = "删除失败：\(error)"
+        }
+        reflectQueryHistoryState()
     }
 
     @objc private func onClearUsageHistory() {

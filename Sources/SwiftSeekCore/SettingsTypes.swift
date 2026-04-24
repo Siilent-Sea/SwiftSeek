@@ -62,6 +62,11 @@ public enum SettingsKey {
     // resumes recording from 0; SwiftSeek does not retroactively fill
     // in missed opens.
     public static let usageHistoryEnabled    = "usage_history_enabled"
+    // J4: query history privacy toggle. "1" = record (default), "0"
+    // = disabled. Same semantics as usageHistoryEnabled — disabling
+    // stops NEW writes but does not clear existing rows; use the
+    // maintenance tab "清空搜索历史" for removal.
+    public static let queryHistoryEnabled    = "query_history_enabled"
 }
 
 /// G3 index modes defined in `docs/everything_footprint_v5_proposal.md` § 3/4.
