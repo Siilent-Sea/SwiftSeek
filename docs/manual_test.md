@@ -708,6 +708,11 @@ chmod a-w /tmp/readonly.sqlite3
    b. 从 Fullpath 切到 Compact：弹窗 "切换到 Compact 索引模式"，说明 plain query 只匹配文件名；选 "切换并开始 compact 回填" → 后台 MigrationCoordinator 启动（维护页将显示 file_name_grams 行数增长）
    c. 点 "取消"：UI 下拉回滚到之前的选项；DB 未变
 5. 维护 tab → DB 体积 stats 能看到 `file_name_grams` / `file_name_bigrams` / `file_path_segments` 行数（G1 已有，G4 无需改动）
+5b. 维护 tab → `开始 / 继续 compact 回填` 按钮：
+   - Compact 模式下可点击；Fullpath 模式下 disabled，tooltip 说明原因
+   - 点击后状态栏显示 `Compact 回填中：X / Y（last_file_id=Z）`，数字会增长
+   - 中断（关设置窗口 / 退 app）后再次打开，再点按钮会从 `last_file_id` 续跑
+   - 失败时状态栏显示错误 + "再次点击可从断点继续"
 6. 模式切换后立即搜索：
    - Compact：`myproj`（路径中间子串）不再命中路径下的文件；`path:docs` 能命中
    - Fullpath：`myproj` 能命中包含 `myproj-old/` 路径的文件

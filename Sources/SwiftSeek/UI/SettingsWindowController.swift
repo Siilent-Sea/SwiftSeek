@@ -945,6 +945,13 @@ private final class MaintenancePane: NSViewController {
     private let optimizeBtn   = NSButton(title: "Optimize", target: nil, action: nil)
     private let vacuumBtn     = NSButton(title: "VACUUM…", target: nil, action: nil)
     private let maintStatus   = NSTextField(wrappingLabelWithString: "")
+    // G4 round 2: compact backfill trigger. Visible & enabled when
+    // index_mode == .compact and the coordinator isn't already running.
+    // Kicks MigrationCoordinator.backfillCompact(resume: true) so the
+    // button doubles as "start" / "continue" depending on
+    // migration_progress state.
+    private let compactBackfillBtn = NSButton(title: "开始 / 继续 compact 回填", target: nil, action: nil)
+    private var compactCoordinator: MigrationCoordinator?
 
     init(database: Database, rebuildCoordinator: RebuildCoordinator) {
         self.database = database
@@ -1014,8 +1021,19 @@ private final class MaintenancePane: NSViewController {
         maintRow.spacing = 8
         maintRow.translatesAutoresizingMaskIntoConstraints = false
 
+        // G4 round 2 compact backfill row.
+        compactBackfillBtn.bezelStyle = .rounded
+        compactBackfillBtn.controlSize = .small
+        compactBackfillBtn.target = self
+        compactBackfillBtn.action = #selector(onCompactBackfill)
+        compactBackfillBtn.translatesAutoresizingMaskIntoConstraints = false
+        let compactRow = NSStackView(views: [compactBackfillBtn])
+        compactRow.orientation = .horizontal
+        compactRow.spacing = 8
+        compactRow.translatesAutoresizingMaskIntoConstraints = false
+
         [title, note, rebuildButton, progressIndicator, statusLabel,
-         statsTitle, statsLabel, maintRow, maintStatus].forEach { root.addSubview($0) }
+         statsTitle, statsLabel, maintRow, compactRow, maintStatus].forEach { root.addSubview($0) }
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -1047,7 +1065,10 @@ private final class MaintenancePane: NSViewController {
             maintRow.topAnchor.constraint(equalTo: statsLabel.bottomAnchor, constant: 10),
             maintRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
 
-            maintStatus.topAnchor.constraint(equalTo: maintRow.bottomAnchor, constant: 8),
+            compactRow.topAnchor.constraint(equalTo: maintRow.bottomAnchor, constant: 8),
+            compactRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            maintStatus.topAnchor.constraint(equalTo: compactRow.bottomAnchor, constant: 8),
             maintStatus.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             maintStatus.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
             maintStatus.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
@@ -1060,6 +1081,7 @@ private final class MaintenancePane: NSViewController {
         reflectLastResult()
         reflectRunning()
         refreshStatsLabel()
+        reflectCompactBackfillState()
     }
 
     // MARK: - G1 stats + maintenance
@@ -1130,6 +1152,65 @@ private final class MaintenancePane: NSViewController {
                 self.refreshStatsLabel()
             }
         }
+    }
+
+    /// G4 round 2: explicit compact-index backfill trigger in 维护 tab.
+    /// Runs `MigrationCoordinator.backfillCompact(resume: true)` so a
+    /// second press after an interrupted run continues from
+    /// `migration_progress.compact_backfill_last_file_id` instead of
+    /// starting over. Button is only enabled in compact mode.
+    @objc private func onCompactBackfill() {
+        // Mode guard: the button is visually hinted for compact mode
+        // via reflectCompactBackfillState() but defend in depth.
+        let mode: IndexMode = (try? database.getIndexMode()) ?? .compact
+        guard mode == .compact else {
+            maintStatus.stringValue = "当前是 Full path substring 模式；compact 回填仅在 compact 模式下有意义。"
+            return
+        }
+        // Single-in-flight guard. If coordinator exists and is running,
+        // clicking again is a no-op (button gets disabled while running).
+        if let coord = compactCoordinator, coord.isRunning { return }
+        let coord = MigrationCoordinator(database: database)
+        compactCoordinator = coord
+        maintStatus.stringValue = "Compact 回填已启动…"
+        compactBackfillBtn.isEnabled = false
+        let ok = coord.backfillCompact(
+            resume: true,
+            onProgress: { [weak self] progress in
+                DispatchQueue.main.async {
+                    self?.maintStatus.stringValue =
+                        "Compact 回填中：\(progress.processed) / \(progress.total)（last_file_id=\(progress.lastFileId)）"
+                }
+            },
+            onFinish: { [weak self] summary in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.compactBackfillBtn.isEnabled = true
+                    if let err = summary.error {
+                        self.maintStatus.stringValue = "Compact 回填失败（\(String(format: "%.2fs", summary.durationSeconds))）：\(err)。再次点击可从断点继续。"
+                    } else {
+                        self.maintStatus.stringValue =
+                            "Compact 回填完成（\(summary.processed)/\(summary.total)），用时 \(String(format: "%.2fs", summary.durationSeconds))。"
+                    }
+                    self.refreshStatsLabel()
+                }
+            }
+        )
+        if !ok {
+            compactBackfillBtn.isEnabled = true
+            maintStatus.stringValue = "已有 compact 回填在进行中。"
+        }
+    }
+
+    private func reflectCompactBackfillState() {
+        let mode: IndexMode = (try? database.getIndexMode()) ?? .compact
+        // In compact mode the button does work. In fullpath mode it's
+        // still visible but disabled so the user can see the affordance
+        // exists and understand why it's not available right now.
+        compactBackfillBtn.isEnabled = (mode == .compact)
+        compactBackfillBtn.toolTip = (mode == .compact)
+            ? "手动触发 / 继续 compact 回填（MigrationCoordinator.backfillCompact，resume:true）"
+            : "只在 Compact 模式下有意义。切换到 Compact 模式可用（常规 tab）。"
     }
 
     private func reflectLastResult() {
