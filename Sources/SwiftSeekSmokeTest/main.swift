@@ -1899,6 +1899,54 @@ reporter.check("E4 RebuildCoordinator.indexOneRoot walks just one path and drive
                          "indexOneRoot did not index files (search returned empty)")
 }
 
+reporter.check("E4 RebuildCoordinator.indexOneRoot serial queue: multiple drops all get indexed") {
+    // E4 round 2 regression guard: simulates the SettingsWindowController
+    // drag-in flow where N roots are added back-to-back and each one
+    // should end up indexed, not just the last.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let parent = try makeTempDir()
+    defer { cleanup(parent) }
+    let fm = FileManager.default
+    let rootA = parent.appendingPathComponent("rootA")
+    let rootB = parent.appendingPathComponent("rootB")
+    let rootC = parent.appendingPathComponent("rootC")
+    for r in [rootA, rootB, rootC] {
+        try fm.createDirectory(at: r, withIntermediateDirectories: true)
+    }
+    try "".write(to: rootA.appendingPathComponent("file-a.txt"), atomically: true, encoding: .utf8)
+    try "".write(to: rootB.appendingPathComponent("file-b.txt"), atomically: true, encoding: .utf8)
+    try "".write(to: rootC.appendingPathComponent("file-c.txt"), atomically: true, encoding: .utf8)
+    _ = try db.registerRoot(path: rootA.path)
+    _ = try db.registerRoot(path: rootB.path)
+    _ = try db.registerRoot(path: rootC.path)
+    let coord = RebuildCoordinator(database: db)
+
+    // Serial queue drain: mimic the pendingAutoIndex FIFO from the UI.
+    let todo = [rootA.path, rootB.path, rootC.path]
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var pending = todo
+    func next() {
+        guard !pending.isEmpty else { done.signal(); return }
+        let p = pending.removeFirst()
+        _ = coord.indexOneRoot(path: p, onFinish: { _ in next() })
+    }
+    next()
+    _ = done.wait(timeout: .now() + 20)
+
+    let engine = SearchEngine(database: db)
+    let a = try engine.search("file-a")
+    let b = try engine.search("file-b")
+    let c = try engine.search("file-c")
+    try reporter.require(!a.isEmpty, "rootA auto-index missed (file-a not searchable)")
+    try reporter.require(!b.isEmpty, "rootB auto-index missed (file-b not searchable)")
+    try reporter.require(!c.isEmpty, "rootC auto-index missed (file-c not searchable)")
+}
+
 reporter.check("E4 RebuildCoordinator.currentlyIndexingPath is nil when idle") {
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }

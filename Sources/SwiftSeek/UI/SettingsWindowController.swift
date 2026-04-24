@@ -448,7 +448,16 @@ private final class IndexingPane: NSViewController {
         let chained = previousStateObserver
         rebuildCoordinator.onStateChange = { [weak self] state in
             chained?(state)
-            DispatchQueue.main.async { self?.reload() }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.reload()
+                // E4 round 2: when the coordinator returns to idle, drain
+                // any pending auto-index work that was deferred because
+                // another rebuild was in flight.
+                if case .idle = state {
+                    self.drainAutoIndexQueue()
+                }
+            }
         }
         reload()
     }
@@ -516,23 +525,43 @@ private final class IndexingPane: NSViewController {
         }
     }
 
+    // E4 round 2 fix: drag-adding N directories used to only auto-index
+    // the last one because we called indexOneRoot exactly once at the
+    // tail of the drop handler. Now we maintain a FIFO of pending paths
+    // and kick them serially: indexOneRoot for the first, then each
+    // onFinish pops the next until the queue drains. This covers both
+    // the single-add path (queue of length 1) and the multi-drop path.
+    private var pendingAutoIndex: [String] = []
+
     private func autoIndexAfterAdd(path: String) {
-        // If another rebuild is already in flight, skip — the user will
-        // see an `⏳ 索引中` badge on the existing row and the newly
-        // added root will show `✅ 就绪` until the next incremental
-        // refresh or manual rebuild.
+        pendingAutoIndex.append(path)
+        reload() // reflect 索引中 badge as soon as possible
+        if !rebuildCoordinator.isRebuilding {
+            drainAutoIndexQueue()
+        }
+    }
+
+    private func drainAutoIndexQueue() {
+        guard !pendingAutoIndex.isEmpty else { return }
+        let next = pendingAutoIndex.removeFirst()
         let ok = rebuildCoordinator.indexOneRoot(
-            path: path,
+            path: next,
             onFinish: { [weak self] _ in
-                DispatchQueue.main.async { self?.reload() }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.reload()
+                    self.drainAutoIndexQueue()
+                }
             }
         )
         if !ok {
-            NSLog("SwiftSeek: auto-index after add skipped (another rebuild in flight) for \(path)")
+            // Another rebuild is in flight: re-queue at the head and
+            // wait for it to land. drainAutoIndexQueue will be re-kicked
+            // by the IndexingPane's chained onStateChange observer when
+            // the coordinator returns to .idle.
+            pendingAutoIndex.insert(next, at: 0)
+            NSLog("SwiftSeek: auto-index deferred for \(next) (another rebuild in flight)")
         }
-        // Refresh immediately so the row flips to 索引中 without waiting
-        // for the first onProgress tick.
-        reload()
     }
 
     @objc private func onRemoveRoot() {
@@ -652,28 +681,28 @@ extension IndexingPane: NSTableViewDataSource, NSTableViewDelegate {
         guard tableView === rootsTable else { return false }
         let urls = draggedDirectoryURLs(from: info)
         guard !urls.isEmpty else { return false }
-        var addedAny = false
-        var lastAdded: String?
+        var addedPaths: [String] = []
         for url in urls {
             let canonical = Indexer.canonicalize(path: url.path)
             do {
                 _ = try database.registerRoot(path: canonical)
-                addedAny = true
-                lastAdded = canonical
+                addedPaths.append(canonical)
             } catch {
                 NSLog("SwiftSeek: drag-add root failed for \(url.path): \(error)")
             }
         }
-        if addedAny {
+        if !addedPaths.isEmpty {
             reload()
             if let wc = view.window?.windowController as? SettingsWindowController {
                 wc.refreshBanner()
             }
-            if let p = lastAdded {
+            // E4 round 2: queue every newly-added root for auto-index,
+            // not just the last one.
+            for p in addedPaths {
                 autoIndexAfterAdd(path: p)
             }
         }
-        return addedAny
+        return !addedPaths.isEmpty
     }
 
     private func draggedDirectoryURLs(from info: NSDraggingInfo) -> [URL] {

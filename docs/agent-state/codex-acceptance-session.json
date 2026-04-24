@@ -2,15 +2,15 @@
   "track": "everything-alignment",
   "stage": "E4",
   "session_id": "019dbd4c-e0c9-7370-8a0c-1d4263a9f19b",
-  "last_verdict": "PASS",
+  "last_verdict": "REJECT",
   "last_verdict_round": 1,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "E3 PASS round 1 — pre-sync strategy worked; now E4 implementation + docs pre-synced for round 1",
+  "last_verdict_reason": "functional regression: drag-in of N directories only auto-indexed lastAdded; round 2 fixes pending auto-index queue + adds smoke coverage",
   "passed_stages": [
     { "stage": "E1", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
     { "stage": "E2", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
     { "stage": "E3", "verdict": "PASS", "round": 1, "date": "2026-04-24" }
   ],
-  "commit_at_review": "pending-commit-hash",
-  "notes": "E4 implementation + docs submitted together to avoid a docs-lag REJECT round."
+  "commit_at_review": "d41c281",
+  "notes": "E4 round 1 REJECT triggered real code fix (pendingAutoIndex FIFO queue) + smoke case 'indexOneRoot serial queue: multiple drops all get indexed'. Round 2 commit to follow."
 }
