@@ -22,16 +22,11 @@
 - 设置页当前没有热键自定义入口
 - E5 阶段专门处理热键配置
 
-### 4. 索引自动化体验仍偏手动（留给 E4）
-- 新增 root 后当前是弹窗询问是否立即索引，不是默认后台自动开始
-- 隐藏文件开关改动后仍依赖手动重建
-- exclude 的清理路径已有，但整体“改完设置立即知道系统会怎么生效”的体验还不够完整
-- E4 阶段专门处理索引自动化 + root 状态
-
-### 5. 外接盘 / root 可用性状态感知不足（留给 E4）
-- root 当前只有启用 / 停用 / 移除语义
-- 没有更明确的“根目录当前离线 / 未挂载 / 不可访问”状态提示
-- 外接盘拔出后的索引残留主要还是靠手工处理
+### 4. 索引自动化体验已接入（E4 起）
+- 新增 root 直接后台 `indexOneRoot`，不再弹 “要不要现在重建”
+- 隐藏文件开关切换后弹 “立即重建 / 稍后” 选择，不再静默等待
+- exclude 新增仍走 `deleteFilesMatchingExclude`（立即生效）
+- 整体 “改完设置马上知道会怎么生效” 链路通畅
 
 ## E1 已解决的限制（2026-04-24）
 
@@ -52,6 +47,13 @@
 - **filter-only 查询**：经 `filterOnlyCandidates` 单条 SQL 收回候选（ext > root > kind 优先级），按 mtime 降序展示。
 - **宽容解析**：未知 key / 未知 kind 值 / 空 filter 值均静默退化，不抛错。
 - **CLI 与 GUI 同源**：`SwiftSeekSearch` 未改动，parser 自然生效。
+
+### E4 已解决
+- **`RootHealth` 5 档**：ready / indexing / paused / offline / unavailable；`Database.computeRootHealth(for:currentlyIndexingPath:)`。
+- **状态对用户可见**：IndexingPane roots 列显示状态文案；IndexingPane 订阅 `RebuildCoordinator.onStateChange` 实时刷新。
+- **新增 root 自动后台索引**：`autoIndexAfterAdd` → `RebuildCoordinator.indexOneRoot`；不再弹 confirm。拖入文件夹流程同样走自动索引。
+- **hidden 开关显式反馈**：切换后弹 “立即重建 / 稍后”，选择前明确告知已保存 + 生效语义。
+- **exclude 新增**：继续使用 v1 已有的立即清理路径，文案明确说明 “无需重建”。
 
 ## 环境约束
 

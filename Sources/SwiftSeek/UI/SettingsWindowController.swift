@@ -257,6 +257,22 @@ private final class GeneralPane: NSViewController {
             try database.setHiddenFilesEnabled(sender.state == .on)
         } catch {
             NSLog("SwiftSeek: failed to persist hidden-files toggle: \(error)")
+            return
+        }
+        // E4: make the “takes effect on next rebuild” semantics explicit.
+        // The note above the checkbox already says so, but a transient
+        // confirmation after the toggle reduces the odds that a user
+        // flips the switch, searches for a hidden file, sees nothing, and
+        // concludes the feature is broken.
+        let want = sender.state == .on
+        let alert = NSAlert()
+        alert.messageText = want ? "隐藏文件将进入索引" : "隐藏文件将从索引排除"
+        alert.informativeText = "开关已保存，新扫描会按新规则生效。已有索引数据仍按旧规则保留；点击「立即重建」可立刻同步。"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "立即重建")
+        alert.addButton(withTitle: "稍后")
+        if alert.runModal() == .alertFirstButtonReturn {
+            onRebuildNow()
         }
     }
 
@@ -420,9 +436,27 @@ private final class IndexingPane: NSViewController {
         self.view = root
     }
 
+    // E4: subscribe to rebuild state transitions while this pane is on
+    // screen so the roots health column refreshes live as indexing
+    // progresses. We chain the previous observer (typically AppDelegate's
+    // menu-bar updater) so menu-bar state continues to work.
+    private var previousStateObserver: ((RebuildCoordinator.State) -> Void)?
+
     override func viewWillAppear() {
         super.viewWillAppear()
+        previousStateObserver = rebuildCoordinator.onStateChange
+        let chained = previousStateObserver
+        rebuildCoordinator.onStateChange = { [weak self] state in
+            chained?(state)
+            DispatchQueue.main.async { self?.reload() }
+        }
         reload()
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        rebuildCoordinator.onStateChange = previousStateObserver
+        previousStateObserver = nil
     }
 
     private func reload() {
@@ -442,10 +476,12 @@ private final class IndexingPane: NSViewController {
         }
         let enabledCount = roots.filter { $0.enabled }.count
         if !rootsStatus.stringValue.hasPrefix("读取") {
-            rootsStatus.stringValue = "共 \(roots.count) 项，启用 \(enabledCount) · 停用保留索引数据但搜索不返回；移除会级联清理"
+            // E4: note the new state vocabulary. 状态标签包含就绪/索引中/停用/未挂载/不可访问，
+            // 便于用户自解释“这个 root 为什么没结果”。
+            rootsStatus.stringValue = "共 \(roots.count) 项，启用 \(enabledCount) · 新增目录后自动后台索引；状态列展示 就绪 / 索引中 / 停用 / 未挂载 / 不可访问"
         }
         if !excludesStatus.stringValue.hasPrefix("读取") {
-            excludesStatus.stringValue = "共 \(excludes.count) 项 · 新增时立即清理已索引子树"
+            excludesStatus.stringValue = "共 \(excludes.count) 项 · 新增立即清理已索引子树（无需重建）"
         }
         rootsTable.reloadData()
         excludesTable.reloadData()
@@ -467,25 +503,36 @@ private final class IndexingPane: NSViewController {
         do {
             _ = try database.registerRoot(path: canonical)
             reload()
-            promptRebuildAfterAdd(addedPath: canonical)
             if let wc = view.window?.windowController as? SettingsWindowController {
                 wc.refreshBanner()
             }
+            // E4: no more confirmation dialog — just kick the background
+            // indexer. UI surfaces status via the root row's health badge
+            // and the menu bar status item, so asking the user "do you
+            // want to index?" is redundant.
+            autoIndexAfterAdd(path: canonical)
         } catch {
             presentError(error, message: "新增 root 失败")
         }
     }
 
-    private func promptRebuildAfterAdd(addedPath: String) {
-        let alert = NSAlert()
-        alert.messageText = "已添加 \(addedPath)"
-        alert.informativeText = "是否立即建立索引？（否则需到「维护」tab 手动重建）"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "立即索引")
-        alert.addButton(withTitle: "稍后")
-        if alert.runModal() == .alertFirstButtonReturn {
-            _ = rebuildCoordinator.rebuild()
+    private func autoIndexAfterAdd(path: String) {
+        // If another rebuild is already in flight, skip — the user will
+        // see an `⏳ 索引中` badge on the existing row and the newly
+        // added root will show `✅ 就绪` until the next incremental
+        // refresh or manual rebuild.
+        let ok = rebuildCoordinator.indexOneRoot(
+            path: path,
+            onFinish: { [weak self] _ in
+                DispatchQueue.main.async { self?.reload() }
+            }
+        )
+        if !ok {
+            NSLog("SwiftSeek: auto-index after add skipped (another rebuild in flight) for \(path)")
         }
+        // Refresh immediately so the row flips to 索引中 without waiting
+        // for the first onProgress tick.
+        reload()
     }
 
     @objc private func onRemoveRoot() {
@@ -573,7 +620,13 @@ extension IndexingPane: NSTableViewDataSource, NSTableViewDelegate {
         let label: String
         if tableView === rootsTable {
             let r = roots[row]
-            label = (r.enabled ? "✅ " : "⏸ ") + r.path
+            // E4: replace raw enabled flag with a computed health badge so
+            // the user can tell paused vs offline vs unavailable apart.
+            let health = database.computeRootHealth(
+                for: r,
+                currentlyIndexingPath: rebuildCoordinator.currentlyIndexingPath
+            )
+            label = "\(health.uiLabel)  \(r.path)"
         } else {
             label = "🚫 " + excludes[row].pattern
         }
@@ -617,7 +670,7 @@ extension IndexingPane: NSTableViewDataSource, NSTableViewDelegate {
                 wc.refreshBanner()
             }
             if let p = lastAdded {
-                promptRebuildAfterAdd(addedPath: p)
+                autoIndexAfterAdd(path: p)
             }
         }
         return addedAny

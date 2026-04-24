@@ -140,6 +140,9 @@ public final class RebuildCoordinator: @unchecked Sendable {
                 let indexer = Indexer(database: self.database)
 
                 for (idx, root) in enabled.enumerated() {
+                    self.stateLock.lock()
+                    self._currentPath = root.path
+                    self.stateLock.unlock()
                     let rootURL = URL(fileURLWithPath: root.path, isDirectory: true)
                     let stats = try indexer.indexRoot(
                         rootURL,
@@ -179,8 +182,93 @@ public final class RebuildCoordinator: @unchecked Sendable {
         return true
     }
 
+    /// E4 single-root background index. Used by the auto-index-on-add
+    /// flow in SettingsWindowController so the user no longer has to
+    /// accept a "do you want to index now?" confirmation after adding a
+    /// root. Only indexes the specified path; does NOT touch other roots.
+    ///
+    /// Does not stamp `settings.last_rebuild_*` because that field tracks
+    /// the last full-rebuild cycle; single-root indexing is conceptually
+    /// a partial refresh and shouldn't overwrite that audit trail.
+    @discardableResult
+    public func indexOneRoot(path: String,
+                             onProgress: @escaping (Progress) -> Void = { _ in },
+                             onFinish: @escaping (Summary) -> Void = { _ in }) -> Bool {
+        stateLock.lock()
+        if case .rebuilding = _state {
+            stateLock.unlock()
+            return false
+        }
+        stateLock.unlock()
+        let startedAt = Date()
+        updateState(.rebuilding(startedAt: startedAt,
+                                processedRoots: 0,
+                                totalRoots: 1))
+
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.stateLock.lock()
+            self._currentPath = path
+            self.stateLock.unlock()
+            let start = Date()
+            var summary = Summary(roots: 1)
+            do {
+                let excludes = try self.database.listExcludes().map { $0.pattern }
+                let includeHidden = try self.database.getHiddenFilesEnabled()
+                let indexer = Indexer(database: self.database)
+                let rootURL = URL(fileURLWithPath: path, isDirectory: true)
+                let stats = try indexer.indexRoot(
+                    rootURL,
+                    options: .init(batchSize: 500,
+                                   progressEvery: 500,
+                                   clearBeforeIndex: true,
+                                   excludes: excludes,
+                                   includeHiddenFiles: includeHidden),
+                    progress: { ip in
+                        onProgress(Progress(rootPath: path,
+                                            rootIndex: 1,
+                                            rootCount: 1,
+                                            indexProgress: ip))
+                    }
+                )
+                summary.totalScanned = stats.scanned
+                summary.totalInserted = stats.inserted
+                summary.totalSkipped = stats.skipped
+                summary.durationSeconds = Date().timeIntervalSince(start)
+                self.updateState(.rebuilding(startedAt: startedAt,
+                                             processedRoots: 1,
+                                             totalRoots: 1))
+            } catch {
+                summary.durationSeconds = Date().timeIntervalSince(start)
+                summary.error = "\(error)"
+            }
+            self.finish(summary)
+            onFinish(summary)
+        }
+        return true
+    }
+
+    /// Path currently being indexed, if any. Exposed to the UI so it can
+    /// highlight the active root in the roots list.
+    public var currentlyIndexingPath: String? {
+        switch state {
+        case .idle:
+            return nil
+        case .rebuilding:
+            stateLock.lock()
+            let p = _currentPath
+            stateLock.unlock()
+            return p
+        }
+    }
+
+    private var _currentPath: String?
+
     private func finish(_ summary: Summary) {
         updateState(.idle)
+        stateLock.lock()
+        _currentPath = nil
+        stateLock.unlock()
         _ = summary
     }
 

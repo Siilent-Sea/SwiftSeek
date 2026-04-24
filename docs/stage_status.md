@@ -2,67 +2,69 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-alignment`
-- 当前阶段：`E3`（查询语法与过滤；功能落地，等待 Codex 验收）
+- 当前阶段：`E4`（索引自动化 + root 状态；功能落地，等待 Codex 验收）
 - 已归档轨道：`v1-baseline`
-- 轨道内已通过阶段：`E1`（2026-04-24 round 2 PASS），`E2`（2026-04-24 round 2 PASS）
+- 轨道内已通过阶段：E1、E2、E3（均 2026-04-24）
 
 ## 已归档轨道：`v1-baseline`
 - 状态：`PROJECT COMPLETE`
 - 完成日期：2026-04-23
 - 范围：P0 ~ P6
-- 说明：这条记录只代表 v1 baseline 已完成，不是当前活跃轨道的停止条件
 
 ## 当前活跃轨道：`everything-alignment`
 
-### 已通过：`E1`（搜索相关性与结果上限，2026-04-24 round 2 PASS）
-- 多词 AND、4 个加分规则 + 多词 all-in-basename、结果上限持久化
+### 已通过
+- **E1**（搜索相关性与结果上限，round 2 PASS）
+- **E2**（结果视图与排序切换，round 2 PASS）
+- **E3**（查询语法与过滤，round 1 PASS —— 预刷新文档策略奏效）
 
-### 已通过：`E2`（结果视图与排序切换，2026-04-24 round 2 PASS）
-- 4 列高密度视图、列头排序、pure function `SearchEngine.sort(_:by:)`
-
-### 当前阶段：`E3`
-查询语法与过滤能力。
+### 当前阶段：`E4`
+索引自动化体验与 root 健康状态。
 
 ### 当前阶段目标（均已落地，待 Codex 验收）
-- ✅ 支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` 字段过滤
-- ✅ plain query 与 filter 可组合（AND）
-- ✅ 解析规则明确稳定：未知 key 当作 plain token；空值忽略；未知 kind 静默忽略
-- ✅ CLI (`SwiftSeekSearch`) 与 GUI 使用同一 parser，无需 CLI 改造
-- ✅ filter-only 查询走单独候选路径并按 mtime desc 展示
+- ✅ 新增 root 后去掉 "是否立即索引" 弹窗，改为自动后台 `indexOneRoot`
+- ✅ hidden 开关切换后明确弹"已保存 + 立即重建/稍后"选择，不再静默
+- ✅ roots 列显示状态：`就绪 / 索引中 / 停用 / 未挂载 / 不可访问`
+- ✅ IndexingPane 订阅 `RebuildCoordinator.onStateChange` 实时刷新；链接到 AppDelegate 已有 observer，不覆盖菜单栏逻辑
+- ✅ `Database.computeRootHealth(for:currentlyIndexingPath:)` pure-ish helper，测试覆盖 5 个状态
+- ✅ `RebuildCoordinator.currentlyIndexingPath` 公开当前正在索引的路径
+- ✅ exclude 新增时已立即清理（v1 已有），现在文案明确"无需重建"
 
 ### 当前阶段禁止事项
-- 不做全文内容搜索
-- 不做 AI 语义搜索
-- 不做复杂 DSL（括号 / OR / NOT 等）
-- 不做 E4 / E5 范畴的改动
+- 不做云盘 / 网络盘实时一致性承诺
+- 不做复杂后台服务化
+- 不做热键配置（留 E5）
+- 不引入新的搜索后端
 
-### 当前代码状态（E3 快照）
-- `Sources/SwiftSeekCore/SearchEngine.swift`
-  - 新增 `QueryKind` / `HiddenFilterMode` / `QueryFilters` / `ParsedQuery`
-  - `parseQuery(_:)` 公开解析入口：tokenize 后按 `key:value` 分类
-  - `search()` 分两条路径：plainTokens 非空走原 candidate + rank；空则走 `filterOnlyCandidates` + mtime desc
-  - `matches(nameLower:pathLower:path:isDir:filters:)` 是测试友好的公开 filter predicate
-  - `filterOnlyCandidates` 按 ext > root > kind 优先级选最有选择性的 SQL
-  - `rowMatches` / `extension_` / `rootRestriction` prefix match 保持与 P5 `pathUnderAnyRoot` 一致的 `/` 边界规则
-- `Sources/SwiftSeekSearch/main.swift`
-  - 无需改动；位置参数已拼接成单 query string，新 parser 天然生效
+### 当前代码状态（E4 快照）
+- `Sources/SwiftSeekCore/SettingsTypes.swift`
+  - 新 `RootHealth` enum（ready / indexing / paused / offline / unavailable）+ `.uiLabel`
+  - `Database.computeRootHealth(for:currentlyIndexingPath:)` extension
+- `Sources/SwiftSeekCore/RebuildCoordinator.swift`
+  - 新 `indexOneRoot(path:onProgress:onFinish:)` 单 root 后台索引 API
+  - 新 `currentlyIndexingPath` public 只读属性，worker queue 更新 `_currentPath`
+  - rebuild() 循环也维护 `_currentPath`
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
+  - IndexingPane `viewWillAppear` chained observer 保证 menu-bar & pane 都刷新；`viewWillDisappear` 恢复
+  - onAddRoot / drag-add 两条路径都走新的 `autoIndexAfterAdd`，移除确认弹窗
+  - roots table viewFor 用 `RootHealth.uiLabel + path` 代替旧的 ✅/⏸
+  - rootsStatus 文案改为提及 5 档状态
+  - GeneralPane onToggle 切换 hidden 后弹"立即重建/稍后"选择
 - `Sources/SwiftSeekSmokeTest/main.swift`
-  - 新增 17 条 E3 用例（parser 9 条 + predicate 5 条 + e2e 3 条）
-  - smoke 总数 51 + 10 (E1) + 7 (E2) + 17 (E3) = 85，全绿
+  - +7 条 E4 用例（paused / ready / offline / indexing pinning / uiLabel / indexOneRoot 驱动 onStateChange / currentlyIndexingPath idle nil）
+  - smoke 总数 51 + 10 (E1) + 7 (E2) + 17 (E3) + 7 (E4) = 92，全绿
 
 ### 当前阶段完成判定标准
-1. ✅ 5 个过滤语法稳定解析
-2. ✅ 过滤语法与 plain query 可组合
-3. ✅ CLI 与 GUI 保持核心语义一致
-4. ✅ 文档说明支持/不支持语法
+1. ✅ 新增 root 无需再弹 "要不要现在重建"
+2. ✅ root 状态对用户可见
+3. ✅ hidden 改动后有明确反馈路径（立即 / 稍后）
+4. ✅ 外接盘 / 不可访问 root 有状态标示（`offline` / `unavailable`）
 5. ✅ `swift build` + smoke 全绿
-6. ✅ 非法 / 冲突语法容错
 
 ### 当前最新 Codex 结论
-- 轨道内最新 PASS：`E2 / round 2 / 2026-04-24`
-- 当前阶段（E3）：等待 round 1 验收
+- 轨道内最新 PASS：`E3 / round 1 / 2026-04-24`
+- 当前阶段（E4）：等待 round 1 验收
 
 ### 当前活跃轨道验收会话状态
-- 会话状态目录：`docs/agent-state/`
 - 当前 session id：`019dbd4c-e0c9-7370-8a0c-1d4263a9f19b`
 - 恢复策略：`codex exec resume <session_id>`

@@ -1,41 +1,37 @@
-# 下一阶段任务书（准入 E4）
+# 下一阶段任务书（准入 E5）
 
 ## Track
 `everything-alignment`
 
 ## Stage
-`E3` 当前刚落地（等待 Codex 验收）。本文件是 E3 → E4 的过渡任务书骨架；在 E3 PASS 之后再把正文展开到 E4。
+E4 当前刚落地（等待 Codex 验收）。本文件是 E4 → E5 的过渡任务书骨架；在 E4 PASS 之后再把正文展开到 E5。
 
-## 目标（E4 预告）
-让 SwiftSeek 的索引状态与 root 健康对用户自解释：
-- 新增 root 自动后台索引，无需再弹“要不要现在建立索引”
-- hidden / exclude 改动的生效路径明确可感知
-- root 可用性：就绪 / 索引中 / 离线 / 不可访问 / 已暂停 的状态展示
-- 外接盘拔出 / 挂载的反馈
+## 目标（E5 预告）
+收掉高频使用层面最后一批短板 —— 热键可配置、使用习惯优化、文档收尾。
 
-## E4 明确做什么（预告）
-- 在 `SettingsWindowController` 的 roots 列表为每一 root 展示当前状态
-- 新增 root 流程从“弹窗 confirm”切换到“自动后台任务 + 可取消”
-- hidden / exclude 切换后在 UI 明确告知“已生效的部分”与“需要重建的部分”
-- 外接盘 / 不可访问 root 的检测路径
+## E5 明确做什么（预告）
+- 全局热键可配置（GUI 修改、持久化、运行时重注册）
+- 热键冲突与无效输入有明确反馈
+- 文档与手测对齐最终行为
+- 为当前活跃轨道准备最终验收（PROJECT COMPLETE 条件）
 
-## E4 明确不做
-- 云盘 / 网络盘实时一致性承诺
-- 复杂后台服务化
-- 热键配置（留 E5）
-- 结果视图或查询语法扩展（E2 / E3 已锁）
+## E5 明确不做
+- 不引入新的搜索后端
+- 不做大规模 UX 重写
+- 不碰 E1-E4 已经 sealed 的能力
 
 ## 涉及关键文件（预告）
+- `Sources/SwiftSeek/App/GlobalHotkey.swift`
 - `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-- `Sources/SwiftSeekCore/RebuildCoordinator.swift`
-- `Sources/SwiftSeekCore/Database.swift`
-- `Sources/SwiftSeek/App/AppDelegate.swift`
-- `docs/known_issues.md`
+- `Sources/SwiftSeekCore/Database.swift`（settings 持久化）
+- `Sources/SwiftSeekCore/SettingsTypes.swift`
+- `README.md`
 - `docs/manual_test.md`
+- `docs/known_issues.md`
 
 ---
 
 ## 过渡期说明
-E3 round 1 验收完成后本文件需要刷新：
-1. 若 E3 拿到 PASS，正文展开为完整 E4 任务书（目标 / 必须做 / 不做 / 关键文件 / 验收标准 / 测试要求）。
-2. 若 E3 被 REJECT，维持当前 E3 状态，按 Codex required fix 修后重验，不进 E4。
+E4 round 1 验收完成后本文件需要刷新：
+1. 若 E4 拿到 PASS，展开为完整 E5 任务书。
+2. 若 E4 被 REJECT，维持当前 E4 状态，按 Codex required fix 修后重验。

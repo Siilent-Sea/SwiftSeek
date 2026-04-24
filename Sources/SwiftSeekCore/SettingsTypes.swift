@@ -84,6 +84,62 @@ public func clampSearchLimit(_ value: Int) -> Int {
                min(SearchLimitBounds.maximum, value))
 }
 
+// MARK: - E4 root health
+
+/// Stage-E4 health classification for a registered root. The UI uses this
+/// to replace the pure enabled/disabled flag with a richer state so the
+/// user can tell the difference between "I paused this" and "the volume
+/// is not mounted right now".
+public enum RootHealth: String, Equatable, Sendable {
+    /// Path exists, is readable, and the root is enabled by the user.
+    case ready
+    /// A rebuild is currently walking this root.
+    case indexing
+    /// User-disabled via the enable toggle. Data may still exist in the
+    /// index but search is filtered out.
+    case paused
+    /// Path does not exist on disk (e.g. external volume ejected,
+    /// directory moved or deleted).
+    case offline
+    /// Path exists but is not readable (permission denied). Typically
+    /// macOS privacy / full-disk-access constraints.
+    case unavailable
+
+    /// Short human-facing marker for the roots table. The emoji carries
+    /// the bulk of the visual signal; the text clarifies intent for
+    /// accessibility / screen readers.
+    public var uiLabel: String {
+        switch self {
+        case .ready:       return "✅ 就绪"
+        case .indexing:    return "⏳ 索引中"
+        case .paused:      return "⏸ 已停用"
+        case .offline:     return "🔌 未挂载"
+        case .unavailable: return "⚠️ 不可访问"
+        }
+    }
+}
+
+public extension Database {
+    /// Compute health for a single root. Takes an optional
+    /// `currentlyIndexingPath` so the caller can pass the path reported
+    /// by `RebuildCoordinator` without doing its own matching.
+    func computeRootHealth(for row: RootRow,
+                           currentlyIndexingPath: String? = nil) -> RootHealth {
+        if !row.enabled { return .paused }
+        if let busy = currentlyIndexingPath, busy == row.path { return .indexing }
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: row.path, isDirectory: &isDir) else {
+            return .offline
+        }
+        // A file-as-root is still "offline-shaped" from the user's
+        // perspective: we can't walk it. Treat the same as a missing dir.
+        if !isDir.boolValue { return .offline }
+        guard fm.isReadableFile(atPath: row.path) else { return .unavailable }
+        return .ready
+    }
+}
+
 /// Static predicate shared by `Indexer` (full-walk) and the rescan / watcher
 /// paths so a path excluded at index time is ALSO excluded on any incremental
 /// re-entry — keeps the two code paths consistent.

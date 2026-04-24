@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -1772,6 +1772,143 @@ reporter.check("E3 end-to-end: filter-only query returns mtime-sorted results") 
         try reporter.require(h.path.hasSuffix(".md"),
                              "non-md hit leaked: \(h.path)")
     }
+}
+
+// MARK: - E4 (index automation + root health)
+
+reporter.check("E4 RootHealth.paused: disabled root flagged paused regardless of disk state") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let realDir = try makeTempDir()
+    defer { cleanup(realDir) }
+    let rowId = try db.registerRoot(path: realDir.path)
+    try db.setRootEnabled(id: rowId, enabled: false)
+    let row = try db.listRoots().first { $0.id == rowId }!
+    let h = db.computeRootHealth(for: row)
+    try reporter.require(h == .paused,
+                         "disabled root should report paused, got \(h)")
+}
+
+reporter.check("E4 RootHealth.ready: enabled + exists + readable = ready") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let realDir = try makeTempDir()
+    defer { cleanup(realDir) }
+    _ = try db.registerRoot(path: realDir.path)
+    let row = try db.listRoots().first!
+    let h = db.computeRootHealth(for: row)
+    try reporter.require(h == .ready,
+                         "existing enabled root should be ready, got \(h)")
+}
+
+reporter.check("E4 RootHealth.offline: enabled + missing path = offline") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Fabricate a path that can't exist: /private/var/tmp/... with a
+    // random suffix to simulate an ejected external volume or a moved
+    // / deleted directory.
+    let ghost = "/private/var/tmp/swiftseek-offline-\(UUID().uuidString)"
+    _ = try db.registerRoot(path: ghost)
+    let row = try db.listRoots().first!
+    let h = db.computeRootHealth(for: row)
+    try reporter.require(h == .offline,
+                         "missing path should report offline, got \(h)")
+}
+
+reporter.check("E4 RootHealth.indexing: pinned via currentlyIndexingPath parameter") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let realDir = try makeTempDir()
+    defer { cleanup(realDir) }
+    _ = try db.registerRoot(path: realDir.path)
+    let row = try db.listRoots().first!
+    let h = db.computeRootHealth(for: row, currentlyIndexingPath: row.path)
+    try reporter.require(h == .indexing,
+                         "active indexing should flip to .indexing, got \(h)")
+    // Unrelated active path → still ready.
+    let hOther = db.computeRootHealth(for: row, currentlyIndexingPath: "/other")
+    try reporter.require(hOther == .ready,
+                         "unrelated active path should not flip this row, got \(hOther)")
+}
+
+reporter.check("E4 RootHealth.uiLabel contains the right keyword per case") {
+    let cases: [(RootHealth, String)] = [
+        (.ready, "就绪"),
+        (.indexing, "索引中"),
+        (.paused, "停用"),
+        (.offline, "未挂载"),
+        (.unavailable, "不可访问"),
+    ]
+    for (h, needle) in cases {
+        try reporter.require(h.uiLabel.contains(needle),
+                             "uiLabel for \(h) missing keyword \(needle): \(h.uiLabel)")
+    }
+}
+
+reporter.check("E4 RebuildCoordinator.indexOneRoot walks just one path and drives onStateChange") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for f in ["a.txt", "b.txt"] {
+        try "".write(to: root.appendingPathComponent(f), atomically: true, encoding: .utf8)
+    }
+    _ = try db.registerRoot(path: root.path)
+    let coord = RebuildCoordinator(database: db)
+    let lock = NSLock()
+    nonisolated(unsafe) var states: [RebuildCoordinator.State] = []
+    coord.onStateChange = { state in
+        lock.lock()
+        states.append(state)
+        lock.unlock()
+    }
+    let done = DispatchSemaphore(value: 0)
+    let ok = coord.indexOneRoot(path: root.path, onFinish: { _ in done.signal() })
+    try reporter.require(ok, "indexOneRoot should accept when idle")
+    _ = done.wait(timeout: .now() + 10)
+    lock.lock()
+    let captured = states
+    lock.unlock()
+    // Transitions: first .rebuilding (0/1), then .rebuilding (1/1), then .idle
+    let hasIdle = captured.contains { if case .idle = $0 { return true }; return false }
+    try reporter.require(hasIdle,
+                         "should reach .idle after finishing: \(captured)")
+    // Verify files got indexed via a search.
+    let hits = try SearchEngine(database: db).search("a.txt")
+    try reporter.require(!hits.isEmpty,
+                         "indexOneRoot did not index files (search returned empty)")
+}
+
+reporter.check("E4 RebuildCoordinator.currentlyIndexingPath is nil when idle") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let coord = RebuildCoordinator(database: db)
+    try reporter.require(coord.currentlyIndexingPath == nil,
+                         "idle coordinator should report nil currentlyIndexingPath, got \(String(describing: coord.currentlyIndexingPath))")
 }
 
 reporter.check("E3 end-to-end: kind:dir returns only directories") {
