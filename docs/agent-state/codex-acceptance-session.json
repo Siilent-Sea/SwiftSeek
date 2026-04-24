@@ -1,14 +1,15 @@
 {
   "track": "everything-footprint",
-  "stage": "G3",
+  "stage": "G4",
   "session_id": "019dbdf8-b2c9-7c03-b316-dbbf7040d5d9",
   "last_verdict": "PASS",
   "last_verdict_round": 2,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "G2 round 2 PASS after compact path semantics frozen; G3 functional complete",
+  "last_verdict_reason": "G3 round 2 PASS after fixing path: AND + coordinator race; G4 functional complete",
   "passed_stages": [
     { "stage": "G1", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "G2", "verdict": "PASS", "round": 2, "date": "2026-04-24" }
+    { "stage": "G2", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
+    { "stage": "G3", "verdict": "PASS", "round": 2, "date": "2026-04-24" }
   ],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
@@ -17,6 +18,6 @@
     { "track": "everything-performance", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-24",
       "previous_session_id": "019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90" }
   ],
-  "commit_at_review": "pending-g3-r1",
-  "notes": "G3 round 1 pending Codex review."
+  "commit_at_review": "pending-g4-r1",
+  "notes": "G4 round 1 pending Codex review."
 }

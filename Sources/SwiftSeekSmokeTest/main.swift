@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3138,6 +3138,89 @@ reporter.check("G3 MigrationCoordinator: last_file_id persisted to migration_pro
     let lastId = coord.readLastFileId()
     try reporter.require(lastId > 0,
                          "migration_progress last_file_id should be > 0, got \(lastId)")
+}
+
+// MARK: - G4 (index mode UI + rebuild flow)
+
+reporter.check("G4 index mode setting: compact / fullpath round-trip") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let m1 = try db.getIndexMode()
+    try reporter.require(m1 == .fullpath, "fullpath not persisted, got \(m1)")
+    try db.setIndexMode(.compact)
+    let m2 = try db.getIndexMode()
+    try reporter.require(m2 == .compact, "compact not persisted, got \(m2)")
+}
+
+reporter.check("G4 compact → fullpath switch after backfill reveals v4 data immediately") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Start as fullpath so v4 tables get written.
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("myproj-old"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("myproj-old/a.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    // Pre-switch: fullpath mode should let plain 'myproj' hit a.txt via path substring.
+    let fullpathHits = try engine.search("myproj")
+    try reporter.require(fullpathHits.contains(where: { $0.name == "a.txt" }),
+                         "fullpath search should hit a.txt via path substring, got \(fullpathHits.map(\.path))")
+    // Switch to compact: v4 tables untouched; compact tables empty.
+    // Engine should respect mode immediately; plain 'myproj' now misses.
+    try db.setIndexMode(.compact)
+    let compactHits = try engine.search("myproj")
+    try reporter.require(!compactHits.contains(where: { $0.name == "a.txt" }),
+                         "compact mode must not leak path substring hits, got \(compactHits.map(\.path))")
+    // Switch back to fullpath: hit returns immediately because v4 tables
+    // were preserved.
+    try db.setIndexMode(.fullpath)
+    let hitsAgain = try engine.search("myproj")
+    try reporter.require(hitsAgain.contains(where: { $0.name == "a.txt" }),
+                         "switching back to fullpath should restore the hit without rebuild")
+}
+
+reporter.check("G4 mode switch does not leak pre-switch candidate cache") {
+    // If SearchEngine stmtCache held a mode-specific SQL across a
+    // mode change, results could be wrong. We don't actually clear
+    // the cache on mode change because each mode's query text is
+    // distinct (different table names) — so cache entries stay valid
+    // per-mode. Verify by switching back and forth and confirming
+    // distinct results are consistent.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    try "".write(to: root.appendingPathComponent("hello.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    _ = try engine.search("hello")             // populate stmt cache fullpath branch
+    try db.setIndexMode(.compact)
+    let hits = try engine.search("hello")      // compact branch fires; stmt cache miss for new SQL
+    // Compact name index is empty here (we indexed under fullpath),
+    // so we expect 0 results — proving the engine actually consulted
+    // the compact tables, not cached fullpath candidates.
+    try reporter.require(hits.isEmpty,
+                         "compact should return [] when compact tables empty; got \(hits.map(\.name))")
 }
 
 exit(reporter.summary())

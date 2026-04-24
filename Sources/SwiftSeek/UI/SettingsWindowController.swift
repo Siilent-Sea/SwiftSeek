@@ -147,6 +147,10 @@ private final class GeneralPane: NSViewController {
     private let hotkeyLabel = NSTextField(labelWithString: "全局热键：")
     private let hotkeyPopup = NSPopUpButton()
     private let hotkeyNote = NSTextField(wrappingLabelWithString: "")
+    // G4: index mode picker (compact vs fullpath).
+    private let modeLabel = NSTextField(labelWithString: "索引模式：")
+    private let modePopup = NSPopUpButton()
+    private let modeNote = NSTextField(wrappingLabelWithString: "")
     /// Closure injected by AppDelegate so this pane can trigger
     /// re-registration of the Carbon hotkey without reaching through
     /// the view hierarchy. Returns true iff the new combo registered
@@ -237,6 +241,34 @@ private final class GeneralPane: NSViewController {
         hotkeyRow.alignment = .centerY
         hotkeyRow.translatesAutoresizingMaskIntoConstraints = false
 
+        // G4 index mode picker
+        modeLabel.translatesAutoresizingMaskIntoConstraints = false
+        modePopup.translatesAutoresizingMaskIntoConstraints = false
+        modePopup.removeAllItems()
+        modePopup.addItem(withTitle: "Compact（推荐）")
+        modePopup.item(at: 0)?.representedObject = IndexMode.compact.rawValue
+        modePopup.addItem(withTitle: "Full path substring（高级，更大体积）")
+        modePopup.item(at: 1)?.representedObject = IndexMode.fullpath.rawValue
+        modePopup.target = self
+        modePopup.action = #selector(onIndexModeChanged)
+
+        modeNote.translatesAutoresizingMaskIntoConstraints = false
+        modeNote.font = NSFont.systemFont(ofSize: 11)
+        modeNote.textColor = .secondaryLabelColor
+        modeNote.maximumNumberOfLines = 0
+        modeNote.stringValue = """
+        Compact（推荐）：只对文件名做 gram，路径按 segment 前缀匹配；500k 文件体积 ≈ 10× 更小。\
+        plain query 只匹配文件名；路径 token 用 `path:<token>` 做 segment 前缀。
+        Full path substring：对完整路径做 gram；任意路径子串均能命中，但体积显著更大。\
+        切换后需要重建索引（compact）或回填（fullpath → compact 时启动后台 backfill）。
+        """
+
+        let modeRow = NSStackView(views: [modeLabel, modePopup])
+        modeRow.orientation = .horizontal
+        modeRow.spacing = 8
+        modeRow.alignment = .centerY
+        modeRow.translatesAutoresizingMaskIntoConstraints = false
+
         root.addSubview(title)
         root.addSubview(row)
         root.addSubview(note)
@@ -244,6 +276,8 @@ private final class GeneralPane: NSViewController {
         root.addSubview(limitNote)
         root.addSubview(hotkeyRow)
         root.addSubview(hotkeyNote)
+        root.addSubview(modeRow)
+        root.addSubview(modeNote)
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -270,6 +304,13 @@ private final class GeneralPane: NSViewController {
             hotkeyNote.topAnchor.constraint(equalTo: hotkeyRow.bottomAnchor, constant: 6),
             hotkeyNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             hotkeyNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            modeRow.topAnchor.constraint(equalTo: hotkeyNote.bottomAnchor, constant: 24),
+            modeRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            modeNote.topAnchor.constraint(equalTo: modeRow.bottomAnchor, constant: 6),
+            modeNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            modeNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
         ])
         self.view = root
     }
@@ -307,6 +348,17 @@ private final class GeneralPane: NSViewController {
         let matching = HotkeyPresets.preset(keyCode: hkKey, modifiers: hkMods)
                     ?? HotkeyPresets.default
         hotkeyPopup.selectItem(withTitle: matching.label)
+
+        // G4: reflect persisted index mode in the popup.
+        let mode: IndexMode
+        do {
+            mode = try database.getIndexMode()
+        } catch {
+            NSLog("SwiftSeek: GeneralPane read index mode failed: \(error)")
+            mode = .compact
+        }
+        let idx = (mode == .compact) ? 0 : 1
+        modePopup.selectItem(at: idx)
     }
 
     @objc private func onToggle(_ sender: NSButton) {
@@ -352,6 +404,69 @@ private final class GeneralPane: NSViewController {
             try database.setSearchLimit(n)
         } catch {
             NSLog("SwiftSeek: failed to persist search limit: \(error)")
+        }
+    }
+
+    @objc private func onIndexModeChanged() {
+        guard let raw = modePopup.selectedItem?.representedObject as? String,
+              let newMode = IndexMode(rawValue: raw) else { return }
+        let previousMode: IndexMode
+        do {
+            previousMode = try database.getIndexMode()
+        } catch {
+            NSLog("SwiftSeek: onIndexModeChanged could not read current mode: \(error)")
+            previousMode = .compact
+        }
+        if newMode == previousMode { return }
+
+        // Confirm + persist + guide to the rebuild/backfill flow.
+        let alert = NSAlert()
+        let alertMsg: String
+        let informative: String
+        switch newMode {
+        case .compact:
+            alertMsg = "切换到 Compact 索引模式"
+            informative = """
+            新 plain query 只匹配文件名，路径 token 用 `path:<token>` 前缀匹配。
+            已索引的 fullpath 数据保留在 v4 表中，但搜索将走 compact 路径。
+            需要回填已索引文件到 compact 表才能搜出它们；点下方 "切换并开始 compact 回填"。
+            """
+        case .fullpath:
+            alertMsg = "切换到 Full path substring 模式"
+            informative = """
+            plain query 将同时匹配文件名和路径任意子串。
+            已有 compact 表保留但不再用于查询。
+            如 v4 表已被清空（"清空 v4 索引" 按钮），需在维护 tab 触发全量重建。
+            """
+        }
+        alert.messageText = alertMsg
+        alert.informativeText = informative
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: (newMode == .compact) ? "切换并开始 compact 回填" : "切换")
+        alert.addButton(withTitle: "取消")
+        let choice = alert.runModal()
+        if choice != .alertFirstButtonReturn {
+            // Roll back UI selection to previous mode
+            modePopup.selectItem(at: (previousMode == .compact) ? 0 : 1)
+            return
+        }
+        do {
+            try database.setIndexMode(newMode)
+        } catch {
+            NSLog("SwiftSeek: setIndexMode failed: \(error)")
+            modePopup.selectItem(at: (previousMode == .compact) ? 0 : 1)
+            return
+        }
+        // If switching to compact, kick a backfill on a background
+        // coordinator. We don't block the UI; a status toast lets the
+        // user know it's running. Maintenance tab shows progress.
+        if newMode == .compact {
+            let coord = MigrationCoordinator(database: database)
+            _ = coord.backfillCompact(onFinish: { summary in
+                if let err = summary.error {
+                    NSLog("SwiftSeek: compact backfill finished with error: \(err)")
+                }
+            })
         }
     }
 

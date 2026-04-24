@@ -697,6 +697,21 @@ chmod a-w /tmp/readonly.sqlite3
    - 点"开始 VACUUM" → 后台线程执行，期间按钮禁用；完成后状态栏显示用时 + stats 自动刷新
 4. stats 读取失败 fallback：删除 file_bigrams 表（手动 sqlite3）再打开维护 tab，应继续显示其它字段，不崩
 
+### 33g. G4 索引模式切换 UI
+1. 设置 → 常规 tab → 滚到最下，应看到"索引模式："下拉
+2. 下拉有两个选项：
+   - `Compact（推荐）` — 默认（新 DB）
+   - `Full path substring（高级，更大体积）`
+3. 下拉下方有多行 note 描述两种模式能力差异
+4. 切换操作：
+   a. 从 Compact 切到 Fullpath：弹窗 "切换到 Full path substring 模式"，说明 plain query 匹配范围变更，点 "切换"。再次查 `getIndexMode()` 应返回 fullpath。
+   b. 从 Fullpath 切到 Compact：弹窗 "切换到 Compact 索引模式"，说明 plain query 只匹配文件名；选 "切换并开始 compact 回填" → 后台 MigrationCoordinator 启动（维护页将显示 file_name_grams 行数增长）
+   c. 点 "取消"：UI 下拉回滚到之前的选项；DB 未变
+5. 维护 tab → DB 体积 stats 能看到 `file_name_grams` / `file_name_bigrams` / `file_path_segments` 行数（G1 已有，G4 无需改动）
+6. 模式切换后立即搜索：
+   - Compact：`myproj`（路径中间子串）不再命中路径下的文件；`path:docs` 能命中
+   - Fullpath：`myproj` 能命中包含 `myproj-old/` 路径的文件
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求
