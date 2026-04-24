@@ -4,10 +4,12 @@
 
 ## 当前活跃轨道视角下的明显限制
 
-### 1. 查询语法尚未支持（留给 E3）
-- 当前只有 plain text query（E1 已支持多词 AND）
-- 尚不支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` 等过滤语法
-- E3 阶段专门处理查询语法与过滤能力
+### 1. 查询语法已接入（E3 起）
+- 支持过滤语法：`ext:`、`kind:` (`file` / `dir`)、`path:`、`root:`、`hidden:` (`true`/`false`/`yes`/`no`/`1`/`0`/`on`/`off`)
+- filter 与 plain query 可组合（AND 语义）
+- 未知过滤 key（如 `foo:bar`）保留为 plain token，不被误解为 filter
+- 未知 kind 值、空 filter 值均静默忽略，不抛错
+- **不支持** 查询 DSL（括号 / OR / NOT 等）；**不支持** 全文内容搜索；**不支持** AI 语义搜索。
 
 ### 2. 结果列表 Everything 风格已接入（E2 起）
 - 结果视图已改为 4 列：名称 / 路径 / 修改时间 / 大小
@@ -43,6 +45,13 @@
 - **排序切换**：列头点击；`SearchSortKey.{score, name, path, mtime, size}` + ascending。默认 `.scoreDescending`。
 - **排序稳定 + 大小写不敏感**：`SearchEngine.sort(_:by:)` 是 pure function，tie-break 用 shorter-path-then-alphabetical，保证可重现与可逆。
 - **键盘流 / 右键 / 拖拽 / QuickLook / 高亮 不回退**：新 cell 类型保留所有原行为。
+
+### E3 已解决
+- **5 个字段过滤**：`ext:` / `kind:` / `path:` / `root:` / `hidden:` 通过 `SearchEngine.parseQuery(_:)` 解析。
+- **plain + filter 可组合**：plain token 仍走 gram + AND substring；filter 在候选收回后 AND 应用。
+- **filter-only 查询**：经 `filterOnlyCandidates` 单条 SQL 收回候选（ext > root > kind 优先级），按 mtime 降序展示。
+- **宽容解析**：未知 key / 未知 kind 值 / 空 filter 值均静默退化，不抛错。
+- **CLI 与 GUI 同源**：`SwiftSeekSearch` 未改动，parser 自然生效。
 
 ## 环境约束
 

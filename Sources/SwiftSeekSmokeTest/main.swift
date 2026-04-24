@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -1556,6 +1556,247 @@ reporter.check("E2 sort by name is case-insensitive") {
     let out = SearchEngine.sort(input, by: .init(key: .name, ascending: true))
     try reporter.require(out[0].name == "apple.txt",
                          "case-insensitive asc broken: \(out.map(\.name))")
+}
+
+// MARK: - E3 (query filter syntax)
+
+reporter.check("E3 parser: plain-only query has no filters") {
+    let p = SearchEngine.parseQuery("foo bar")
+    try reporter.require(p.plainTokens == ["foo", "bar"],
+                         "plain tokens wrong: \(p.plainTokens)")
+    try reporter.require(p.filters.isEmpty,
+                         "empty query should have no filters")
+}
+
+reporter.check("E3 parser: ext:md extracts single extension") {
+    let p = SearchEngine.parseQuery("ext:md alpha")
+    try reporter.require(p.plainTokens == ["alpha"],
+                         "plain tokens wrong: \(p.plainTokens)")
+    try reporter.require(p.filters.extensions == ["md"],
+                         "ext filter wrong: \(p.filters.extensions)")
+}
+
+reporter.check("E3 parser: ext:md,txt,pdf extracts multi-extensions") {
+    let p = SearchEngine.parseQuery("ext:md,txt,pdf")
+    try reporter.require(p.filters.extensions == ["md", "txt", "pdf"],
+                         "multi ext broken: \(p.filters.extensions)")
+}
+
+reporter.check("E3 parser: kind:file and kind:dir recognised, unknown kind dropped silently") {
+    let p1 = SearchEngine.parseQuery("kind:file")
+    try reporter.require(p1.filters.kinds == [.file],
+                         "kind:file broken")
+    let p2 = SearchEngine.parseQuery("kind:dir")
+    try reporter.require(p2.filters.kinds == [.dir],
+                         "kind:dir broken")
+    let p3 = SearchEngine.parseQuery("kind:foobar")
+    try reporter.require(p3.filters.kinds.isEmpty,
+                         "unknown kind should be dropped silently, not accepted")
+}
+
+reporter.check("E3 parser: path:foo adds a path-only token") {
+    let p = SearchEngine.parseQuery("path:docs alpha")
+    try reporter.require(p.plainTokens == ["alpha"],
+                         "plain token leaked path filter: \(p.plainTokens)")
+    try reporter.require(p.filters.pathTokens == ["docs"],
+                         "path filter broken: \(p.filters.pathTokens)")
+}
+
+reporter.check("E3 parser: root:/x trims trailing slash") {
+    let p1 = SearchEngine.parseQuery("root:/a/b/c")
+    try reporter.require(p1.filters.rootRestriction == "/a/b/c",
+                         "root filter without slash broken: \(String(describing: p1.filters.rootRestriction))")
+    let p2 = SearchEngine.parseQuery("root:/a/b/c/")
+    try reporter.require(p2.filters.rootRestriction == "/a/b/c",
+                         "root filter trailing slash should be stripped: \(String(describing: p2.filters.rootRestriction))")
+}
+
+reporter.check("E3 parser: hidden:true / false accepts common aliases") {
+    for raw in ["hidden:true", "hidden:yes", "hidden:1", "hidden:on"] {
+        let p = SearchEngine.parseQuery(raw)
+        try reporter.require(p.filters.hiddenMode == .requireHidden,
+                             "hidden positive alias failed for \(raw)")
+    }
+    for raw in ["hidden:false", "hidden:no", "hidden:0", "hidden:off"] {
+        let p = SearchEngine.parseQuery(raw)
+        try reporter.require(p.filters.hiddenMode == .requireVisible,
+                             "hidden negative alias failed for \(raw)")
+    }
+    let bogus = SearchEngine.parseQuery("hidden:maybe")
+    try reporter.require(bogus.filters.hiddenMode == .unspecified,
+                         "bogus hidden value should stay unspecified")
+}
+
+reporter.check("E3 parser: unknown key:value stays as plain token") {
+    // Parser must not silently adopt unknown keys as filters — they go to
+    // plain tokens so the user sees exactly what the engine interprets.
+    let p = SearchEngine.parseQuery("foo:bar baz")
+    try reporter.require(p.filters.isEmpty,
+                         "unknown filter key was incorrectly adopted")
+    try reporter.require(p.plainTokens == ["foo:bar", "baz"],
+                         "plain fallback broken: \(p.plainTokens)")
+}
+
+reporter.check("E3 parser: empty filter value is ignored, not an error") {
+    let p = SearchEngine.parseQuery("ext: alpha")
+    try reporter.require(p.filters.extensions.isEmpty,
+                         "empty ext value should be ignored")
+    try reporter.require(p.plainTokens == ["alpha"],
+                         "partial-type ext token leaked: \(p.plainTokens)")
+}
+
+reporter.check("E3 filter predicate: ext filter keeps only matching extension") {
+    let f = QueryFilters(extensions: ["md"])
+    try reporter.require(SearchEngine.matches(nameLower: "readme.md",
+                                              pathLower: "/a/readme.md",
+                                              path: "/a/readme.md",
+                                              isDir: false, filters: f),
+                         "md file should match ext:md")
+    try reporter.require(!SearchEngine.matches(nameLower: "readme.txt",
+                                               pathLower: "/a/readme.txt",
+                                               path: "/a/readme.txt",
+                                               isDir: false, filters: f),
+                         "txt file should not match ext:md")
+    try reporter.require(!SearchEngine.matches(nameLower: "mdfile",
+                                               pathLower: "/a/mdfile",
+                                               path: "/a/mdfile",
+                                               isDir: false, filters: f),
+                         "no-extension file should not match ext:md")
+}
+
+reporter.check("E3 filter predicate: kind:dir admits only directories") {
+    let f = QueryFilters(kinds: [.dir])
+    try reporter.require(SearchEngine.matches(nameLower: "docs",
+                                              pathLower: "/a/docs",
+                                              path: "/a/docs",
+                                              isDir: true, filters: f),
+                         "dir should match kind:dir")
+    try reporter.require(!SearchEngine.matches(nameLower: "a.txt",
+                                               pathLower: "/a/a.txt",
+                                               path: "/a/a.txt",
+                                               isDir: false, filters: f),
+                         "file should not match kind:dir")
+}
+
+reporter.check("E3 filter predicate: root:/a/b restricts to that subtree") {
+    let f = QueryFilters(rootRestriction: "/a/b")
+    try reporter.require(SearchEngine.matches(nameLower: "x.txt",
+                                              pathLower: "/a/b/x.txt",
+                                              path: "/a/b/x.txt",
+                                              isDir: false, filters: f),
+                         "descendant should match root restriction")
+    try reporter.require(SearchEngine.matches(nameLower: "b",
+                                              pathLower: "/a/b",
+                                              path: "/a/b",
+                                              isDir: true, filters: f),
+                         "root itself should match")
+    try reporter.require(!SearchEngine.matches(nameLower: "x.txt",
+                                               pathLower: "/a/bb/x.txt",
+                                               path: "/a/bb/x.txt",
+                                               isDir: false, filters: f),
+                         "sibling-with-shared-prefix must not leak")
+    try reporter.require(!SearchEngine.matches(nameLower: "x.txt",
+                                               pathLower: "/other/x.txt",
+                                               path: "/other/x.txt",
+                                               isDir: false, filters: f),
+                         "unrelated path must not match")
+}
+
+reporter.check("E3 filter predicate: hidden:true admits only hidden paths") {
+    let f = QueryFilters(hiddenMode: .requireHidden)
+    try reporter.require(SearchEngine.matches(nameLower: "config",
+                                              pathLower: "/a/.git/config",
+                                              path: "/a/.git/config",
+                                              isDir: false, filters: f),
+                         ".git path should match hidden:true")
+    try reporter.require(!SearchEngine.matches(nameLower: "readme.md",
+                                               pathLower: "/a/readme.md",
+                                               path: "/a/readme.md",
+                                               isDir: false, filters: f),
+                         "visible path should not match hidden:true")
+}
+
+reporter.check("E3 filter predicate: hidden:false excludes hidden paths") {
+    let f = QueryFilters(hiddenMode: .requireVisible)
+    try reporter.require(!SearchEngine.matches(nameLower: "config",
+                                               pathLower: "/a/.git/config",
+                                               path: "/a/.git/config",
+                                               isDir: false, filters: f),
+                         ".git path should not match hidden:false")
+    try reporter.require(SearchEngine.matches(nameLower: "readme.md",
+                                              pathLower: "/a/readme.md",
+                                              path: "/a/readme.md",
+                                              isDir: false, filters: f),
+                         "visible path should match hidden:false")
+}
+
+reporter.check("E3 end-to-end: ext + plain token combine via AND") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for f in ["alpha.md", "alpha.txt", "beta.md", "beta.txt"] {
+        try "".write(to: root.appendingPathComponent(f), atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("alpha ext:md")
+    try reporter.require(hits.count == 1,
+                         "expected 1 md+alpha hit, got \(hits.count): \(hits.map(\.path))")
+    try reporter.require(hits[0].path.hasSuffix("/alpha.md"),
+                         "wrong hit: \(hits[0].path)")
+}
+
+reporter.check("E3 end-to-end: filter-only query returns mtime-sorted results") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for f in ["note.md", "readme.md", "todo.md", "skip.txt"] {
+        try "".write(to: root.appendingPathComponent(f), atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("ext:md")
+    try reporter.require(hits.count == 3,
+                         "expected 3 md results, got \(hits.count): \(hits.map(\.path))")
+    for h in hits {
+        try reporter.require(h.path.hasSuffix(".md"),
+                             "non-md hit leaked: \(h.path)")
+    }
+}
+
+reporter.check("E3 end-to-end: kind:dir returns only directories") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("docs/notes"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("docs/b.txt"), atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("kind:dir")
+    for h in hits {
+        try reporter.require(h.isDir,
+                             "non-dir leaked through kind:dir: \(h.path)")
+    }
+    try reporter.require(hits.count >= 2,
+                         "expected at least 2 dirs (root + docs + docs/notes), got \(hits.count)")
 }
 
 exit(reporter.summary())

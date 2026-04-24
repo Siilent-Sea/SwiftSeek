@@ -50,6 +50,75 @@ public struct SearchSortOrder: Equatable, Sendable {
     public static let scoreDescending = SearchSortOrder(key: .score, ascending: false)
 }
 
+// MARK: - E3 query filters
+
+/// Type of entry a `kind:` filter admits. Kept as a small closed enum so
+/// the parser rejects unknown values loudly rather than silently adopting
+/// them.
+public enum QueryKind: String, Equatable, Sendable {
+    case file
+    case dir
+}
+
+/// Whether the `hidden:` filter requires hidden / visible / either.
+/// `.unspecified` is the "no filter" state — the presence of any other
+/// case means the user explicitly asked for hidden-only or visible-only
+/// (independent of the global `hidden_files_enabled` index toggle).
+public enum HiddenFilterMode: Equatable, Sendable {
+    case unspecified
+    case requireHidden
+    case requireVisible
+}
+
+/// Filters parsed out of a raw query. Every field is treated as "no
+/// filter" when empty. Filters compose with AND; plain tokens are
+/// scored independently in `scoreTokens` and are NOT stored here.
+public struct QueryFilters: Equatable, Sendable {
+    public var extensions: Set<String>   // lowercase, no leading dot
+    public var kinds: Set<QueryKind>
+    public var pathTokens: [String]      // substring must appear in pathLower (not just nameLower)
+    public var rootRestriction: String?  // lowercased path prefix; empty = no restriction
+    public var hiddenMode: HiddenFilterMode
+
+    public init(extensions: Set<String> = [],
+                kinds: Set<QueryKind> = [],
+                pathTokens: [String] = [],
+                rootRestriction: String? = nil,
+                hiddenMode: HiddenFilterMode = .unspecified) {
+        self.extensions = extensions
+        self.kinds = kinds
+        self.pathTokens = pathTokens
+        self.rootRestriction = rootRestriction
+        self.hiddenMode = hiddenMode
+    }
+
+    public var isEmpty: Bool {
+        return extensions.isEmpty
+            && kinds.isEmpty
+            && pathTokens.isEmpty
+            && rootRestriction == nil
+            && hiddenMode == .unspecified
+    }
+}
+
+/// Result of parsing a raw user query into `plainTokens` (fed to the
+/// scoring path) and `filters` (applied post-candidate).
+public struct ParsedQuery: Equatable, Sendable {
+    public var plainTokens: [String]
+    public var filters: QueryFilters
+
+    public init(plainTokens: [String] = [], filters: QueryFilters = QueryFilters()) {
+        self.plainTokens = plainTokens
+        self.filters = filters
+    }
+
+    /// A query with no meaningful input at all. `search()` short-circuits
+    /// to an empty result list for this case.
+    public var isEmpty: Bool {
+        plainTokens.isEmpty && filters.isEmpty
+    }
+}
+
 public enum SearchError: Error, CustomStringConvertible {
     case closedDatabase
     case prepareFailed(Int32, String, String)
@@ -115,14 +184,100 @@ public final class SearchEngine {
         return n.split(whereSeparator: { $0.isWhitespace }).map { String($0) }
     }
 
+    // MARK: - E3 query filter parser
+
+    /// Known filter keys. Unknown `foo:bar` tokens are treated as plain
+    /// tokens (i.e. literal substring), NOT silently adopted as filters.
+    private static let filterKeys: Set<String> = ["ext", "kind", "path", "root", "hidden"]
+
+    /// Parse raw user input into `ParsedQuery`. Tokens formatted `key:value`
+    /// where `key` is in `filterKeys` are treated as filters; all other
+    /// tokens go to `plainTokens` verbatim.
+    ///
+    /// Filter value syntax:
+    ///   - `ext:md`, `ext:md,txt`     – allowed extensions (comma-separated)
+    ///   - `kind:file` / `kind:dir`   – entry type; unknown kinds are
+    ///                                  silently dropped to keep the parser
+    ///                                  tolerant of typos
+    ///   - `path:foo`                 – token must appear in pathLower
+    ///                                  (does NOT have to be in name);
+    ///                                  multiple `path:` tokens AND together
+    ///   - `root:/some/prefix`        – restrict to paths at-or-under that
+    ///                                  absolute prefix
+    ///   - `hidden:true|yes|1`        – only hidden entries
+    ///   - `hidden:false|no|0`        – only visible entries
+    ///
+    /// Empty values (`ext:`) are ignored rather than raised as errors;
+    /// this mirrors how Spotlight and Everything handle half-typed filters
+    /// while the user is still editing.
+    public static func parseQuery(_ raw: String) -> ParsedQuery {
+        var parsed = ParsedQuery()
+        for token in tokenize(raw) {
+            guard let colonIdx = token.firstIndex(of: ":") else {
+                parsed.plainTokens.append(token)
+                continue
+            }
+            let key = String(token[..<colonIdx])
+            let valueStart = token.index(after: colonIdx)
+            let value = String(token[valueStart...])
+            if !filterKeys.contains(key) {
+                parsed.plainTokens.append(token)
+                continue
+            }
+            if value.isEmpty { continue }
+            switch key {
+            case "ext":
+                for part in value.split(separator: ",") {
+                    let ext = String(part).trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+                    if !ext.isEmpty { parsed.filters.extensions.insert(ext) }
+                }
+            case "kind":
+                if let k = QueryKind(rawValue: value) {
+                    parsed.filters.kinds.insert(k)
+                }
+                // Unknown kind → drop silently; future values may be added.
+            case "path":
+                parsed.filters.pathTokens.append(value)
+            case "root":
+                // Canonicalize as lowercase prefix without trailing slash
+                // so the prefix match below is symmetric with how we store
+                // paths (always rooted at `/`, never with trailing `/`).
+                var r = value
+                while r.hasSuffix("/") && r.count > 1 { r.removeLast() }
+                parsed.filters.rootRestriction = r
+            case "hidden":
+                switch value {
+                case "true", "yes", "1", "on":
+                    parsed.filters.hiddenMode = .requireHidden
+                case "false", "no", "0", "off":
+                    parsed.filters.hiddenMode = .requireVisible
+                default:
+                    break // tolerant: ignore unknown value
+                }
+            default:
+                parsed.plainTokens.append(token)
+            }
+        }
+        return parsed
+    }
+
     // MARK: - Search
 
     public func search(_ rawQuery: String, options: Options = .init()) throws -> [SearchResult] {
-        let tokens = SearchEngine.tokenize(rawQuery)
-        guard !tokens.isEmpty else { return [] }
+        let parsed = SearchEngine.parseQuery(rawQuery)
+        if parsed.isEmpty { return [] }
 
         let candidatePool = max(options.limit * options.candidateMultiplier, options.limit)
-        let rows = try candidates(tokens: tokens, limit: candidatePool)
+        let rows: [Row]
+        if !parsed.plainTokens.isEmpty {
+            rows = try candidates(tokens: parsed.plainTokens, limit: candidatePool)
+        } else {
+            // E3 filter-only query: no plain tokens to gram-match against.
+            // Pull the DB through a single SQL query biased toward one of
+            // the filters (extension first if present, then kind, then
+            // root prefix, else a bounded table scan).
+            rows = try filterOnlyCandidates(filters: parsed.filters, limit: candidatePool)
+        }
 
         // P5 root-enabled filter: drop candidates whose path is not covered by
         // any enabled root. Pre-P5 / unconfigured DBs (empty `roots` table) fall
@@ -136,14 +291,180 @@ public final class SearchEngine {
             allRoots = []
         }
         let enabledRoots = allRoots.filter { $0.enabled }.map { $0.path }
-        let filtered: [Row]
+        let rooted: [Row]
         if allRoots.isEmpty {
-            filtered = rows
+            rooted = rows
         } else {
-            filtered = rows.filter { SearchEngine.pathUnderAnyRoot($0.path, roots: enabledRoots) }
+            rooted = rows.filter { SearchEngine.pathUnderAnyRoot($0.path, roots: enabledRoots) }
         }
-        let scored = rank(rows: filtered, tokens: tokens)
+
+        // E3 apply user-expressed filters AFTER root gating so we don't
+        // pay for filter checks on rows the user could never see anyway.
+        let filtered = rooted.filter { row in
+            SearchEngine.rowMatches(row: row, filters: parsed.filters)
+        }
+
+        // If the query is filter-only (no plain tokens) we rank by mtime
+        // descending — "show me all md files" is almost always most useful
+        // in freshest-first order. Presence of plain tokens always keeps
+        // the scoring path as the primary ranking signal.
+        let scored: [SearchResult]
+        if !parsed.plainTokens.isEmpty {
+            scored = rank(rows: filtered, tokens: parsed.plainTokens)
+        } else {
+            scored = filtered.map { row in
+                SearchResult(path: row.path,
+                             name: row.name,
+                             isDir: row.isDir,
+                             size: row.size,
+                             mtime: row.mtime,
+                             score: 100) // baseline so "仅显示前 N 条" still makes sense
+            }
+            .sorted { lhs, rhs in
+                if lhs.mtime != rhs.mtime { return lhs.mtime > rhs.mtime }
+                if lhs.path.count != rhs.path.count { return lhs.path.count < rhs.path.count }
+                return lhs.path < rhs.path
+            }
+        }
         return Array(scored.prefix(options.limit))
+    }
+
+    /// Public test-facing filter predicate. Identical semantics to the
+    /// internal `rowMatches`; takes primitive fields so smoke tests can
+    /// hand-craft rows without building a full `Row` value.
+    public static func matches(nameLower: String,
+                               pathLower: String,
+                               path: String,
+                               isDir: Bool,
+                               filters: QueryFilters) -> Bool {
+        if !filters.extensions.isEmpty {
+            if !filters.extensions.contains(extension_(of: nameLower)) { return false }
+        }
+        if !filters.kinds.isEmpty {
+            let k: QueryKind = isDir ? .dir : .file
+            if !filters.kinds.contains(k) { return false }
+        }
+        for t in filters.pathTokens {
+            if !pathLower.contains(t) { return false }
+        }
+        if let prefix = filters.rootRestriction, !prefix.isEmpty {
+            let lowerPrefix = prefix.lowercased()
+            if pathLower != lowerPrefix && !pathLower.hasPrefix(lowerPrefix + "/") {
+                return false
+            }
+        }
+        switch filters.hiddenMode {
+        case .unspecified:
+            break
+        case .requireHidden:
+            if !HiddenPath.isHidden(path) { return false }
+        case .requireVisible:
+            if HiddenPath.isHidden(path) { return false }
+        }
+        return true
+    }
+
+    /// Return true iff `row` satisfies every active filter in `filters`.
+    private static func rowMatches(row: Row, filters: QueryFilters) -> Bool {
+        if !filters.extensions.isEmpty {
+            let ext = Self.extension_(of: row.nameLower)
+            if !filters.extensions.contains(ext) { return false }
+        }
+        if !filters.kinds.isEmpty {
+            let k: QueryKind = row.isDir ? .dir : .file
+            if !filters.kinds.contains(k) { return false }
+        }
+        for t in filters.pathTokens {
+            if !row.pathLower.contains(t) { return false }
+        }
+        if let prefix = filters.rootRestriction, !prefix.isEmpty {
+            let lowerPrefix = prefix.lowercased()
+            if row.pathLower != lowerPrefix && !row.pathLower.hasPrefix(lowerPrefix + "/") {
+                return false
+            }
+        }
+        switch filters.hiddenMode {
+        case .unspecified:
+            break
+        case .requireHidden:
+            if !HiddenPath.isHidden(row.path) { return false }
+        case .requireVisible:
+            if HiddenPath.isHidden(row.path) { return false }
+        }
+        return true
+    }
+
+    /// Extract the extension token (lowercased, no dot) for filter checks.
+    /// Returns empty string if the name has no extension (falls through the
+    /// `extensions` filter as "no extension" cleanly).
+    static func extension_(of nameLower: String) -> String {
+        guard let dot = nameLower.lastIndex(of: ".") else { return "" }
+        return String(nameLower[nameLower.index(after: dot)...])
+    }
+
+    /// Candidate pool for a query that has filters but no plain tokens.
+    /// Emits a single SQL query biased toward whichever filter is likely
+    /// to be most selective (extension > root > kind > naive scan).
+    private func filterOnlyCandidates(filters: QueryFilters, limit: Int) throws -> [Row] {
+        // Priority 1: extension filter (typically very selective — most
+        // users run `ext:md` to find notes on a specific type).
+        if !filters.extensions.isEmpty {
+            let placeholders = filters.extensions.map { _ in "?" }.joined(separator: " OR name_lower LIKE ")
+            let sql = """
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            WHERE name_lower LIKE \(placeholders)
+            LIMIT ?;
+            """
+            return try executeQuery(sql) { stmt, transient in
+                var idx: Int32 = 1
+                for ext in filters.extensions {
+                    _ = sqlite3_bind_text(stmt, idx, "%.\(ext)", -1, transient)
+                    idx += 1
+                }
+                _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
+            }
+        }
+        // Priority 2: root prefix restriction.
+        if let root = filters.rootRestriction, !root.isEmpty {
+            let sql = """
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            WHERE path_lower = ? OR path_lower LIKE ?
+            LIMIT ?;
+            """
+            return try executeQuery(sql) { stmt, transient in
+                let rLower = root.lowercased()
+                _ = sqlite3_bind_text(stmt, 1, rLower, -1, transient)
+                _ = sqlite3_bind_text(stmt, 2, "\(rLower)/%", -1, transient)
+                _ = sqlite3_bind_int64(stmt, 3, Int64(limit))
+            }
+        }
+        // Priority 3: kind filter only (file vs dir).
+        if !filters.kinds.isEmpty {
+            if filters.kinds.count == 1 {
+                let wantDir = filters.kinds.contains(.dir)
+                let sql = """
+                SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+                WHERE is_dir = ?
+                LIMIT ?;
+                """
+                return try executeQuery(sql) { stmt, _ in
+                    _ = sqlite3_bind_int(stmt, 1, wantDir ? 1 : 0)
+                    _ = sqlite3_bind_int64(stmt, 2, Int64(limit))
+                }
+            }
+            // Both kinds → naive bounded scan
+        }
+        // Fallback: bounded scan. Only reachable for filter-only queries
+        // where the only filter is `path:` or `hidden:`, which we must
+        // apply post-candidate regardless. The LIMIT keeps pathological
+        // DBs from blowing up the GUI.
+        let sql = """
+        SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+        LIMIT ?;
+        """
+        return try executeQuery(sql) { stmt, _ in
+            _ = sqlite3_bind_int64(stmt, 1, Int64(limit))
+        }
     }
 
     /// True iff `path` equals one of `roots` or is a descendant (shares a `/`
