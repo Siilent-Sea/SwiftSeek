@@ -67,6 +67,18 @@ public enum SettingsKey {
     // stops NEW writes but does not clear existing rows; use the
     // maintenance tab "清空搜索历史" for removal.
     public static let queryHistoryEnabled    = "query_history_enabled"
+    // J6: remember which Settings tab the user had open last so
+    // they don't have to re-navigate on each reopen. Integer index
+    // into the tab view controller; out-of-range values are
+    // silently clamped on read.
+    public static let settingsTabIndex       = "settings_tab_index"
+    // J6: Launch-at-Login UI mirror. The canonical state lives in
+    // SMAppService (macOS), but we cache whether the user OPTED IN
+    // so we can show the checkbox reflecting intent even if
+    // SMAppService reports `.notRegistered` between launches on
+    // unsigned dev builds. "1" = user wants login launch, "0" /
+    // missing = no.
+    public static let launchAtLoginRequested = "launch_at_login_requested"
 }
 
 /// G3 index modes defined in `docs/everything_footprint_v5_proposal.md` § 3/4.
@@ -221,6 +233,32 @@ public extension Database {
 
     func setResultColumnWidth(key: String, width: Double) throws {
         try setSetting(key, value: String(format: "%.0f", width))
+    }
+
+    /// J6: persisted Settings tab index (which tab user had open
+    /// last). Returns 0 when unset / malformed so first run opens
+    /// on 常规 without surprise.
+    func getSettingsTabIndex() throws -> Int {
+        guard let raw = try getSetting(SettingsKey.settingsTabIndex),
+              let n = Int(raw) else { return 0 }
+        return max(0, n)
+    }
+
+    func setSettingsTabIndex(_ n: Int) throws {
+        try setSetting(SettingsKey.settingsTabIndex, value: String(max(0, n)))
+    }
+
+    /// J6: user-expressed intent for login launch. This is an
+    /// opt-in mirror of SMAppService state so the UI can reflect
+    /// intent even if SMAppService reports a stale `.notRegistered`
+    /// between unsigned-build launches.
+    func getLaunchAtLoginRequested() throws -> Bool {
+        let raw = try getSetting(SettingsKey.launchAtLoginRequested) ?? ""
+        return raw == "1"
+    }
+
+    func setLaunchAtLoginRequested(_ enabled: Bool) throws {
+        try setSetting(SettingsKey.launchAtLoginRequested, value: enabled ? "1" : "0")
     }
 
     /// J2: clear all persisted result-column widths so the next

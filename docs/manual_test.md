@@ -920,6 +920,24 @@ chmod a-w /tmp/readonly.sqlite3
 9. **Run Count 隔离回归**：连续触发 Reveal / 复制 × 各类 / Open With / 移到废纸篓（前 3 个对非破坏性）；`file_usage.open_count` 应**只**因第 2 步的"打开"累加。sqlite3 核。
 10. **快捷键回归**：⌘⏎ Reveal、⌘⇧C 复制路径等原有快捷键仍正常（主菜单 / 按钮 selector 不变）。
 
+### 33r. J6 首次使用 / Launch at Login / 窗口状态记忆
+前置：J6 `.app` bundle 已刷。
+
+1. **首次使用 banner（roots 空）**：新 DB 启动（或删除现有 roots 直到列表为空），设置窗口顶部 banner 应包含 4 行提示：先加 root、macOS 权限、索引模式说明、Run Count 语义、⌥Space 快捷键。添加至少一个 root 后 banner 消失。
+2. **设置窗口尺寸记忆**：拖大设置窗口到 900×700 → 关 → 重开，尺寸应保留。
+3. **搜索窗口尺寸记忆（回归 J2）**：拖搜索面板到 1200×500 → 关 → ⌥Space 重开，尺寸应保留。
+4. **tab 选中记忆**：设置窗口切到"维护"tab → 关 → 重开应直接在"维护"。切回"常规" → 关 → 重开在"常规"。sqlite3 核 `SELECT value FROM settings WHERE key='settings_tab_index';`。
+5. **Launch at Login (macOS 13+)**：
+   - 设置 → 常规 tab 最底部应有 "随 macOS 登录自动启动 SwiftSeek" 复选框
+   - 说明文字明确调用 SMAppService 且未签名可能需批准
+   - 勾选：如成功，note 改 "✓ 已注册为登录项；下次登录会自动启动…"；`settings.launch_at_login_requested = 1`
+   - 如失败（常见于 `.build` 直跑）：弹 NSAlert 显示真实错误 + 未签名 / 未公证 / 需手动批准等可能原因；复选框恢复 off；DB 不持久化意图
+   - 取消勾选 → 调用 `SMAppService.mainApp.unregister()` → note 改 "未启用"
+   - 系统设置 → 通用 → 登录项 查实际状态
+6. **低版本 macOS**（< 13）：复选框 disabled，note 显示"当前系统不支持 SMAppService"
+7. **状态同步**：手动到 系统设置 → 通用 → 登录项 关掉 SwiftSeek，回到 Settings 常规 tab note 应下次 `viewWillAppear` 时反映为 false；再勾可重注册
+8. **持久化不相互干扰**：J2 列宽/F3 排序/J6 tab/窗口 frame 各走不同键；执行 J2 "重置列宽" 不该影响 tab/frame；执行 J6 切 tab 不影响列宽
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

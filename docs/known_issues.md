@@ -76,10 +76,22 @@
 - 纯字符串 helper 放在 `Sources/SwiftSeekCore/PathHelpers.swift`，smoke 覆盖 7 个场景（中文、trailing slash、root、相对路径、空串等）。
 - **推迟**：Rename 未在 J5 做。成本考虑：需要先 `FileManager.moveItem` + 同步更新 `files`/`file_grams`/`file_bigrams`/`file_name_*`/`file_path_segments`/`file_usage`（file_id 不变，但 path/name 变），以及与 FSEvents / IncrementalWatcher 的竞争规避。J6 或后续轨道可考虑。
 
-### 8. 首次使用 / Full Disk Access / Launch 行为还不完整
-- 当前设置窗口有 roots 为空时的引导条，但还没有完整首次使用流程。
-- Full Disk Access、不可访问 root、compact/fullpath 模式、Run Count 语义和 usage history 隐私边界需要更明确的用户引导。
-- Launch at Login 如果要做，必须考虑当前 SwiftPM / app bundle / code signing 状态；不能假装未签名命令行产物已经具备完整登录项体验。
+### 8. 首次使用 / Launch 行为 / 窗口状态记忆已在 J6 收口
+- **首次使用引导**（roots 空时弹出的设置窗口顶部 banner）现覆盖：
+  - 先在「索引范围」加 root
+  - Documents / Desktop / Downloads / 外置卷可能被 macOS 询问权限；同意 or 到 系统设置 → 隐私与安全性 → 完全磁盘访问补授权
+  - Compact / Full path 索引模式含义 + 切换位置
+  - Run Count / 最近打开只来自 SwiftSeek 内部 `.open`，不读系统全局
+  - ⌥Space 呼出搜索
+- **Launch at Login**（设置 → 常规底部复选框，`Sources/SwiftSeek/App/LaunchAtLogin.swift`）：
+  - 使用公开 `SMAppService.mainApp` API（macOS 13+）；不用 private API
+  - 失败弹 NSAlert 显示真实错误 + 常见原因：未签名 / 未公证、需去 系统设置 → 通用 → 登录项 批准、从 `.build` 直接跑的裸二进制无法注册
+  - UI 展示"意图"（DB 持久化 `launch_at_login_requested`） + "系统实际状态"（实时查 `SMAppService.mainApp.status`）两面，避免复选框骗人
+  - 未签名 / 未公证构建可能需要手动批准登录项 —— 这是 macOS 行为，不是假实现
+- **窗口状态记忆**：
+  - 搜索窗已在 J2 `setFrameAutosaveName("SwiftSeekSearchPanel")`
+  - 设置窗 J6 加 `setFrameAutosaveName("SwiftSeekSettingsWindow")` + tab 选中记忆（`SettingsKey.settingsTabIndex`）
+  - 不影响 F3 列宽 / 排序持久化，各走各的键
 
 ## 已归档轨道后的保留限制
 

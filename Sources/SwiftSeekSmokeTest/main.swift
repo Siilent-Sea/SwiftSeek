@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -4070,6 +4070,46 @@ reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     _ = try engine.search("!!foo")
     // Empty OR + filter combo.
     _ = try engine.search("alpha|| ext:md")
+}
+
+// MARK: - J6 settings tab memory + launch-at-login intent
+
+reporter.check("J6 getSettingsTabIndex default 0 + round-trip") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(try db.getSettingsTabIndex() == 0,
+                         "fresh DB should return 0")
+    try db.setSettingsTabIndex(2)
+    try reporter.require(try db.getSettingsTabIndex() == 2,
+                         "round-trip 2")
+    try db.setSettingsTabIndex(0)
+    try reporter.require(try db.getSettingsTabIndex() == 0,
+                         "back to 0")
+    // Negative should clamp to 0.
+    try db.setSettingsTabIndex(-5)
+    try reporter.require(try db.getSettingsTabIndex() == 0,
+                         "negative clamped to 0")
+}
+
+reporter.check("J6 getLaunchAtLoginRequested default false + round-trip") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(try !db.getLaunchAtLoginRequested(),
+                         "fresh DB should default false")
+    try db.setLaunchAtLoginRequested(true)
+    try reporter.require(try db.getLaunchAtLoginRequested(),
+                         "round-trip true")
+    try db.setLaunchAtLoginRequested(false)
+    try reporter.require(try !db.getLaunchAtLoginRequested(),
+                         "round-trip false")
 }
 
 // MARK: - J5 path helpers (context menu primitives)

@@ -4,30 +4,31 @@
 
 ## 当前有效状态
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J5`
-- 当前阶段验收结论：`J4 PASS`
+- 当前阶段：`J6`
+- 当前阶段验收结论：`J5 PASS`
 - 当前正式验收 session：`019dc07b-55f0-7712-9d7f-74441d7c81df`
 - 日期：2026-04-25
 
 ### 当前审计结论
-`98a1561` 已满足 J4 的自动化与文档要求，可以放行到 J5。
+`b7cbf79` 已满足 J5 的自动化与文档要求，可以放行到 J6。
 
 本轮实际确认：
-- Schema 已升到 v7，新增 `query_history(query PK, last_used_at, use_count)` 和 `saved_filters(name PK, query, created_at, updated_at)`，与 `file_usage` 明确分离。
-- `QueryHistoryTypes.swift` 已补齐 privacy toggle、query UPSERT、recent list、clear、saved filter save/remove/list，行为边界和 J4 任务书一致。
-- 搜索窗底部动作栏已新增“最近/收藏”入口；设置窗口维护页已新增“搜索历史与 Saved Filters”区块，含开关、清空、列表、新建、删除。
-- 查询记录锚定在 `.open` 成功后的 committed intent，而不是每次输入；这与本轮文档和隐私边界说明一致。
-- build 与 smoke 实跑通过：`swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 为 `194/194`。
+- 结果右键菜单已扩展为：打开、使用其他应用打开、在 Finder 中显示、复制名称、复制完整路径、复制所在文件夹路径、移到废纸篓。
+- `PathHelpers.swift` 提供了纯 Foundation 的 `fileName(of:)` 和 `parentFolder(of:)`，GUI 动作和 smoke 共用同一语义。
+- `openWithSelected()` 通过 `NSOpenPanel` + `NSWorkspace.open(_:withApplicationAt:configuration:completionHandler:)` 走公开 AppKit API，没有越界到 private API。
+- `trashSelected()` 现在有二次确认；Rename 没有硬上，而是在文档里明确写出推迟原因。
+- Run Count / query history 边界保持不变：只有 `openSelected()` 仍调用 `recordOpen` 与 `recordQueryHistory`；Reveal / Copy / Open With / Trash 都不接 usage 统计。
+- build 与 smoke 实跑通过：`swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 为 `196/196`。
 
 ## 当前验收要求
-J4 已 `PASS`。进入 J5 后，必须补齐结果右键菜单与文件操作增强，让用户减少跳回 Finder 的次数，但不能把 Reveal / Copy 计入 Run Count，也不能越界做完整文件管理器。
+J5 已 `PASS`。进入 J6 后，需要把首次使用、权限提示、Launch 行为、窗口状态记忆和最终文档收口统一补齐，并为 `everything-ux-parity` 的最终 `PROJECT COMPLETE` 做准备。
 
-J5 验收时必须检查：
-- 右键菜单包含约定动作，目标正确。
-- Copy Name / Full Path / Parent Folder 写入剪贴板内容准确。
-- Open With 使用公开 AppKit API。
-- Move to Trash 有确认与失败反馈。
-- 只有 Open 增加 Run Count。
+J6 验收时必须检查：
+- 首次使用用户能看懂先加 root、为何需要权限、索引模式怎么选。
+- 权限不足时不是沉默失败。
+- Launch at Login 有真实实现或明确推迟说明，不能假实现。
+- 窗口状态记忆不破坏现有列宽 / 排序持久化。
+- README / manual_test / known_issues / ux parity gap / acceptance 文档与最终代码一致。
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23

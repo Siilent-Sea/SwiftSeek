@@ -4,41 +4,37 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J5`
+- 当前阶段：`J6`
 - 当前轨道目标：补齐 SwiftSeek 作为长期使用 macOS 桌面工具时仍欠缺的窗口生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单、首次使用与权限引导体验，让实际使用更接近 Everything-like 工具，而不是只停留在搜索性能和数据层能力。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage`
 
-## 当前阶段：J5
+## 当前阶段：J6
 
 ### 阶段目标
-让结果右键菜单更接近成熟文件搜索器，减少用户跳回 Finder 的次数。
+把 SwiftSeek 从“能工作的开发者工具”进一步收口为长期可用的 Mac 工具体验，并为 `everything-ux-parity` 的最终验收做准备。
 
 ### 当前代码审计依据
-- 当前窗口生命周期、Run Count 可见性、查询表达和查询复用都已收口，剩余主要缺口转向“文件操作是否足够顺手”。
-- 当前结果交互仍偏基础：用户常要跳回 Finder 才能做 Copy Name / Copy Parent Folder / Open With / Trash 等操作。
-- J5 必须保证 usage 统计只对 Open 生效，Reveal / Copy / Trash 都不能污染 Run Count。
-- 若做多选，必须明确 keyboard selection 与 table selection 的一致性；不能只堆菜单项不收口行为。
+- 当前窗口生命周期、Run Count 可见性、查询表达、查询复用和上下文菜单都已收口，剩余主要缺口转向“首次使用与长期使用体验”。
+- 当前仍缺更明确的首次使用引导、权限异常提示、Launch 行为结论，以及窗口状态记忆的最终收口。
+- J6 需要在不碰 private API、不读取系统隐私数据的前提下，把这些体验补齐，并统一收口文档。
 
 ### 当前阶段禁止事项
-- 不做首次使用向导、Launch at Login 或签名 / 公证方案，留给 J6。
-- 不做完整文件管理器。
-- 不做权限绕过。
-- 不做批量重命名器。
+- 不承诺 App Store 沙盒适配。
+- 不承诺签名 / 公证已完成，除非真实完成。
+- 不读取系统隐私数据。
 - 不做云同步。
 - 不做遥测。
 - 不读取系统搜索历史。
-- 不把 Reveal / Copy 计入 Run Count。
 
 ### 当前阶段完成判定标准
-J5 只有同时满足以下条件才可验收通过：
-1. 右键菜单包含新增动作且目标正确。
-2. Copy Name / Full Path / Parent Folder 写入剪贴板内容准确。
-3. Open With 使用公开 AppKit API。
-4. Rename 成功后索引和 UI 状态可恢复；若不做 Rename，必须明确写出推迟原因。
-5. Move to Trash 有确认和失败反馈。
-6. 只有 Open 增加 Run Count。
-7. `docs/manual_test.md` 或等价手测文档补齐 J5 GUI 验证步骤；能自动化的字符串动作补 smoke。
-8. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
+J6 只有同时满足以下条件才可验收通过：
+1. 首次使用用户能清楚知道先加 root、为何需要权限、索引模式怎么选。
+2. 权限不足时不是沉默失败。
+3. Launch at Login 有明确实现或明确推迟说明，不能假实现。
+4. 窗口状态记忆不破坏现有列宽 / 排序持久化。
+5. `docs/manual_test.md` 或等价手测文档补齐 J6 GUI 验证步骤；能自动化的设置项补 smoke。
+6. README / known_issues / manual_test / ux parity gap / acceptance / next_stage 等最终文档与代码一致。
+7. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
 
 ## 已归档轨道
 

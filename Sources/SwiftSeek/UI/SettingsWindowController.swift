@@ -8,13 +8,15 @@ import SwiftSeekCore
 /// Owned by `AppDelegate`; torn down on app exit. Each tab is its own
 /// `NSViewController` and reads from disk on `viewWillAppear` so switching back
 /// to a tab always reflects external changes (e.g. the smoke CLI edited excludes).
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private let database: Database
     private let rebuildCoordinator: RebuildCoordinator
     private let hotkeyReinstallHandler: (() -> Bool)?
     private let banner = NSTextField(wrappingLabelWithString: "")
     private let bannerContainer = NSView()
     private var bannerHeightConstraint: NSLayoutConstraint?
+    // J6: owned tab controller ref for restore + tab-change observer
+    private var tabViewController: NSTabViewController?
 
     init(database: Database,
          rebuildCoordinator: RebuildCoordinator,
@@ -89,8 +91,23 @@ final class SettingsWindowController: NSWindowController {
         ])
 
         window.contentViewController = host
+        // J6: persist window frame across launches. Pairs with the
+        // J2 search-panel autosave — both windows now remember the
+        // user's last size / position.
+        window.setFrameAutosaveName("SwiftSeekSettingsWindow")
         super.init(window: window)
         self.bannerHeightConstraint = bh
+        self.tabViewController = tabVC
+        // J6: restore last-used tab index. Integer stored in
+        // settings; out-of-range silently clamped.
+        if let db = database as Database? {
+            let idx = (try? db.getSettingsTabIndex()) ?? 0
+            if idx >= 0 && idx < tabVC.tabViewItems.count {
+                tabVC.selectedTabViewItemIndex = idx
+            }
+        }
+        // J6: observe tab selection so the choice survives reopen.
+        tabVC.tabView.delegate = self
         // J1: own the window's delegate so clicking the red ×
         // (close button) hides the window rather than closing it.
         // Even though `isReleasedWhenClosed = false` keeps the
@@ -123,9 +140,30 @@ final class SettingsWindowController: NSWindowController {
             bannerHeightConstraint?.isActive = false
             return
         }
-        banner.stringValue = "👋 先在「索引范围」添加要搜索的目录，添加后会提示自动索引。之后按 ⌥Space 随时搜索。"
+        // J6 first-run banner: tighter intro covering the three
+        // actual first-contact decisions — add roots, permission
+        // reality, index mode, Run Count / usage boundary.
+        banner.stringValue = """
+        👋 首次使用：请先在「索引范围」添加要搜索的目录。macOS 对 Documents / Desktop / Downloads / 外置卷可能弹出访问权限提示 — 同意后 SwiftSeek 才能扫到。若已拒绝可到系统设置 → 隐私与安全性 → 完全磁盘访问补上。
+        • 索引模式：新库默认 Compact（小而快）；切换在「常规」。
+        • Run Count / 最近打开：只记录通过 SwiftSeek 成功打开的次数，不读系统全局启动历史。
+        • 快捷键 ⌥Space 随时呼出搜索。
+        """
         bannerContainer.isHidden = !rootsEmpty
         bannerHeightConstraint?.isActive = !rootsEmpty
+    }
+
+    // MARK: - J6 tab memory
+
+    /// Persist the user's last-open tab so subsequent reopens land
+    /// on the same place. NSTabViewDelegate is cheap to wire; the
+    /// DB write is an UPSERT with F1 settings-cache, sub-millisecond.
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        guard let tabVC = tabViewController, let item = tabViewItem else { return }
+        let idx = tabVC.tabViewItems.firstIndex(where: { $0 === item }) ?? -1
+        guard idx >= 0 else { return }
+        do { try database.setSettingsTabIndex(idx) }
+        catch { NSLog("SwiftSeek: setSettingsTabIndex(\(idx)) failed: \(error)") }
     }
 
     required init?(coder: NSCoder) { fatalError("unused") }
@@ -183,6 +221,13 @@ private final class GeneralPane: NSViewController {
     private let modeLabel = NSTextField(labelWithString: "索引模式：")
     private let modePopup = NSPopUpButton()
     private let modeNote = NSTextField(wrappingLabelWithString: "")
+    // J6: Launch-at-Login toggle. Uses SMAppService.mainApp under
+    // the hood; unsigned dev builds may see the OS demand user
+    // approval (requiresApproval). Failures are surfaced in
+    // launchAtLoginNote — never silently swallowed.
+    private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "随 macOS 登录自动启动 SwiftSeek",
+                                                 target: nil, action: nil)
+    private let launchAtLoginNote = NSTextField(wrappingLabelWithString: "")
     /// Closure injected by AppDelegate so this pane can trigger
     /// re-registration of the Carbon hotkey without reaching through
     /// the view hierarchy. Returns true iff the new combo registered
@@ -301,6 +346,15 @@ private final class GeneralPane: NSViewController {
         modeRow.alignment = .centerY
         modeRow.translatesAutoresizingMaskIntoConstraints = false
 
+        // J6 launch-at-login row
+        launchAtLoginCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        launchAtLoginCheckbox.target = self
+        launchAtLoginCheckbox.action = #selector(onLaunchAtLoginToggle(_:))
+        launchAtLoginNote.translatesAutoresizingMaskIntoConstraints = false
+        launchAtLoginNote.font = NSFont.systemFont(ofSize: 11)
+        launchAtLoginNote.textColor = .secondaryLabelColor
+        launchAtLoginNote.stringValue = "调用 SMAppService。未签名 / 未公证的构建可能要求在系统设置 → 通用 → 登录项里手动批准。切换后这里会显示实际状态。"
+
         root.addSubview(title)
         root.addSubview(row)
         root.addSubview(note)
@@ -310,6 +364,8 @@ private final class GeneralPane: NSViewController {
         root.addSubview(hotkeyNote)
         root.addSubview(modeRow)
         root.addSubview(modeNote)
+        root.addSubview(launchAtLoginCheckbox)
+        root.addSubview(launchAtLoginNote)
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -343,6 +399,13 @@ private final class GeneralPane: NSViewController {
             modeNote.topAnchor.constraint(equalTo: modeRow.bottomAnchor, constant: 6),
             modeNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             modeNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            launchAtLoginCheckbox.topAnchor.constraint(equalTo: modeNote.bottomAnchor, constant: 24),
+            launchAtLoginCheckbox.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            launchAtLoginNote.topAnchor.constraint(equalTo: launchAtLoginCheckbox.bottomAnchor, constant: 6),
+            launchAtLoginNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            launchAtLoginNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            launchAtLoginNote.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
         ])
         self.view = root
     }
@@ -391,6 +454,55 @@ private final class GeneralPane: NSViewController {
         }
         let idx = (mode == .compact) ? 0 : 1
         modePopup.selectItem(at: idx)
+
+        // J6: reflect SMAppService state.
+        reflectLaunchAtLoginState()
+    }
+
+    private func reflectLaunchAtLoginState() {
+        let live = LaunchAtLogin.isRegistered()
+        let intent = (try? database.getLaunchAtLoginRequested()) ?? false
+        // Checkbox reflects user INTENT so flipping feels immediate;
+        // the note explains actual system state.
+        launchAtLoginCheckbox.state = intent ? .on : .off
+        switch live {
+        case nil:
+            launchAtLoginNote.stringValue = "⚠️ 当前系统不支持 SMAppService（需要 macOS 13+）。"
+            launchAtLoginCheckbox.isEnabled = false
+        case true?:
+            launchAtLoginNote.stringValue = intent
+                ? "✓ 已注册为登录项；下次登录会自动启动。若被系统拦截，请到 设置 → 通用 → 登录项 里批准 SwiftSeek。"
+                : "⚠️ 系统认为 SwiftSeek 已是登录项，但本地未勾选。切换一次复选框可对齐状态。"
+        case false?:
+            launchAtLoginNote.stringValue = intent
+                ? "⚠️ 你希望启用，但系统尚未注册成功；再勾一次复选框重试，或检查应用是否需要正式签名 / 公证。"
+                : "未启用。勾选后调用 SMAppService.register；未签名 / 未公证的构建在部分 macOS 版本可能要求手动批准登录项。"
+        }
+    }
+
+    @objc private func onLaunchAtLoginToggle(_ sender: NSButton) {
+        let want = (sender.state == .on)
+        do {
+            if want {
+                try LaunchAtLogin.register()
+            } else {
+                try LaunchAtLogin.unregister()
+            }
+            try database.setLaunchAtLoginRequested(want)
+        } catch {
+            // Show the actual error to the user — don't silently
+            // revert the checkbox so they understand WHY it's off.
+            let alert = NSAlert()
+            alert.messageText = want ? "启用登录项失败" : "取消登录项失败"
+            alert.informativeText = "\(error)\n\n常见原因：\n  • 未正式签名 / 公证的应用在部分 macOS 版本会被拒绝注册\n  • 系统设置 → 通用 → 登录项 里需要手动开关\n  • 从 .build 直接运行的二进制无法注册（需拖 .app 到 Applications）"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+            // Revert the checkbox visual to match actual state.
+            sender.state = want ? .off : .on
+            // Do NOT persist intent on failure.
+        }
+        reflectLaunchAtLoginState()
     }
 
     @objc private func onToggle(_ sender: NSButton) {
