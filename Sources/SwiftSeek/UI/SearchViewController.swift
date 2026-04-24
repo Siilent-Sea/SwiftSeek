@@ -40,6 +40,9 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     private static let col_path = NSUserInterfaceItemIdentifier("path")
     private static let col_mtime = NSUserInterfaceItemIdentifier("mtime")
     private static let col_size = NSUserInterfaceItemIdentifier("size")
+    // H2 result columns
+    private static let col_openCount = NSUserInterfaceItemIdentifier("openCount")
+    private static let col_lastOpened = NSUserInterfaceItemIdentifier("lastOpenedAt")
 
     /// F3: observer token for NSTableViewColumnDidResize so we can drop
     /// it in deinit without leaking.
@@ -118,6 +121,17 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         addColumn(id: Self.col_size,   title: "大小", minWidth: 70,
                   width: persistedWidth(for: SettingsKey.resultColumnWidthSize) ?? 80,
                   sortKey: "size")
+        // H2: Run Count / 最近打开. Prototype descriptor is ascending;
+        // the header-click mapping below inverts it on first click for
+        // these columns so "highest usage / most recent first" is the
+        // natural default (matches how users expect to sort Finder's
+        // "Last Opened" or Everything's "Run Count").
+        addColumn(id: Self.col_openCount, title: "打开次数", minWidth: 60,
+                  width: persistedWidth(for: SettingsKey.resultColumnWidthOpenCount) ?? 80,
+                  sortKey: "openCount")
+        addColumn(id: Self.col_lastOpened, title: "最近打开", minWidth: 90,
+                  width: persistedWidth(for: SettingsKey.resultColumnWidthLastOpened) ?? 120,
+                  sortKey: "lastOpenedAt")
 
         // F3: listen for resize notifications on this specific table view.
         // The notification payload userInfo has `NSTableColumn` so we can
@@ -258,11 +272,13 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         guard let col = note.userInfo?["NSTableColumn"] as? NSTableColumn else { return }
         let key: String?
         switch col.identifier {
-        case Self.col_name:  key = SettingsKey.resultColumnWidthName
-        case Self.col_path:  key = SettingsKey.resultColumnWidthPath
-        case Self.col_mtime: key = SettingsKey.resultColumnWidthMtime
-        case Self.col_size:  key = SettingsKey.resultColumnWidthSize
-        default:             key = nil
+        case Self.col_name:       key = SettingsKey.resultColumnWidthName
+        case Self.col_path:       key = SettingsKey.resultColumnWidthPath
+        case Self.col_mtime:      key = SettingsKey.resultColumnWidthMtime
+        case Self.col_size:       key = SettingsKey.resultColumnWidthSize
+        case Self.col_openCount:  key = SettingsKey.resultColumnWidthOpenCount
+        case Self.col_lastOpened: key = SettingsKey.resultColumnWidthLastOpened
+        default:                  key = nil
         }
         guard let k = key else { return }
         do {
@@ -604,6 +620,21 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
             let cell = reuseCell(id: Self.col_size) { PlainColumnCell(alignment: .right) }
             cell.configure(text: SizeFormatter.formatted(hit: hit))
             return cell
+        case Self.col_openCount:
+            let cell = reuseCell(id: Self.col_openCount) { PlainColumnCell(alignment: .right) }
+            // "—" for never-opened so the column reads cleanly and
+            // matches the "no usage row yet" data model (openCount=0).
+            let text = hit.openCount > 0 ? String(hit.openCount) : "—"
+            cell.configure(text: text)
+            return cell
+        case Self.col_lastOpened:
+            let cell = reuseCell(id: Self.col_lastOpened) { PlainColumnCell(alignment: .right) }
+            // Reuse the relative mtime formatter; 0 -> "—" fallback.
+            let text = hit.lastOpenedAt > 0
+                ? MtimeFormatter.relative(hit.lastOpenedAt)
+                : "—"
+            cell.configure(text: text)
+            return cell
         default:
             return nil
         }
@@ -629,11 +660,13 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         if let primary = tableView.sortDescriptors.first, let key = primary.key {
             let mapped: SearchSortKey?
             switch key {
-            case "name": mapped = .name
-            case "path": mapped = .path
-            case "mtime": mapped = .mtime
-            case "size": mapped = .size
-            default: mapped = nil
+            case "name":         mapped = .name
+            case "path":         mapped = .path
+            case "mtime":        mapped = .mtime
+            case "size":         mapped = .size
+            case "openCount":    mapped = .openCount
+            case "lastOpenedAt": mapped = .lastOpenedAt
+            default:             mapped = nil
             }
             if let m = mapped {
                 newOrder = SearchSortOrder(key: m, ascending: primary.ascending)

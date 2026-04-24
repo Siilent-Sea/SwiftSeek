@@ -8,19 +8,32 @@ public struct SearchResult: Equatable {
     public let size: Int64
     public let mtime: Int64
     public let score: Int
+    /// H2: SwiftSeek-internal `open_count` for this file. 0 means "never
+    /// opened through SwiftSeek" (or usage row missing). Filled in via
+    /// `LEFT JOIN file_usage` on every search so callers don't need a
+    /// second round-trip. NOT the macOS global launch count — see
+    /// `docs/known_issues.md` §1-2 for the semantics contract.
+    public let openCount: Int64
+    /// H2: last time the user opened this file through SwiftSeek (Unix
+    /// epoch seconds). 0 means "never / no row".
+    public let lastOpenedAt: Int64
 
     public init(path: String,
                 name: String,
                 isDir: Bool,
                 size: Int64,
                 mtime: Int64,
-                score: Int) {
+                score: Int,
+                openCount: Int64 = 0,
+                lastOpenedAt: Int64 = 0) {
         self.path = path
         self.name = name
         self.isDir = isDir
         self.size = size
         self.mtime = mtime
         self.score = score
+        self.openCount = openCount
+        self.lastOpenedAt = lastOpenedAt
     }
 }
 
@@ -34,6 +47,14 @@ public enum SearchSortKey: String, Sendable {
     case path
     case mtime
     case size
+    /// H2: sort by SwiftSeek-internal open_count. "Higher = more used"
+    /// is the natural user expectation, so the default binding in the
+    /// UI flips `ascending` to false on first header click.
+    case openCount
+    /// H2: sort by last time opened through SwiftSeek (Unix epoch
+    /// seconds). Default binding also flips to `ascending=false` so a
+    /// first click gives "most recent first".
+    case lastOpenedAt
 }
 
 public struct SearchSortOrder: Equatable, Sendable {
@@ -156,6 +177,9 @@ public final class SearchEngine {
         let mtime: Int64
         let nameLower: String
         let pathLower: String
+        /// H2: LEFT JOIN file_usage. 0 when no usage row exists.
+        let openCount: Int64
+        let lastOpenedAt: Int64
     }
 
     private let database: Database
@@ -371,7 +395,9 @@ public final class SearchEngine {
                              isDir: row.isDir,
                              size: row.size,
                              mtime: row.mtime,
-                             score: 100) // baseline so "仅显示前 N 条" still makes sense
+                             score: 100, // baseline so "仅显示前 N 条" still makes sense
+                             openCount: row.openCount,
+                             lastOpenedAt: row.lastOpenedAt)
             }
             .sorted { lhs, rhs in
                 if lhs.mtime != rhs.mtime { return lhs.mtime > rhs.mtime }
@@ -504,7 +530,7 @@ public final class SearchEngine {
         if !filters.extensions.isEmpty {
             let placeholders = filters.extensions.map { _ in "?" }.joined(separator: " OR name_lower LIKE ")
             let sql = """
-            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower, COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0) FROM files LEFT JOIN file_usage fu ON fu.file_id = files.id
             WHERE name_lower LIKE \(placeholders)
             LIMIT ?;
             """
@@ -520,7 +546,7 @@ public final class SearchEngine {
         // Priority 2: root prefix restriction.
         if let root = filters.rootRestriction, !root.isEmpty {
             let sql = """
-            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower, COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0) FROM files LEFT JOIN file_usage fu ON fu.file_id = files.id
             WHERE path_lower = ? OR path_lower LIKE ?
             LIMIT ?;
             """
@@ -536,7 +562,7 @@ public final class SearchEngine {
             if filters.kinds.count == 1 {
                 let wantDir = filters.kinds.contains(.dir)
                 let sql = """
-                SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+                SELECT path, name, is_dir, size, mtime, name_lower, path_lower, COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0) FROM files LEFT JOIN file_usage fu ON fu.file_id = files.id
                 WHERE is_dir = ?
                 LIMIT ?;
                 """
@@ -552,7 +578,7 @@ public final class SearchEngine {
         // apply post-candidate regardless. The LIMIT keeps pathological
         // DBs from blowing up the GUI.
         let sql = """
-        SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+        SELECT path, name, is_dir, size, mtime, name_lower, path_lower, COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0) FROM files LEFT JOIN file_usage fu ON fu.file_id = files.id
         LIMIT ?;
         """
         return try executeQuery(sql) { stmt, _ in
@@ -641,13 +667,13 @@ public final class SearchEngine {
         let sql: String
         if nameOnly {
             sql = """
-            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower, COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0) FROM files LEFT JOIN file_usage fu ON fu.file_id = files.id
             WHERE name_lower LIKE ?
             LIMIT ?;
             """
         } else {
             sql = """
-            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower, COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0) FROM files LEFT JOIN file_usage fu ON fu.file_id = files.id
             WHERE name_lower LIKE ? OR path_lower LIKE ?
             LIMIT ?;
             """
@@ -679,9 +705,11 @@ public final class SearchEngine {
         let placeholders = Array(repeating: "?", count: grams.count).joined(separator: ",")
         let table = (mode == .compact) ? "file_name_bigrams" : "file_bigrams"
         let sql = """
-        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
+        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower,
+               COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0)
         FROM \(table) fg
         JOIN files f ON f.id = fg.file_id
+        LEFT JOIN file_usage fu ON fu.file_id = f.id
         WHERE fg.gram IN (\(placeholders))
         GROUP BY fg.file_id
         HAVING COUNT(DISTINCT fg.gram) = ?
@@ -714,9 +742,11 @@ public final class SearchEngine {
         let placeholders = Array(repeating: "?", count: grams.count).joined(separator: ",")
         let table = (mode == .compact) ? "file_name_grams" : "file_grams"
         let sql = """
-        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
+        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower,
+               COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0)
         FROM \(table) fg
         JOIN files f ON f.id = fg.file_id
+        LEFT JOIN file_usage fu ON fu.file_id = f.id
         WHERE fg.gram IN (\(placeholders))
         GROUP BY fg.file_id
         HAVING COUNT(DISTINCT fg.gram) = ?
@@ -750,9 +780,11 @@ public final class SearchEngine {
         let cases = pathTokens.map { _ in "(ps.segment = ? OR ps.segment LIKE ?)" }
             .joined(separator: " OR ")
         let sql = """
-        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
+        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower,
+               COALESCE(fu.open_count, 0), COALESCE(fu.last_opened_at, 0)
         FROM file_path_segments ps
         JOIN files f ON f.id = ps.file_id
+        LEFT JOIN file_usage fu ON fu.file_id = f.id
         WHERE \(cases)
         GROUP BY ps.file_id
         LIMIT ?;
@@ -800,13 +832,19 @@ public final class SearchEngine {
             let mtime = sqlite3_column_int64(stmt, 4)
             let nameLower = String(cString: sqlite3_column_text(stmt, 5))
             let pathLower = String(cString: sqlite3_column_text(stmt, 6))
+            // H2: columns 7 / 8 come from `LEFT JOIN file_usage fu` and
+            // are COALESCE'd to 0 when no row exists for this file.
+            let openCount = sqlite3_column_int64(stmt, 7)
+            let lastOpenedAt = sqlite3_column_int64(stmt, 8)
             out.append(Row(path: path,
                            name: name,
                            isDir: isDir,
                            size: size,
                            mtime: mtime,
                            nameLower: nameLower,
-                           pathLower: pathLower))
+                           pathLower: pathLower,
+                           openCount: openCount,
+                           lastOpenedAt: lastOpenedAt))
         }
         return out
     }
@@ -975,7 +1013,9 @@ public final class SearchEngine {
                                 isDir: row.isDir,
                                 size: row.size,
                                 mtime: row.mtime,
-                                score: s)
+                                score: s,
+                                openCount: row.openCount,
+                                lastOpenedAt: row.lastOpenedAt)
         }
         return SearchEngine.sort(scored, by: .scoreDescending)
     }
@@ -1010,8 +1050,32 @@ public final class SearchEngine {
                 primary = compareInt(lhs.mtime, rhs.mtime, ascending: order.ascending)
             case .size:
                 primary = compareInt(lhs.size, rhs.size, ascending: order.ascending)
+            case .openCount:
+                primary = compareInt(lhs.openCount, rhs.openCount, ascending: order.ascending)
+            case .lastOpenedAt:
+                primary = compareInt(lhs.lastOpenedAt, rhs.lastOpenedAt, ascending: order.ascending)
             }
             if primary != 0 { return primary < 0 }
+            // H2 usage tie-break. Only kicks in when the primary key is
+            // `.score` and two results tied on score — we want the
+            // SwiftSeek-internal Run Count / last-opened signal to
+            // break the tie so repeatedly-opened files climb. We do
+            // NOT apply usage tie-break to non-score keys; users who
+            // sort by `.name` / `.mtime` etc. expect the old behavior
+            // (shorter-path + alpha) per the Codex H2 contract "不破
+            // 坏现有 score/name/path/mtime/size 排序".
+            if order.key == .score {
+                if lhs.openCount != rhs.openCount {
+                    // Higher open_count wins — this is never flipped
+                    // by `order.ascending` because the primary key is
+                    // still score; ascending there means "worst score
+                    // first", tie-break semantics stay the same.
+                    return lhs.openCount > rhs.openCount
+                }
+                if lhs.lastOpenedAt != rhs.lastOpenedAt {
+                    return lhs.lastOpenedAt > rhs.lastOpenedAt
+                }
+            }
             // Deterministic tie-break: shorter path first, then alphabetical.
             if lhs.path.count != rhs.path.count { return lhs.path.count < rhs.path.count }
             return lhs.path < rhs.path

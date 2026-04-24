@@ -47,6 +47,10 @@ public enum SettingsKey {
     public static let resultColumnWidthPath  = "result_col_width_path"
     public static let resultColumnWidthMtime = "result_col_width_mtime"
     public static let resultColumnWidthSize  = "result_col_width_size"
+    // H2: Run Count / last-opened result columns. Both optional; if the
+    // DB doesn't have the setting we fall back to the programmed default.
+    public static let resultColumnWidthOpenCount    = "result_col_width_open_count"
+    public static let resultColumnWidthLastOpened   = "result_col_width_last_opened"
     // G3: index mode (compact vs fullpath). New DBs default to compact
     // (set in Database.migrate's v5 branch). v4→v5 upgrades default to
     // fullpath to preserve the pre-existing user capability until they

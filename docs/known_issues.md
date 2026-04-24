@@ -19,15 +19,17 @@
 - **Run Count 语义**：仅表示通过 SwiftSeek 触发 `.open` 的次数。**不代表 macOS 全局启动次数**；不读 system 最近项目、不用 private API。
 - H1 只做数据模型 + 动作记录。ranking tie-break / 结果列 / 最近打开入口 / 隐私开关留给 H2-H4。
 
-### 3. 当前排序不含 usage tie-break
-- `SearchResult` 只有 path/name/isDir/size/mtime/score。
-- `SearchEngine.sort` 只支持 score/name/path/mtime/size。
-- 同等文本相关性下，常用文件不会因为打开次数更高而靠前。
+### 3. Usage tie-break 已在 H2 落地
+- `SearchResult` 新增 `openCount: Int64` / `lastOpenedAt: Int64`，所有 `SearchEngine.search()` 走 `LEFT JOIN file_usage` 自动带出。缺失 usage 行时 COALESCE 为 0。
+- `SearchSortKey` 新增 `.openCount` / `.lastOpenedAt`；`sort(by:)` 在主键是 `.score` 且 score 相等时，先按 `openCount DESC`、再按 `lastOpenedAt DESC` 做 tie-break，最后落回原有 short-path + alpha。
+- **不同 score 之间不做 usage tie-break** —— 高相关 0 usage 仍然压过低相关 999 usage，避免"usage 洗掉文本相关性"。
+- `name` / `path` / `mtime` / `size` 这几个排序键不加 usage tie-break，保持 F3 既有语义。
 
-### 4. 当前结果视图没有 Run Count / 最近打开信息
-- 结果表已有名称 / 路径 / 修改时间 / 大小。
-- 但没有打开次数、最近打开、usage score 或 Run Count 列。
-- 用户也无法按打开次数或最近打开排序。
+### 4. 结果视图已在 H2 补上 Run Count / 最近打开
+- 结果表新增两列：`打开次数`（右对齐，0 显示 `—`）/ `最近打开`（相对时间，同 mtime 格式，0 显示 `—`）。
+- 列头可排序；点 `打开次数` 或 `最近打开` 将排序键切到 `openCount` / `lastOpenedAt`。
+- 列宽通过 `result_col_width_open_count` / `result_col_width_last_opened` 落盘，跨重启保留。
+- 排序键 round-trip 同样走 F3 的 `result_sort_key` / `result_sort_asc`。
 
 ### 5. 当前没有使用历史清理 / 隐私控制
 - 设置页没有“记录使用历史”开关。

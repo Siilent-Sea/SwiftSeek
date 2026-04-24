@@ -739,6 +739,25 @@ chmod a-w /tmp/readonly.sqlite3
 7. 从索引中删除某个已有 usage 行的文件（在设置里 remove 其所在 root，或手动 `DELETE FROM files WHERE path=?`），再核 `file_usage` 不应留该行（`ON DELETE CASCADE`）。
 8. 若打开成功但 `SearchViewController` 调 `recordOpen` 时目标路径不在 `files` 表（edge case：刚 exclude 或 root disable），应看到 Console 日志 `SwiftSeek: recordOpen skipped, path not in index: ...`；DB 保持不变。
 
+### 33i. H2 usage tie-break + 结果表新列
+前置：已通过 33h 手测确保 `file_usage` 会在 `.open` 后累加。
+
+1. 启动 SwiftSeek 搜索窗，输入常用 query；结果表应看到 6 列：
+   名称 / 路径 / 修改时间 / 大小 / 打开次数 / 最近打开
+2. 从未打开过的行，`打开次数` 列显示 `—`，`最近打开` 显示 `—`；打开过的行显示整数次数和相对时间（与 `修改时间` 同格式）。
+3. tie-break 手测：
+   - 输入能命中两个**同名**文件的 query（例如在两个不同目录各放一个 `todo.txt` 并已索引）；两条结果应 score 相同
+   - 其中一条文件打开 3 次 → 再次 query，该文件应**直接升到第一行**，且两条 `score` 仍相同（可用 `swift run SwiftSeekSearch <query>` 核对）
+4. 不同 score 回归：输入一条只命中文件名 vs 只命中路径的多词 query；把命中路径的那条频繁打开 → 再次搜索，命中文件名（高 score）的那条**不应被挤下去**。验证"high-usage 低分不压过 高分零usage"。
+5. 列头排序：
+   - 点 `打开次数` 列头 — 第一次默认升序（sortDescriptorPrototype.ascending=true）；再点切降序；观察 `—` 的行聚在一侧
+   - 点 `最近打开` 列头 — 同上
+   - 关闭搜索窗再重开：上次选择的排序键应恢复（F3 持久化路径 + H2 新键）
+6. 列宽持久化：
+   - 拖动 `打开次数` / `最近打开` 列宽；关搜索窗再开，宽度应保留
+   - 可核 `sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 "SELECT key,value FROM settings WHERE key LIKE 'result_col_width_%';"` 能看到两个新 key
+7. 既有排序不回退：点 `名称` / `路径` / `修改时间` / `大小` 列头，排序依然按这些键（与 F3 一致），不应被 usage 打乱。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

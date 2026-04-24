@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3337,6 +3337,163 @@ reporter.check("H1 usage row cascades on files row delete") {
     let count = try db.countRows(in: "file_usage")
     try reporter.require(count == 0,
                          "file_usage should be empty after cascade, got \(count)")
+}
+
+// MARK: - H2 usage-based ranking + result columns
+
+// Helper: build a DB under compact mode with two files so H2 tests can
+// exercise the same-score tie-break path end-to-end (engine, not unit).
+func makeH2EngineFixture() throws -> (Database, Indexer, SearchEngine, URL, URL) {
+    let dbDir = try makeTempDir()
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    try db.migrate()
+    let root = try makeTempDir()
+    // Identical basenames so scoreTokens produces the same score for
+    // both. Different parent directories so paths are distinct.
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("dir-a"),
+                           withIntermediateDirectories: true)
+    try fm.createDirectory(at: root.appendingPathComponent("dir-b"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("dir-a/same-name-file.txt"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("dir-b/same-name-file.txt"),
+                 atomically: true, encoding: .utf8)
+    let indexer = Indexer(database: db)
+    _ = try indexer.indexRoot(root)
+    let engine = SearchEngine(database: db)
+    return (db, indexer, engine, dbDir, root)
+}
+
+reporter.check("H2 SearchResult carries openCount / lastOpenedAt from LEFT JOIN file_usage") {
+    let (db, _, engine, dbDir, root) = try makeH2EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // Before any recordOpen, both hits should have openCount=0 / lastOpenedAt=0.
+    var hits = try engine.search("same-name-file")
+    try reporter.require(hits.count >= 2, "expected 2 hits pre-usage, got \(hits.count)")
+    for h in hits {
+        try reporter.require(h.openCount == 0,
+                             "fresh DB should have openCount 0, got \(h.openCount) on \(h.path)")
+        try reporter.require(h.lastOpenedAt == 0,
+                             "fresh DB should have lastOpenedAt 0, got \(h.lastOpenedAt) on \(h.path)")
+    }
+    // Open one of them twice and confirm JOIN surfaces the counts.
+    let target = hits[0].path
+    _ = try db.recordOpen(path: target, now: 1_700_000_000)
+    _ = try db.recordOpen(path: target, now: 1_700_000_100)
+    hits = try engine.search("same-name-file")
+    guard let updated = hits.first(where: { $0.path == target }) else {
+        throw SmokeFailure(message: "previously-opened path missing from second query: \(target)")
+    }
+    try reporter.require(updated.openCount == 2,
+                         "openCount should be 2 after two recordOpens, got \(updated.openCount)")
+    try reporter.require(updated.lastOpenedAt == 1_700_000_100,
+                         "lastOpenedAt should be the last timestamp 1_700_000_100, got \(updated.lastOpenedAt)")
+}
+
+reporter.check("H2 same-score tie-break: higher openCount comes first") {
+    let (db, _, engine, dbDir, root) = try makeH2EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // Pre-usage ordering is determined by the short-path/alpha tie-break.
+    let preHits = try engine.search("same-name-file")
+    try reporter.require(preHits.count >= 2, "expected 2 preHits, got \(preHits.count)")
+    try reporter.require(preHits[0].score == preHits[1].score,
+                         "expected identical basenames to score identically: \(preHits[0].score) vs \(preHits[1].score)")
+    let first = preHits[0].path
+    let second = preHits[1].path
+    // Give the second hit more opens — it should leapfrog to the top.
+    _ = try db.recordOpen(path: second, now: 1_700_000_000)
+    _ = try db.recordOpen(path: second, now: 1_700_000_010)
+    _ = try db.recordOpen(path: second, now: 1_700_000_020)
+    let postHits = try engine.search("same-name-file")
+    try reporter.require(postHits[0].path == second,
+                         "higher-usage file should lead: got \(postHits[0].path), expected \(second)")
+    try reporter.require(postHits[1].path == first,
+                         "lower-usage file should follow: got \(postHits[1].path), expected \(first)")
+    try reporter.require(postHits[0].score == postHits[1].score,
+                         "tie-break is a SAME-score reordering, not a score change: \(postHits[0].score) vs \(postHits[1].score)")
+}
+
+reporter.check("H2 tie-break: equal openCount, higher lastOpenedAt wins") {
+    let (db, _, engine, dbDir, root) = try makeH2EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    let preHits = try engine.search("same-name-file")
+    let first = preHits[0].path
+    let second = preHits[1].path
+    // Equal openCount (1 each), but `second` opened later.
+    _ = try db.recordOpen(path: first,  now: 1_700_000_000)
+    _ = try db.recordOpen(path: second, now: 1_700_000_500)
+    let hits = try engine.search("same-name-file")
+    try reporter.require(hits[0].path == second,
+                         "more recent usage should lead on equal openCount: got \(hits[0].path)")
+    try reporter.require(hits[0].openCount == hits[1].openCount,
+                         "openCount should stay equal: \(hits[0].openCount) vs \(hits[1].openCount)")
+}
+
+reporter.check("H2 low-score + high-usage does NOT beat high-score + zero-usage") {
+    // Build two results by hand so the score differs. Usage tie-break
+    // must not apply across the score boundary — this is the core
+    // "不让高 usage 压过高相关" contract from the taskbook.
+    let hiScore = SearchResult(path: "/a/hello.txt", name: "hello.txt",
+                               isDir: false, size: 0, mtime: 0,
+                               score: 1000, openCount: 0, lastOpenedAt: 0)
+    let loScore = SearchResult(path: "/b/world.txt", name: "world.txt",
+                               isDir: false, size: 0, mtime: 0,
+                               score: 500, openCount: 999, lastOpenedAt: 9_999_999_999)
+    let sorted = SearchEngine.sort([loScore, hiScore], by: .scoreDescending)
+    try reporter.require(sorted.first == hiScore,
+                         "high-score zero-usage should still lead high-usage low-score; got first=\(String(describing: sorted.first?.path))")
+}
+
+reporter.check("H2 SearchSortKey.openCount / .lastOpenedAt round-trip and sort correctly") {
+    // DB round-trip for the sort persistence
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let ocDesc = SearchSortOrder(key: .openCount, ascending: false)
+    try db.setResultSortOrder(ocDesc)
+    let readBack = try db.getResultSortOrder()
+    try reporter.require(readBack == ocDesc,
+                         "openCount desc round-trip mismatch: \(readBack) vs \(ocDesc)")
+    let loDesc = SearchSortOrder(key: .lastOpenedAt, ascending: true)
+    try db.setResultSortOrder(loDesc)
+    let loBack = try db.getResultSortOrder()
+    try reporter.require(loBack == loDesc,
+                         "lastOpenedAt asc round-trip mismatch: \(loBack) vs \(loDesc)")
+    // Sort semantics (high openCount first when descending):
+    let a = SearchResult(path: "/x/a.txt", name: "a.txt", isDir: false,
+                         size: 0, mtime: 0, score: 0,
+                         openCount: 10, lastOpenedAt: 100)
+    let b = SearchResult(path: "/x/b.txt", name: "b.txt", isDir: false,
+                         size: 0, mtime: 0, score: 0,
+                         openCount: 1, lastOpenedAt: 200)
+    let sortedOC = SearchEngine.sort([b, a], by: SearchSortOrder(key: .openCount, ascending: false))
+    try reporter.require(sortedOC.map(\.path) == ["/x/a.txt", "/x/b.txt"],
+                         "openCount desc should put a before b, got \(sortedOC.map(\.path))")
+    let sortedLOAsc = SearchEngine.sort([b, a], by: SearchSortOrder(key: .lastOpenedAt, ascending: true))
+    try reporter.require(sortedLOAsc.map(\.path) == ["/x/a.txt", "/x/b.txt"],
+                         "lastOpenedAt asc should put a(100) before b(200), got \(sortedLOAsc.map(\.path))")
+}
+
+reporter.check("H2 non-score sort keys unaffected by usage tie-break (name regression)") {
+    // Two SearchResults with same name (impossible in practice but
+    // the test must guarantee usage doesn't leak into `.name` sort):
+    // use different names and confirm alpha order holds regardless of
+    // openCount.
+    let highUsageZ = SearchResult(path: "/a/zebra.txt", name: "zebra.txt",
+                                  isDir: false, size: 0, mtime: 0,
+                                  score: 100, openCount: 999, lastOpenedAt: 999)
+    let noUsageA = SearchResult(path: "/a/apple.txt", name: "apple.txt",
+                                isDir: false, size: 0, mtime: 0,
+                                score: 100, openCount: 0, lastOpenedAt: 0)
+    let sorted = SearchEngine.sort([highUsageZ, noUsageA],
+                                   by: SearchSortOrder(key: .name, ascending: true))
+    try reporter.require(sorted.map(\.name) == ["apple.txt", "zebra.txt"],
+                         "name ascending should be apple then zebra regardless of usage, got \(sorted.map(\.name))")
 }
 
 exit(reporter.summary())
