@@ -1,43 +1,41 @@
-# 下一阶段任务书（过渡 F1 → F2）
+# 下一阶段任务书（过渡 F2 → F3）
 
 ## Track
 `everything-performance`
 
 ## Stage
-F1 当前刚落地（等待 Codex 验收）。本文件是 F1 → F2 的过渡骨架。
+F2 当前刚落地（等待 Codex 验收）。本文件是 F2 → F3 的过渡骨架。
 
-## F2 目标（预告）
-把"排序更像 Everything"与"limit 真正一致"重新做实。
+## F3 目标（预告）
+把结果列表从"已多列"推进到"更像文件搜索器"的高密度视图。
 
 ### 必须做
-- 重新审视 plain query 多词 AND 的真实效果（E1 已实现，F2 校准）
-- 继续校准 basename / token boundary / path segment / extension bonus
-- 统一 GUI / CLI / settings 的结果上限语义：`SwiftSeekSearch` CLI 当前默认 `--limit 20`，需改为与 DB 的 `search_limit` 一致或明确可覆盖
-- 文档与代码重新对齐
+- 提升结果密度（行高 / 间距 / 字号 / 截断策略收口）
+- 强化 name / path / mtime / size 的扫读效率
+- 增强排序方式切换体验（sort desc 更明确 / persisted across restarts 可选）
+- 收口列布局与状态保留（列宽、显示/隐藏某列、排序状态）
 
 ### 明确不做
-- 不做大性能架构重写（F1 已收口）
-- 不做结果视图重设计（F3）
-- 不做复杂 DSL（F4）
-- 不引入新 bonus 评分维度（保持现有 4 档 + all-in-basename）
+- 不做 DSL 扩张（F4）
+- 不做新搜索后端
+- 不做根本的键盘流重做
 
 ### 涉及关键文件
-- `Sources/SwiftSeekCore/SearchEngine.swift`
 - `Sources/SwiftSeek/UI/SearchViewController.swift`
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-- `Sources/SwiftSeekSearch/main.swift`
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-- `docs/known_issues.md`
+- `Sources/SwiftSeek/UI/SearchWindowController.swift`
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift`
+- `docs/manual_test.md`
 
 ### 验收标准
-1. 多词 AND 与 ranking 行为有明确可重复验证结果
-2. GUI 与 CLI 的结果上限行为不再互相漂移
-3. 文档对相关性和 limit 的描述与代码一致
-4. `swift build` 与 smoke 全绿
+1. 结果视图更高密度（可目测或通过固定行高 / 字号度量）
+2. 主要字段一眼可扫
+3. 相关性 / 路径 / 名称 / 修改时间 / 大小 等排序入口可用
+4. 现有键盘流、QuickLook、右键、拖拽不回退
+5. `swift build` + smoke 全绿
 
 ---
 
 ## 过渡期说明
-F1 round 1 验收完成后本文件需要刷新：
-1. 若 F1 PASS，正文展开为完整 F2 任务书
-2. 若 F1 REJECT，维持 F1 状态按 Codex required fix 修后重验
+F2 round 1 验收完成后本文件需要刷新：
+1. 若 F2 PASS，正文展开为完整 F3 任务书
+2. 若 F2 REJECT，维持 F2 状态按 Codex required fix 修后重验

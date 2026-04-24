@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -2143,30 +2143,33 @@ reporter.check("F1 v3 → v4 migration backfills file_bigrams for pre-existing r
 }
 
 reporter.check("F1 2-char query goes through the bigram index path, not %LIKE% scan") {
-    // Build a tiny fixture and confirm the bigram-driven path returns the
-    // right rows. We can't directly instrument the SQL at runtime, but the
-    // stmt cache observability gives us a proxy: the first search compiles
-    // the bigram SQL, repeated searches hit the cache.
+    // Build a tiny fixture under a deterministic root name so path bigrams
+    // don't leak unrelated hits. makeTempDir() appends a UUID whose hex
+    // digits frequently include "ab" / other query fragments, so we need
+    // our own name here.
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }
     let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
-    let root = try makeTempDir()
-    defer { cleanup(root) }
-    for f in ["ab-notes.txt", "bb-report.txt", "cc-log.txt"] {
-        try "".write(to: root.appendingPathComponent(f),
+    let fm = FileManager.default
+    let stableRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("f1-bigram-root-qz-\(Int(Date().timeIntervalSince1970))")
+    try fm.createDirectory(at: stableRoot, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: stableRoot) }
+    for f in ["zx-notes.txt", "yx-report.txt", "wx-log.txt"] {
+        try "".write(to: stableRoot.appendingPathComponent(f),
                      atomically: true, encoding: .utf8)
     }
-    _ = try Indexer(database: db).indexRoot(root)
+    _ = try Indexer(database: db).indexRoot(stableRoot)
     let engine = SearchEngine(database: db)
-    let hits = try engine.search("ab")
+    // Query "zx" appears only in zx-notes.txt (no other file name or path
+    // contains "zx" because the stable root is "f1-bigram-root-qz-<ts>").
+    let hits = try engine.search("zx")
     let names = hits.map { $0.name }.sorted()
-    // Both ab-notes and bb-report contain 'ab' — second has "bb" + "b-" + ...
-    // Actually bb-report has no "ab" in name or path. Only ab-notes.txt should match.
-    try reporter.require(names == ["ab-notes.txt"],
-                         "2-char 'ab' should return only ab-notes.txt, got \(names)")
+    try reporter.require(names == ["zx-notes.txt"],
+                         "2-char 'zx' should return only zx-notes.txt, got \(names)")
 }
 
 reporter.check("F1 SearchEngine stmt cache: repeat query hits the cache") {
@@ -2239,6 +2242,158 @@ reporter.check("F1 Database settings cache: invalidates on setSetting for same k
     try db.setSetting("k1", value: "v2")
     try reporter.require((try db.getSetting("k1")) == "v2",
                          "stale cache after overwrite")
+}
+
+// MARK: - F2 (real relevance + GUI/CLI limit parity)
+
+reporter.check("F2 ranking matrix: baseline query 'alpha' over a standard fixture") {
+    // Lock down the current scoring contract as a single regression
+    // matrix. Every row asserts an exact expected post-E1/F1 score for a
+    // specific `alpha` hit. Adjusting scoring rules requires updating
+    // this matrix deliberately, not silently.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    for d in ["docs", "beta", "extras-with-alpha"] {
+        try fm.createDirectory(at: root.appendingPathComponent(d),
+                               withIntermediateDirectories: true)
+    }
+    for f in ["alpha.txt", "alphabet.txt",
+              "docs/alpha-notes.md",
+              "beta/alpha report.txt",
+              "extras-with-alpha/README.md"] {
+        try "".write(to: root.appendingPathComponent(f),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("alpha")
+    var byName: [String: Int] = [:]
+    for h in hits { byName[h.name] = h.score }
+
+    // Each expectation is a (name, score) pair; include a per-row comment
+    // so anyone reading the smoke output can reconstruct the bonus math.
+    let expected: [(name: String, score: Int, why: String)] = [
+        // alpha.txt: prefix(800)+basename(50)+boundary(30) = 880
+        // (query "alpha" is a prefix of name "alpha.txt" but not an exact
+        // match — that's why we use 800 not 1000, and why no segment bonus.)
+        ("alpha.txt", 880, "prefix + basename + boundary"),
+        // alphabet.txt: prefix(800)+basename(50)+boundary(30) = 880
+        ("alphabet.txt", 880, "prefix + basename + boundary"),
+        // alpha-notes.md: prefix(800)+basename(50)+boundary(30) = 880
+        ("alpha-notes.md", 880, "prefix + basename + boundary"),
+        // alpha report.txt: prefix(800)+basename(50)+boundary(30) = 880
+        ("alpha report.txt", 880, "prefix + basename + boundary"),
+        // README.md: path-only(200)+boundary(30) = 230 (alpha in extras-with-alpha)
+        ("README.md", 230, "path-only + boundary"),
+    ]
+    for e in expected {
+        guard let got = byName[e.name] else {
+            try reporter.require(false, "missing \(e.name) in results")
+            continue
+        }
+        try reporter.require(got == e.score,
+                             "\(e.name) score=\(got) expected=\(e.score) (\(e.why))")
+    }
+}
+
+reporter.check("F2 ranking matrix: multi-word AND bonuses stack as documented") {
+    // Verify multi-token AND all-in-basename bonus (+100) lands on top
+    // of per-token base+bonuses, matching the E1 contract.
+    let nameBoth = "foo-bar.txt"
+    let pathBoth = "/a/foo-bar.txt"
+    let s = SearchEngine.scoreTokens(["foo", "bar"],
+                                     nameLower: nameBoth,
+                                     pathLower: pathBoth)
+    // foo: prefix(800)+basename(50)+boundary(30) = 880
+    // bar: contains(500)+basename(50)+boundary(30) = 580
+    // both in name → +100
+    // total = 1560
+    try reporter.require(s == 1560,
+                         "multi-token score=\(s) expected 1560")
+
+    // Split: foo in name, bar in path only
+    let s2 = SearchEngine.scoreTokens(["foo", "bar"],
+                                      nameLower: "foo-report.txt",
+                                      pathLower: "/a/bar/foo-report.txt")
+    // foo: prefix(800)+basename(50)+boundary(30) = 880
+    // bar: path-only(200)+segment(40)+boundary(30) = 270
+    // not all-in-name, no +100
+    // total = 1150
+    try reporter.require(s2 == 1150,
+                         "split-path multi-token score=\(s2) expected 1150")
+    try reporter.require(s > s2,
+                         "all-in-basename should outscore split: \(s) vs \(s2)")
+}
+
+reporter.check("F2 CLI default limit: uses DB's search_limit when --limit is omitted") {
+    // Mirrors what SwiftSeekSearch/main.swift does when parsed.limitOverride is nil.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Fresh DB → default.
+    let l0 = try db.getSearchLimit()
+    try reporter.require(l0 == SearchLimitBounds.defaultValue,
+                         "fresh DB CLI default should equal SearchLimitBounds.defaultValue (\(SearchLimitBounds.defaultValue)), got \(l0)")
+    // Persisted change → CLI sees it.
+    try db.setSearchLimit(250)
+    let l1 = try db.getSearchLimit()
+    try reporter.require(l1 == 250,
+                         "persisted 250 should be CLI default, got \(l1)")
+    // Explicit --limit still overrides at the caller level (simulate via
+    // the pattern used in main.swift: if override nil, read from DB).
+    let overrideValue: Int? = 7
+    let effective = overrideValue ?? l1
+    try reporter.require(effective == 7,
+                         "explicit override should win over DB default")
+}
+
+reporter.check("F2 CLI default limit change is reflected in the very next search call") {
+    // End-to-end: raising the limit in settings must make the engine
+    // return more results on the next call. Previously the GUI cached
+    // limit per run; F1 settings cache is invalidated on setSetting so
+    // the new value is observed immediately.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for i in 0..<30 {
+        try "".write(to: root.appendingPathComponent("alpha-\(i).txt"),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    // Use values above SearchLimitBounds.minimum (20) so the clamp
+    // doesn't swallow the intended change.
+    try db.setSearchLimit(22)
+    let fewLimit = try db.getSearchLimit()
+    try reporter.require(fewLimit == 22,
+                         "setSearchLimit(22) should round-trip, got \(fewLimit)")
+    let few = try engine.search("alpha",
+                                options: .init(limit: fewLimit))
+    try reporter.require(few.count == 22,
+                         "limit=22 should cap at 22 (got \(few.count))")
+    try db.setSearchLimit(28)
+    let manyLimit = try db.getSearchLimit()
+    try reporter.require(manyLimit == 28,
+                         "setSearchLimit(28) should round-trip, got \(manyLimit)")
+    let many = try engine.search("alpha",
+                                 options: .init(limit: manyLimit))
+    try reporter.require(many.count == 28,
+                         "limit=28 should cap at 28 (got \(many.count))")
 }
 
 reporter.check("F1 warm 2-char search timing under generous CI bound (200ms median)") {

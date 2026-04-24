@@ -1,18 +1,19 @@
 {
-  "track": "everything-alignment",
-  "stage": "E5",
-  "session_id": "019dbd4c-e0c9-7370-8a0c-1d4263a9f19b",
-  "last_verdict": "PROJECT_COMPLETE",
+  "track": "everything-performance",
+  "stage": "F2",
+  "session_id": "019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90",
+  "last_verdict": "PASS",
   "last_verdict_round": 1,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "Codex E5 round 1 verdict: PROJECT COMPLETE for everything-alignment track (all 5 stages passed, no blockers, build/smoke/startup green)",
+  "last_verdict_reason": "F1 PASS; F2 functional complete + docs pre-synced",
   "passed_stages": [
-    { "stage": "E1", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "E2", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "E3", "verdict": "PASS", "round": 1, "date": "2026-04-24" },
-    { "stage": "E4", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "E5", "verdict": "PROJECT_COMPLETE", "round": 1, "date": "2026-04-24" }
+    { "stage": "F1", "verdict": "PASS", "round": 1, "date": "2026-04-24" }
   ],
-  "commit_at_review": "ad5f15c",
-  "notes": "Track closed. Session id retained for historical reference; new tracks should start their own session ids in a fresh file (e.g. codex-acceptance-session-<track>.json or a new top-level entry)."
+  "archived_tracks": [
+    { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
+    { "track": "everything-alignment", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-24",
+      "previous_session_id": "019dbd4c-e0c9-7370-8a0c-1d4263a9f19b" }
+  ],
+  "commit_at_review": "pending-f2-r1",
+  "notes": "F2 round 1 pending Codex review. Resume with session id above."
 }

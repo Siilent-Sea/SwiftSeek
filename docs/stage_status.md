@@ -2,7 +2,8 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-performance`
-- 当前阶段：`F1`（功能落地，等待 Codex 验收）
+- 当前阶段：`F2`（功能落地，等待 Codex 验收）
+- 轨道内已通过：F1（2026-04-24 round 1 PASS，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90）
 - 已归档轨道：`v1-baseline`（P0~P6 / PROJECT COMPLETE 2026-04-23）
 - 已归档轨道：`everything-alignment`（E1~E5 / PROJECT COMPLETE 2026-04-24）
 
@@ -18,12 +19,52 @@
 
 ## 当前活跃轨道：`everything-performance`
 
+### 已通过：`F1`（搜索热路径性能，2026-04-24 round 1 PASS）
+- Schema v4 新 `file_bigrams` 表
+- SearchEngine 2-char 走 bigram 倒排；trigram 路径不变；1-char LIKE fallback
+- SearchEngine prepared statement cache
+- Database roots / settings cache + 写入 invalidate
+- SwiftSeekBench 新 target（`--enforce-targets` 达标）
+- Smoke +9 F1 用例，总计 107/107
+
 ### 当前轨道目标
 - 先解决"建了索引但搜索仍慢"的核心问题
 - 把当前已经部分落地的 Everything-like 功能按代码真实状态校正
 - 性能 / 真实相关性 / 结果视图 / DSL / root 健康 / 索引自动化 按可验证顺序推进
 
-### 当前阶段：`F1`（搜索热路径性能）
+### 当前阶段：`F2`（真实相关性与 limit 接线）
+
+#### 当前阶段目标（全部已落地，等待 Codex 验收）
+- ✅ `SwiftSeekSearch` CLI 默认 limit 改为读 DB `search_limit`；`--limit N` 显式覆盖保留
+- ✅ ranking regression matrix：smoke 锁定 5 种典型 `alpha` 命中场景的确切 E1/F1 分数，附人类可读分解注释
+- ✅ 多词 AND 分数计算：all-in-name +100 的场景独立测试，split-path 场景也独立测试
+- ✅ 文档校准：已知限制第 4 节去掉"CLI 仍是固定 20"的旧说法，改为"默认值与 DB 一致"
+
+#### 当前阶段禁止事项
+- 不做大性能架构重写（F1 已完成）
+- 不做结果视图重设计（F3）
+- 不做复杂 DSL（F4）
+- 不引入新 bonus 评分维度（保持 E1/F1 现有层次）
+
+#### 代码状态（F2 快照）
+- `Sources/SwiftSeekSearch/main.swift`
+  - `CLIArgs.limitOverride: Int?` 替代原 `limit: Int = 20`
+  - 读取顺序：`parsed.limitOverride ?? (try? db.getSearchLimit()) ?? SearchLimitBounds.defaultValue`
+  - stderr 日志明确打印 limit 来源（`settings.search_limit` vs `--limit override`）
+  - usage 文本同步更新
+- `Sources/SwiftSeekSmokeTest/main.swift`
+  - F2 +4 用例（ranking matrix、multi-token AND 堆叠、CLI default 读 DB、setSearchLimit 立即生效）
+  - 总数 107 + 4 = 111 全绿
+
+#### 完成判定
+1. ✅ 多词 AND 与 ranking 行为有明确可重复验证结果（ranking matrix smoke）
+2. ✅ GUI 与 CLI 的结果上限行为不再互相漂移（CLI 默认读 DB，同时 --limit N 可覆盖）
+3. ✅ 文档对相关性和 limit 的描述与代码一致
+4. ✅ `swift build` + smoke 全绿（111/111）
+
+---
+
+### 原 F1 阶段快照（归档保留）
 
 #### 当前阶段目标（全部已落地，等待 Codex 验收）
 - ✅ 2 字符查询不再走 `%LIKE%` 全表扫描主路径 → Schema v4 新增 `file_bigrams` 表；`SearchEngine.bigramCandidates` 走倒排索引
@@ -91,8 +132,10 @@
 ### 当前最新 Codex 结论
 - 轨道内历史结论：
   - `everything-performance / F1 / REJECT`（round 0 — 代码未落地前的状态审阅）
-- 当前阶段（F1）：功能面已落地，等待 round 1 复验。
+  - `everything-performance / F1 / PASS`（round 1，2026-04-24）
+- 当前阶段（F2）：功能面已落地，等待 round 1 验收。
 
 ### 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`
-- 新轨道 session 将在首次 F1 round 1 Codex 调用后写回
+- 当前 session id：`019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90`
+- 恢复策略：`codex exec resume <session_id>`

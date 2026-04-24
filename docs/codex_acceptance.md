@@ -3,36 +3,33 @@
 本文件只保留当前有效结论。
 
 ## 当前有效结论
-VERDICT: (pending F1 round 1 re-verification)
+VERDICT: (pending F2 round 1)
 TRACK: everything-performance
-STAGE: F1
+STAGE: F2
 ROUND: 1 (awaiting Codex)
 DATE: 2026-04-24
+SESSION_ID: 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
 
 ### Summary
-F1 功能面已落地，覆盖 4 项 blocker：
-
-1. **2 字符查询主路径去掉 `%LIKE%`**：Schema v4 新增 `file_bigrams` 倒排表；`SearchEngine.bigramCandidates` 走 `JOIN file_bigrams` + `HAVING COUNT(DISTINCT gram)` 形态，与 trigram 主路径结构相同。
-2. **prepared statement cache**：SearchEngine 内部按 SQL 字符串缓存 `OpaquePointer`；每次搜索 `sqlite3_reset` + `sqlite3_clear_bindings` 复用。实测 10k 库 50 iters × 7 query：353 hits / 5 misses。
-3. **roots / settings 缓存**：Database 新增 `rootsCached` + `settingsCached`（NSLock 保护）；`listRoots` / `getSetting` 命中返回；`registerRoot` / `removeRoot` / `setRootEnabled` / `setSetting` 写入自动 invalidate。bench 实测 roots cache 357 hits / 1 miss。
-4. **benchmark / perf probe**：新 `SwiftSeekBench` executable target；`--enforce-targets` 模式验证 median / p95 不超标。warm 2-char median 2-4ms，warm 3+char median 1-3ms，远低于 50ms / 30ms 文档目标。
+F2 功能面已落地：
+1. `SwiftSeekSearch` CLI 默认 limit 改为读 `settings.search_limit`（fresh DB 默认 100）；`--limit N` 显式覆盖保留；stderr 日志明确标注 limit 来源。
+2. Ranking regression matrix：F2 新增 4 条 smoke（5 种典型 `alpha` 命中 exact score；multi-token AND all-in-name +100 vs split-path 的堆叠；CLI default vs DB；setSearchLimit 立即生效）。
+3. 文档和代码对齐：known_issues 第 4 节移除"CLI 仍是固定 20"的旧说法。
 
 ### 本地自检
 - `swift build --disable-sandbox` → Build complete!
-- `SwiftSeekSmokeTest` → 107 pass / 0 fail（含 9 条 F1 新用例）
-- `SwiftSeekStartup --db /tmp/ss-f1.sqlite3` → schema=4 + startup check PASS
-- `SwiftSeekBench --enforce-targets` → 全部 [ok]，exit 0
+- `SwiftSeekSmokeTest` → 111 / 0（F2 +4 用例全过）
+- `SwiftSeekStartup` → schema=4 + startup check PASS
 
 ### Blockers / Required fixes
 - 待 Codex round 1 实际判定。
 
 ### Non-blocking notes
-- `SwiftSeekSearch` CLI 默认 `--limit 20` 未改（F2 任务，不在 F1 scope）。
-- Swift 6 `IndexProgress` Sendable warning 未动（非功能阻塞，留给 F5 或单独整理）。
-- bigram 表对磁盘大小有影响：10k 文件约新增 40k bigrams。文档明确说明，不是 bug。
+- F1 round 1 Codex 备注 environment 限制（SwiftShims module cache / SDK 不匹配），但 PASS 依据文件 + 结构审读 + 本地自检结果。
+- F2 未引入新 bonus 维度；只是用测试锁定当前 E1/F1 的得分公式。
 
 ## 轨道内已通过阶段
-（尚无）
+- F1（2026-04-24 round 1 PASS）
 
 ## 历史归档轨道
 - `v1-baseline`：P0 ~ P6 / PROJECT COMPLETE 2026-04-23
