@@ -9,9 +9,9 @@
 - 轨道切换时明确隔离历史 session，避免把已归档轨道的 `PROJECT COMPLETE` 误当成当前轨道结论
 
 ## 当前轨道
-- 当前活跃轨道：`everything-usage`
-- 当前阶段：`H5`
-- 要求：继续使用当前 `everything-usage` 验收 session，并在阶段推进时同步更新 `.txt` / `.json`
+- 当前活跃轨道：`everything-usage`（已完成）
+- 当前阶段：`H5`（已完成）
+- 要求：保留当前 `everything-usage` 验收 session 作为归档记录；如未来开启新轨道，必须新建 `.txt` / `.json`
 - 禁止：混用已归档 `everything-footprint` session
 
 ## 约定文件

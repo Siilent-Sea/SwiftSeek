@@ -2,9 +2,9 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint` 均已归档。当前新活跃轨道是 `everything-usage`，目标是补齐通过 SwiftSeek 打开的使用历史、Run Count、最近打开和 usage-based tie-break 等 Everything-like 使用习惯能力。
+当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 均已归档。`everything-usage`（H1-H5）于 2026-04-24 `PROJECT COMPLETE`，补齐了通过 SwiftSeek 打开的使用历史、Run Count、最近打开、`recent:` / `frequent:` 入口、usage tie-break 和 usage history 隐私控制。**当前无活跃轨道**，新轨道由用户发起。
 
-## 当前能力（截至 `everything-footprint` 完成）
+## 当前能力（截至 `everything-usage` 完成）
 - **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
 - **索引**：首次全量扫描 + FSEvents / polling 双 backend 增量；Schema v5 compact index 默认模式；Full path substring 高级模式保留
 - **搜索**：
@@ -24,6 +24,7 @@ macOS 原生本地极速文件搜索器。
 - **设置页**：索引目录、排除目录、隐藏文件开关、热键预设、结果上限、索引模式、重建索引、DB 维护、诊断信息
 - **RootHealth**：ready / indexing / paused / offline / unavailable，设置页 badge + 搜索空态双重暴露
 - **Footprint**：500k 实测 compact 1.07 GB vs fullpath 3.46 GB；首次索引 44.87s vs 197.62s
+- **Usage**（H1-H5）：`file_usage` 表记录 SwiftSeek 内部 `.open` 次数；结果表"打开次数" / "最近打开"两列；同 score tie-break (openCount → lastOpenedAt)；`recent:` / `frequent:` 查询前缀；设置 → 维护 tab 的记录开关 + 清空入口；500k+100k usage bench：3+char(+usage) 94.33ms 中位，`recent:` 89.44ms，`recordOpen` 8μs
 
 ## 当前限制
 Run Count / 最近打开 / `recent:` / `frequent:` / usage tie-break 已在 H1-H5 落地（见 [docs/everything_usage_bench.md](docs/everything_usage_bench.md)），且只记录通过 SwiftSeek 打开的次数 —— macOS 全局启动次数不在承诺范围，不读系统隐私数据。剩余限制仍然集中在：500k 规模下 warm 3+char 超出 F1 旧 10k 基线（规模效应，G5 已记录），启发式相关性模型、查询 DSL（不支持 OR/NOT/括号/引号短语/复杂布尔）等。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
@@ -34,10 +35,10 @@ Run Count / 最近打开 / `recent:` / `frequent:` / usage tie-break 已在 H1-H
 ## 当前进度
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
-- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`
-- 当前活跃轨道：`everything-usage`（H1-H4 round 2 PASS；H5 benchmark 已落盘，等待 Codex 最终 PROJECT COMPLETE）
-- H5 实测亮点（500k compact + 100k file_usage）：3+char 加 usage JOIN 中位数 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs —— usage 路径不破坏主路径体验
-- H5 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
+- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`（H1-H5，2026-04-24 PROJECT COMPLETE）
+- 当前活跃轨道：**无**（新轨道启动由用户发起）
+- everything-usage 500k 实测亮点：3+char 加 100k usage JOIN 中位 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs
+- everything-usage 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
 
 ## 快速上手（本地交付）
 
