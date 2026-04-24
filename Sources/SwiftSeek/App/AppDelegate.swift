@@ -55,7 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let db = database, let rc = rebuildCoordinator else { return }
             settingsWindowController = SettingsWindowController(
                 database: db,
-                rebuildCoordinator: rc
+                rebuildCoordinator: rc,
+                hotkeyReinstallHandler: { [weak self] in self?.reinstallHotkey() ?? false }
             )
         }
         settingsWindowController?.showWindow(nil)
@@ -73,8 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installGlobalHotkey() {
+        let (keyCode, modifiers) = readPersistedHotkey()
         let hk = GlobalHotkey()
-        let ok = hk.register { [weak self] in
+        let ok = hk.register(keyCode: keyCode, modifiers: modifiers) { [weak self] in
             self?.searchWindowController?.toggle()
         }
         if !ok {
@@ -82,6 +84,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             maybeAlertHotkeyFailure()
         }
         self.hotkey = hk
+    }
+
+    /// E5 re-register the global hotkey after the user picks a new
+    /// preset in Settings. Returns true on success so the Settings UI
+    /// can revert to the previous selection on failure.
+    @discardableResult
+    func reinstallHotkey() -> Bool {
+        let (keyCode, modifiers) = readPersistedHotkey()
+        let hk = self.hotkey ?? GlobalHotkey()
+        let ok = hk.register(keyCode: keyCode, modifiers: modifiers) { [weak self] in
+            self?.searchWindowController?.toggle()
+        }
+        self.hotkey = hk
+        if !ok {
+            NSLog("SwiftSeek: hotkey re-registration failed at (\(keyCode), \(modifiers))")
+        }
+        return ok
+    }
+
+    private func readPersistedHotkey() -> (keyCode: UInt32, modifiers: UInt32) {
+        guard let db = database else {
+            return (GlobalHotkey.defaultKeyCode, GlobalHotkey.defaultModifiers)
+        }
+        do {
+            return try db.getHotkey()
+        } catch {
+            NSLog("SwiftSeek: readPersistedHotkey failed: \(error)")
+            return (GlobalHotkey.defaultKeyCode, GlobalHotkey.defaultModifiers)
+        }
     }
 
     private func maybeAlertHotkeyFailure() {

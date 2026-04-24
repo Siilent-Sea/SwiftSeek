@@ -11,13 +11,17 @@ import SwiftSeekCore
 final class SettingsWindowController: NSWindowController {
     private let database: Database
     private let rebuildCoordinator: RebuildCoordinator
+    private let hotkeyReinstallHandler: (() -> Bool)?
     private let banner = NSTextField(wrappingLabelWithString: "")
     private let bannerContainer = NSView()
     private var bannerHeightConstraint: NSLayoutConstraint?
 
-    init(database: Database, rebuildCoordinator: RebuildCoordinator) {
+    init(database: Database,
+         rebuildCoordinator: RebuildCoordinator,
+         hotkeyReinstallHandler: (() -> Bool)? = nil) {
         self.database = database
         self.rebuildCoordinator = rebuildCoordinator
+        self.hotkeyReinstallHandler = hotkeyReinstallHandler
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 460),
@@ -35,6 +39,7 @@ final class SettingsWindowController: NSWindowController {
 
         let generalPane = GeneralPane(database: database,
                                       rebuildCoordinator: rebuildCoordinator)
+        generalPane.hotkeyReinstallHandler = hotkeyReinstallHandler
         let indexingPane = IndexingPane(database: database,
                                         rebuildCoordinator: rebuildCoordinator)
         let maintenancePane = MaintenancePane(database: database,
@@ -138,6 +143,15 @@ private final class GeneralPane: NSViewController {
     private let limitField = NSTextField()
     private let limitStepper = NSStepper()
     private let limitNote = NSTextField(wrappingLabelWithString: "")
+    // E5: hotkey preset picker
+    private let hotkeyLabel = NSTextField(labelWithString: "全局热键：")
+    private let hotkeyPopup = NSPopUpButton()
+    private let hotkeyNote = NSTextField(wrappingLabelWithString: "")
+    /// Closure injected by AppDelegate so this pane can trigger
+    /// re-registration of the Carbon hotkey without reaching through
+    /// the view hierarchy. Returns true iff the new combo registered
+    /// successfully.
+    var hotkeyReinstallHandler: (() -> Bool)?
 
     init(database: Database, rebuildCoordinator: RebuildCoordinator) {
         self.database = database
@@ -202,11 +216,34 @@ private final class GeneralPane: NSViewController {
         limitRow.alignment = .centerY
         limitRow.translatesAutoresizingMaskIntoConstraints = false
 
+        // E5 hotkey row
+        hotkeyLabel.translatesAutoresizingMaskIntoConstraints = false
+        hotkeyPopup.translatesAutoresizingMaskIntoConstraints = false
+        hotkeyPopup.removeAllItems()
+        for preset in HotkeyPresets.all {
+            hotkeyPopup.addItem(withTitle: preset.label)
+        }
+        hotkeyPopup.target = self
+        hotkeyPopup.action = #selector(onHotkeyChanged)
+
+        hotkeyNote.translatesAutoresizingMaskIntoConstraints = false
+        hotkeyNote.font = NSFont.systemFont(ofSize: 11)
+        hotkeyNote.textColor = .secondaryLabelColor
+        hotkeyNote.stringValue = "全局热键呼出搜索窗。如果选择的组合被系统或其他应用占用，切换后会弹窗提示并恢复上一个有效值。"
+
+        let hotkeyRow = NSStackView(views: [hotkeyLabel, hotkeyPopup])
+        hotkeyRow.orientation = .horizontal
+        hotkeyRow.spacing = 8
+        hotkeyRow.alignment = .centerY
+        hotkeyRow.translatesAutoresizingMaskIntoConstraints = false
+
         root.addSubview(title)
         root.addSubview(row)
         root.addSubview(note)
         root.addSubview(limitRow)
         root.addSubview(limitNote)
+        root.addSubview(hotkeyRow)
+        root.addSubview(hotkeyNote)
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -226,6 +263,13 @@ private final class GeneralPane: NSViewController {
             limitNote.topAnchor.constraint(equalTo: limitRow.bottomAnchor, constant: 6),
             limitNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             limitNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            hotkeyRow.topAnchor.constraint(equalTo: limitNote.bottomAnchor, constant: 24),
+            hotkeyRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            hotkeyNote.topAnchor.constraint(equalTo: hotkeyRow.bottomAnchor, constant: 6),
+            hotkeyNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            hotkeyNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
         ])
         self.view = root
     }
@@ -250,6 +294,19 @@ private final class GeneralPane: NSViewController {
         }
         limitField.integerValue = current
         limitStepper.integerValue = current
+
+        // E5: reflect persisted hotkey selection in the popup.
+        let (hkKey, hkMods): (UInt32, UInt32)
+        do {
+            (hkKey, hkMods) = try database.getHotkey()
+        } catch {
+            NSLog("SwiftSeek: GeneralPane read hotkey failed: \(error)")
+            hkKey = HotkeyPresets.default.keyCode
+            hkMods = HotkeyPresets.default.modifiers
+        }
+        let matching = HotkeyPresets.preset(keyCode: hkKey, modifiers: hkMods)
+                    ?? HotkeyPresets.default
+        hotkeyPopup.selectItem(withTitle: matching.label)
     }
 
     @objc private func onToggle(_ sender: NSButton) {
@@ -295,6 +352,46 @@ private final class GeneralPane: NSViewController {
             try database.setSearchLimit(n)
         } catch {
             NSLog("SwiftSeek: failed to persist search limit: \(error)")
+        }
+    }
+
+    @objc private func onHotkeyChanged() {
+        // Remember the previous persisted combo so we can roll back if
+        // the new one fails to register (e.g. taken by Spotlight).
+        let previous: (UInt32, UInt32)
+        do {
+            previous = try database.getHotkey()
+        } catch {
+            previous = (HotkeyPresets.default.keyCode, HotkeyPresets.default.modifiers)
+        }
+        guard let title = hotkeyPopup.titleOfSelectedItem,
+              let preset = HotkeyPresets.all.first(where: { $0.label == title }) else {
+            return
+        }
+        do {
+            try database.setHotkey(keyCode: preset.keyCode, modifiers: preset.modifiers)
+        } catch {
+            NSLog("SwiftSeek: failed to persist hotkey: \(error)")
+            return
+        }
+        let ok = hotkeyReinstallHandler?() ?? false
+        if !ok {
+            // Roll back: restore previous combo both in DB and in the popup.
+            do {
+                try database.setHotkey(keyCode: previous.0, modifiers: previous.1)
+            } catch {
+                NSLog("SwiftSeek: failed to roll back hotkey: \(error)")
+            }
+            _ = hotkeyReinstallHandler?()
+            if let old = HotkeyPresets.preset(keyCode: previous.0, modifiers: previous.1) {
+                hotkeyPopup.selectItem(withTitle: old.label)
+            }
+            let alert = NSAlert()
+            alert.messageText = "无法注册该热键"
+            alert.informativeText = "\(preset.label) 可能被系统或其他应用占用。已恢复为上一个有效组合。"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
         }
     }
 

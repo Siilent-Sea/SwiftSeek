@@ -1,37 +1,26 @@
-# 下一阶段任务书（准入 E5）
+# 下一阶段任务书（everything-alignment 收尾）
 
 ## Track
 `everything-alignment`
 
 ## Stage
-E4 当前刚落地（等待 Codex 验收）。本文件是 E4 → E5 的过渡任务书骨架；在 E4 PASS 之后再把正文展开到 E5。
+E5 当前刚落地。E1-E4 均已 PASS。本文件是轨道最终收尾前最后一轮提示。
 
-## 目标（E5 预告）
-收掉高频使用层面最后一批短板 —— 热键可配置、使用习惯优化、文档收尾。
+## 目标
+- 热键配置 + 使用习惯优化 + 文档收尾 = E5 已完成
+- 本轨道如 Codex round 1 通过，可颁发 `PROJECT COMPLETE for everything-alignment track`
 
-## E5 明确做什么（预告）
-- 全局热键可配置（GUI 修改、持久化、运行时重注册）
-- 热键冲突与无效输入有明确反馈
-- 文档与手测对齐最终行为
-- 为当前活跃轨道准备最终验收（PROJECT COMPLETE 条件）
+## E5 完成判定（复述自 docs/everything_alignment_taskbook.md）
+1. 热键可配置且持久化 ✅
+2. 热键冲突与无效输入有明确反馈（注册失败弹窗 + 自动回滚）✅
+3. 如果引入 usage-based tie-break，必须可解释且不破坏基础相关性 — 本轮未引入（非必需）
+4. 文档与手测对齐最终行为 ✅
 
-## E5 明确不做
-- 不引入新的搜索后端
-- 不做大规模 UX 重写
-- 不碰 E1-E4 已经 sealed 的能力
+## 如果 Codex 颁发 PROJECT COMPLETE
+- 本文件保留作为 v2+ 新轨道启动点的参考模板
+- `docs/stage_status.md` 的 "当前活跃轨道" 将变更为 "（无活跃轨道，待用户确认新轨道）"
+- `docs/codex_acceptance.md` 将把 `PROJECT COMPLETE` 固定为最终结论
 
-## 涉及关键文件（预告）
-- `Sources/SwiftSeek/App/GlobalHotkey.swift`
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-- `Sources/SwiftSeekCore/Database.swift`（settings 持久化）
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-- `README.md`
-- `docs/manual_test.md`
-- `docs/known_issues.md`
-
----
-
-## 过渡期说明
-E4 round 1 验收完成后本文件需要刷新：
-1. 若 E4 拿到 PASS，展开为完整 E5 任务书。
-2. 若 E4 被 REJECT，维持当前 E4 状态，按 Codex required fix 修后重验。
+## 如果 Codex 仍 REJECT
+- 按 required fix 修 + re-verify，直到 PASS
+- 不启动新轨道

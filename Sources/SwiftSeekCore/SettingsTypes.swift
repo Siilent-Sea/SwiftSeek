@@ -36,6 +36,55 @@ public enum SettingsKey {
     public static let lastRebuildResult = "last_rebuild_result"  // "success" / "failed:<msg>"
     public static let lastRebuildStats = "last_rebuild_stats"    // human-readable summary
     public static let searchLimit = "search_limit"               // positive integer, default 100
+    public static let hotkeyKeyCode = "hotkey_key_code"          // Carbon virtual key code (UInt32 serialized as string)
+    public static let hotkeyModifiers = "hotkey_modifiers"       // Carbon modifier mask (UInt32 serialized as string)
+}
+
+// MARK: - E5 hotkey presets
+
+/// Curated hotkey presets for the Settings UI. Writing a full keycode
+/// recorder is a rabbit-hole (IME capture, layout-independence, media
+/// keys); a closed list of sane Spotlight-style combos covers 95% of
+/// real use without owning a recorder. Values here are Carbon constants
+/// so they match what `GlobalHotkey.register` expects verbatim.
+public struct HotkeyPreset: Equatable, Sendable {
+    public let label: String
+    public let keyCode: UInt32
+    public let modifiers: UInt32
+
+    public init(label: String, keyCode: UInt32, modifiers: UInt32) {
+        self.label = label
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+    }
+}
+
+public enum HotkeyPresets {
+    // Carbon constants (from <Carbon/HIToolbox/Events.h>); hard-coded here
+    // so Core doesn't have to import Carbon.
+    private static let optionKey: UInt32  = 1 << 11   // 0x0800
+    private static let shiftKey: UInt32   = 1 << 9    // 0x0200
+    private static let cmdKey: UInt32     = 1 << 8    // 0x0100
+    private static let controlKey: UInt32 = 1 << 12   // 0x1000
+    private static let kVK_Space: UInt32  = 49
+
+    public static let all: [HotkeyPreset] = [
+        HotkeyPreset(label: "⌥Space（默认）", keyCode: kVK_Space, modifiers: optionKey),
+        HotkeyPreset(label: "⌃Space",        keyCode: kVK_Space, modifiers: controlKey),
+        HotkeyPreset(label: "⇧⌘Space",       keyCode: kVK_Space, modifiers: shiftKey | cmdKey),
+        HotkeyPreset(label: "⌃⌥Space",       keyCode: kVK_Space, modifiers: controlKey | optionKey),
+        HotkeyPreset(label: "⌥⌘Space",       keyCode: kVK_Space, modifiers: optionKey | cmdKey),
+    ]
+
+    public static let `default`: HotkeyPreset = all[0]
+
+    /// Resolve a keyCode + modifiers pair back to a labeled preset, or
+    /// nil if the saved combo is not in the curated list (e.g. a value
+    /// from a future version). Callers should fall back to the default
+    /// label in that case.
+    public static func preset(keyCode: UInt32, modifiers: UInt32) -> HotkeyPreset? {
+        return all.first { $0.keyCode == keyCode && $0.modifiers == modifiers }
+    }
 }
 
 /// E1 search result limit bounds. A hard cap keeps pathological settings
@@ -82,6 +131,30 @@ public extension Database {
 public func clampSearchLimit(_ value: Int) -> Int {
     return max(SearchLimitBounds.minimum,
                min(SearchLimitBounds.maximum, value))
+}
+
+public extension Database {
+    /// Read persisted hotkey (Carbon keyCode + modifier mask). Returns
+    /// the default preset if missing or malformed so first launches /
+    /// corrupt settings rows never leave the app without a working
+    /// global hotkey.
+    func getHotkey() throws -> (keyCode: UInt32, modifiers: UInt32) {
+        let raw1 = try getSetting(SettingsKey.hotkeyKeyCode)
+        let raw2 = try getSetting(SettingsKey.hotkeyModifiers)
+        if let r1 = raw1, let r2 = raw2,
+           let k = UInt32(r1), let m = UInt32(r2) {
+            return (k, m)
+        }
+        let d = HotkeyPresets.default
+        return (d.keyCode, d.modifiers)
+    }
+
+    /// Persist a hotkey combo. Both values are written together so
+    /// readers never see a partially-updated pair.
+    func setHotkey(keyCode: UInt32, modifiers: UInt32) throws {
+        try setSetting(SettingsKey.hotkeyKeyCode, value: String(keyCode))
+        try setSetting(SettingsKey.hotkeyModifiers, value: String(modifiers))
+    }
 }
 
 // MARK: - E4 root health

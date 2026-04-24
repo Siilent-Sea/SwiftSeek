@@ -620,6 +620,30 @@ chmod a-w /tmp/readonly.sqlite3
 - 设置页操作失败会通过 `NSLog("SwiftSeek: ...")` 写出
 - MaintenancePane 重建失败会在 UI 显示 `failed: <msg>`，同时写 log
 
+### 33a. E1 相关性 + 多列 + 过滤 + root 状态（快速回归）
+1. 启动 GUI，`⌥Space` 呼出搜索窗
+2. 输入 `alpha report` → 只返回名字同时含 alpha 和 report 的项（多词 AND）
+3. 输入 `ext:md` → 仅 .md 文件（E3 过滤）
+4. 点列头切换排序（名称 / 修改时间 / 大小）→ 顺序变化；切回 score 列恢复
+5. 设置 → 索引范围 → 点 `+` 添加新目录 → 不弹 confirm，直接看到 ⏳ 索引中 → 自动转 ✅ 就绪（E4）
+6. 设置 → 索引范围 → 拖入多个文件夹 → 全部自动索引，无遗漏
+
+### 33b. E5 热键配置
+1. 设置 → 常规 → 全局热键下拉 → 切换到 ⌃Space
+   - 期望：热键立刻生效；现在按 ⌥Space 不出搜索窗，按 ⌃Space 出
+2. 在另一个会占用该组合的 App 打开状态下再次切换（例如切到已被其他 app 占用的组合）
+   - 期望：弹窗 "无法注册该热键"；popup 自动回滚到上一个有效值
+3. 编辑 `~/Library/Application Support/SwiftSeek/index.sqlite3`：
+   ```
+   sqlite3 index.sqlite3 "UPDATE settings SET value='not-a-number' WHERE key='hotkey_key_code';"
+   ```
+   重新启动 GUI → 期望回退到 ⌥Space 默认组合，不崩溃
+
+### 33c. 搜索结果上限（E1 设置化）
+1. 设置 → 常规 → 搜索结果上限：改为 50
+2. 搜索一个高命中 query（例如 `txt`）
+3. 期望状态栏 `仅显示前 50 条`；改回 100 立即生效（无需重启）
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

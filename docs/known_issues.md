@@ -16,11 +16,11 @@
 - 列头可点击切换排序；默认仍为 score 降序
 - 当前尚不提供 pinned column、多选列、右键列菜单等高级视图能力（留给后续非阶段任务再考虑）
 
-### 3. 热键仍未可配置（留给 E5）
-- 默认全局热键仍是固定的 `⌥Space`
-- 如果与 Spotlight、Alfred、Raycast 冲突，只能改别的 App，或改代码后重新编译
-- 设置页当前没有热键自定义入口
-- E5 阶段专门处理热键配置
+### 3. 热键已可配置（E5 起）
+- 设置 → 常规 → 全局热键下拉选单提供 5 个预设：⌥Space（默认）/ ⌃Space / ⇧⌘Space / ⌃⌥Space / ⌥⌘Space
+- 选择后立即生效：持久化到 DB + 重新调用 `RegisterEventHotKey`
+- 注册失败自动回滚到上一个有效组合并弹窗提示，不会停留在未注册成功的新值上
+- 不支持任意组合的录制（闭合列表，避免 key recorder 复杂度）；未来如需再扩
 
 ### 4. 索引自动化体验已接入（E4 起）
 - 新增 root 直接后台 `indexOneRoot`，不再弹 “要不要现在重建”
@@ -51,9 +51,15 @@
 ### E4 已解决
 - **`RootHealth` 5 档**：ready / indexing / paused / offline / unavailable；`Database.computeRootHealth(for:currentlyIndexingPath:)`。
 - **状态对用户可见**：IndexingPane roots 列显示状态文案；IndexingPane 订阅 `RebuildCoordinator.onStateChange` 实时刷新。
-- **新增 root 自动后台索引**：`autoIndexAfterAdd` → `RebuildCoordinator.indexOneRoot`；不再弹 confirm。拖入文件夹流程同样走自动索引。
+- **新增 root 自动后台索引**：`autoIndexAfterAdd` → `RebuildCoordinator.indexOneRoot`；不再弹 confirm。拖入文件夹流程同样走自动索引，使用 `pendingAutoIndex` FIFO 队列保证 N 个 drop 都被逐一索引（round 2 regression fix）。
 - **hidden 开关显式反馈**：切换后弹 “立即重建 / 稍后”，选择前明确告知已保存 + 生效语义。
 - **exclude 新增**：继续使用 v1 已有的立即清理路径，文案明确说明 “无需重建”。
+
+### E5 已解决
+- **热键可配置**：`HotkeyPresets` 5 个 Spotlight 风格 Space 组合；`Database.{get,set}Hotkey(keyCode:modifiers:)` 持久化。
+- **冲突反馈**：SettingsWindowController 切换热键时 persist + 调 AppDelegate.reinstallHotkey；注册失败回滚到上一个有效值 + 弹窗提示。
+- **malformed fallback**：DB 中手写非法 hotkey 值自动回退到默认预设，启动链路不会卡死。
+- **CLI 无耦合**：CLI binaries 不受热键改动影响；GUI 唯一消费者。
 
 ## 环境约束
 

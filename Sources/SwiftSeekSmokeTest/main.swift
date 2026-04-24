@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -1957,6 +1957,73 @@ reporter.check("E4 RebuildCoordinator.currentlyIndexingPath is nil when idle") {
     let coord = RebuildCoordinator(database: db)
     try reporter.require(coord.currentlyIndexingPath == nil,
                          "idle coordinator should report nil currentlyIndexingPath, got \(String(describing: coord.currentlyIndexingPath))")
+}
+
+// MARK: - E5 (hotkey customisation)
+
+reporter.check("E5 HotkeyPresets: default is first entry and round-trips through preset(keyCode:modifiers:)") {
+    let d = HotkeyPresets.default
+    try reporter.require(!d.label.isEmpty, "default preset has empty label")
+    let found = HotkeyPresets.preset(keyCode: d.keyCode, modifiers: d.modifiers)
+    try reporter.require(found == d,
+                         "preset() should round-trip the default, got \(String(describing: found))")
+    try reporter.require(HotkeyPresets.preset(keyCode: 0, modifiers: 0) == nil,
+                         "unknown combo should return nil, not silently map to something")
+}
+
+reporter.check("E5 HotkeyPresets: at least 3 presets and all share the Space virtual key") {
+    try reporter.require(HotkeyPresets.all.count >= 3,
+                         "expected >=3 presets, got \(HotkeyPresets.all.count)")
+    let space: UInt32 = 49 // kVK_Space
+    for p in HotkeyPresets.all {
+        try reporter.require(p.keyCode == space,
+                             "preset \(p.label) has non-Space keyCode \(p.keyCode)")
+    }
+}
+
+reporter.check("E5 Database.getHotkey: fresh DB returns the default preset") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let (k, m) = try db.getHotkey()
+    let d = HotkeyPresets.default
+    try reporter.require(k == d.keyCode && m == d.modifiers,
+                         "fresh DB should default to \(d.label), got (\(k), \(m))")
+}
+
+reporter.check("E5 Database.setHotkey / getHotkey: round-trip of every preset") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    for preset in HotkeyPresets.all {
+        try db.setHotkey(keyCode: preset.keyCode, modifiers: preset.modifiers)
+        let (k, m) = try db.getHotkey()
+        try reporter.require(k == preset.keyCode && m == preset.modifiers,
+                             "round-trip failed for \(preset.label): got (\(k), \(m))")
+    }
+}
+
+reporter.check("E5 Database.getHotkey: malformed value falls back to default") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Hand-write a malformed value and verify getHotkey returns default
+    // instead of crashing or returning garbage.
+    try db.setSetting(SettingsKey.hotkeyKeyCode, value: "not-a-number")
+    try db.setSetting(SettingsKey.hotkeyModifiers, value: "also-not")
+    let (k, m) = try db.getHotkey()
+    let d = HotkeyPresets.default
+    try reporter.require(k == d.keyCode && m == d.modifiers,
+                         "malformed hotkey should fall back to default, got (\(k), \(m))")
 }
 
 reporter.check("E3 end-to-end: kind:dir returns only directories") {
