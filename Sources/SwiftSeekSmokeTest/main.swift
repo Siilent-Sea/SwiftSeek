@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -2394,6 +2394,87 @@ reporter.check("F2 CLI default limit change is reflected in the very next search
                                  options: .init(limit: manyLimit))
     try reporter.require(many.count == 28,
                          "limit=28 should cap at 28 (got \(many.count))")
+}
+
+// MARK: - F3 (result view density + sort persistence + column widths)
+
+reporter.check("F3 sort order persistence: fresh DB returns scoreDescending") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let o = try db.getResultSortOrder()
+    try reporter.require(o == .scoreDescending,
+                         "fresh DB should default to scoreDescending, got \(o)")
+}
+
+reporter.check("F3 sort order persistence: round-trip every SearchSortKey") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let cases: [SearchSortOrder] = [
+        .init(key: .score, ascending: false),
+        .init(key: .score, ascending: true),
+        .init(key: .name, ascending: true),
+        .init(key: .name, ascending: false),
+        .init(key: .path, ascending: true),
+        .init(key: .mtime, ascending: false),
+        .init(key: .size, ascending: true),
+    ]
+    for order in cases {
+        try db.setResultSortOrder(order)
+        let got = try db.getResultSortOrder()
+        try reporter.require(got == order,
+                             "round-trip failed for \(order): got \(got)")
+    }
+}
+
+reporter.check("F3 sort order persistence: malformed or missing row falls back to scoreDescending") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Writing garbage directly via the raw settings API (bypassing the
+    // typed wrapper) must not make the reader crash — it should treat
+    // it as "no valid setting" and return the default.
+    try db.setSetting(SettingsKey.resultSortKey, value: "bogus-key")
+    try db.setSetting(SettingsKey.resultSortAscending, value: "not-a-bool")
+    let got = try db.getResultSortOrder()
+    try reporter.require(got == .scoreDescending,
+                         "malformed rows should fall back to scoreDescending, got \(got)")
+}
+
+reporter.check("F3 column width persistence: missing = nil, round-trip per key") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let keys = [
+        SettingsKey.resultColumnWidthName,
+        SettingsKey.resultColumnWidthPath,
+        SettingsKey.resultColumnWidthMtime,
+        SettingsKey.resultColumnWidthSize,
+    ]
+    for k in keys {
+        try reporter.require((try db.getResultColumnWidth(key: k)) == nil,
+                             "fresh DB should return nil for \(k)")
+    }
+    for (i, k) in keys.enumerated() {
+        let w = Double(100 + i * 50)
+        try db.setResultColumnWidth(key: k, width: w)
+        let got = try db.getResultColumnWidth(key: k) ?? -1
+        try reporter.require(got == w,
+                             "round-trip failed for \(k): \(got) vs \(w)")
+    }
 }
 
 reporter.check("F1 warm 2-char search timing under generous CI bound (200ms median)") {

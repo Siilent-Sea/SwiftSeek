@@ -2,8 +2,8 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-performance`
-- 当前阶段：`F2`（功能落地，等待 Codex 验收）
-- 轨道内已通过：F1（2026-04-24 round 1 PASS，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90）
+- 当前阶段：`F3`（功能落地，等待 Codex 验收）
+- 轨道内已通过：F1（round 1 PASS）、F2（round 2 PASS），均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
 - 已归档轨道：`v1-baseline`（P0~P6 / PROJECT COMPLETE 2026-04-23）
 - 已归档轨道：`everything-alignment`（E1~E5 / PROJECT COMPLETE 2026-04-24）
 
@@ -32,37 +32,46 @@
 - 把当前已经部分落地的 Everything-like 功能按代码真实状态校正
 - 性能 / 真实相关性 / 结果视图 / DSL / root 健康 / 索引自动化 按可验证顺序推进
 
-### 当前阶段：`F2`（真实相关性与 limit 接线）
+### 当前阶段：`F3`（高密度结果视图与排序入口）
 
 #### 当前阶段目标（全部已落地，等待 Codex 验收）
-- ✅ `SwiftSeekSearch` CLI 默认 limit 改为读 DB `search_limit`；`--limit N` 显式覆盖保留
-- ✅ ranking regression matrix：smoke 锁定 5 种典型 `alpha` 命中场景的确切 E1/F1 分数，附人类可读分解注释
-- ✅ 多词 AND 分数计算：all-in-name +100 的场景独立测试，split-path 场景也独立测试
-- ✅ 文档校准：已知限制第 4 节去掉"CLI 仍是固定 20"的旧说法，改为"默认值与 DB 一致"
+- ✅ 结果视图列布局保留：用户调整列宽后持久化，重启恢复
+- ✅ 排序状态保留：用户点击列头切换后持久化，重启恢复到上次选择
+- ✅ 非法 / 缺失持久值 fallback 到默认（scoreDescending / 程序默认列宽），不崩不乱
+- ✅ 现有键盘流 / QuickLook / 右键 / 拖拽 / substring 高亮不回退（E2+UX polish 全部保留）
 
 #### 当前阶段禁止事项
-- 不做大性能架构重写（F1 已完成）
-- 不做结果视图重设计（F3）
-- 不做复杂 DSL（F4）
-- 不引入新 bonus 评分维度（保持 E1/F1 现有层次）
+- 不做 DSL 扩张（F4）
+- 不做新搜索后端
+- 不做根本的键盘流重做
 
-#### 代码状态（F2 快照）
-- `Sources/SwiftSeekSearch/main.swift`
-  - `CLIArgs.limitOverride: Int?` 替代原 `limit: Int = 20`
-  - 读取顺序：`parsed.limitOverride ?? (try? db.getSearchLimit()) ?? SearchLimitBounds.defaultValue`
-  - stderr 日志明确打印 limit 来源（`settings.search_limit` vs `--limit override`）
-  - usage 文本同步更新
+#### 代码状态（F3 快照）
+- `Sources/SwiftSeekCore/SettingsTypes.swift`
+  - 新 SettingsKey：`resultSortKey` / `resultSortAscending` / `resultColumnWidth{Name,Path,Mtime,Size}`
+  - Database 扩展：`getResultSortOrder()` / `setResultSortOrder(_:)` / `getResultColumnWidth(key:)` / `setResultColumnWidth(key:width:)`
+  - malformed row 自动 fallback
+- `Sources/SwiftSeek/UI/SearchViewController.swift`
+  - `columnResizeObserver` 订阅 `NSTableView.columnDidResizeNotification`，改变时按 column identifier 持久化到对应 settings key
+  - loadView 用 `persistedWidth(for:)` 为每列选择初始宽度（miss 回退到程序默认）
+  - loadView 用 `database.getResultSortOrder()` 恢复上次 sortOrder + AppKit `sortDescriptors`
+  - `sortDescriptorsDidChange` 除了更新 UI，也 `database.setResultSortOrder` 持久化
+  - deinit 清理 NotificationCenter observer
 - `Sources/SwiftSeekSmokeTest/main.swift`
-  - F2 +4 用例（ranking matrix、multi-token AND 堆叠、CLI default 读 DB、setSearchLimit 立即生效）
-  - 总数 107 + 4 = 111 全绿
+  - F3 +4 用例（fresh sort = scoreDescending / 每个 SortKey round-trip / malformed fallback / 每个 column width round-trip）
+  - 总数 111 + 4 = 115 全绿
 
 #### 完成判定
-1. ✅ 多词 AND 与 ranking 行为有明确可重复验证结果（ranking matrix smoke）
-2. ✅ GUI 与 CLI 的结果上限行为不再互相漂移（CLI 默认读 DB，同时 --limit N 可覆盖）
-3. ✅ 文档对相关性和 limit 的描述与代码一致
-4. ✅ `swift build` + smoke 全绿（111/111）
+1. ✅ 结果视图密度不回退（沿用 E2 的 4 列 + 窄行高 22）
+2. ✅ 主要字段一眼可扫（name / path / mtime / size 四列齐全）
+3. ✅ 排序方式切换可用且持久化（score / name / path / mtime / size × 升降）
+4. ✅ 键盘流、QuickLook、右键、拖拽不回退
+5. ✅ `swift build` + smoke 全绿（115/115）
 
 ---
+
+### 原 F2 阶段快照（归档保留）
+- CLI default limit 接 DB，ranking regression matrix 锁定
+- 文档一致性
 
 ### 原 F1 阶段快照（归档保留）
 
@@ -131,9 +140,9 @@
 
 ### 当前最新 Codex 结论
 - 轨道内历史结论：
-  - `everything-performance / F1 / REJECT`（round 0 — 代码未落地前的状态审阅）
   - `everything-performance / F1 / PASS`（round 1，2026-04-24）
-- 当前阶段（F2）：功能面已落地，等待 round 1 验收。
+  - `everything-performance / F2 / PASS`（round 2，2026-04-24）
+- 当前阶段（F3）：功能面已落地，等待 round 1 验收。
 
 ### 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`

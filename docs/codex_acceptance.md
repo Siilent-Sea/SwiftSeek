@@ -3,33 +3,34 @@
 本文件只保留当前有效结论。
 
 ## 当前有效结论
-VERDICT: (pending F2 round 1)
+VERDICT: (pending F3 round 1)
 TRACK: everything-performance
-STAGE: F2
+STAGE: F3
 ROUND: 1 (awaiting Codex)
 DATE: 2026-04-24
 SESSION_ID: 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
 
 ### Summary
-F2 功能面已落地：
-1. `SwiftSeekSearch` CLI 默认 limit 改为读 `settings.search_limit`（fresh DB 默认 100）；`--limit N` 显式覆盖保留；stderr 日志明确标注 limit 来源。
-2. Ranking regression matrix：F2 新增 4 条 smoke（5 种典型 `alpha` 命中 exact score；multi-token AND all-in-name +100 vs split-path 的堆叠；CLI default vs DB；setSearchLimit 立即生效）。
-3. 文档和代码对齐：known_issues 第 4 节移除"CLI 仍是固定 20"的旧说法。
+F3 功能面已落地：
+1. **Sort order 持久化**：新 `SettingsKey.result_sort_key` / `result_sort_asc`；`Database.{get,set}ResultSortOrder`；SearchViewController loadView 恢复、sortDescriptorsDidChange 保存。malformed 行自动 fallback scoreDescending。
+2. **Column width 持久化**：每列一个 settings key（`result_col_width_{name,path,mtime,size}`）；`NSTableView.columnDidResizeNotification` 触发保存；loadView 用已保存宽度初始化，缺失则用程序默认。
+3. **保留行为**：现有键盘流 / QuickLook / 右键 / 拖拽 / E2 多列视图 / E1 substring 高亮全部不动。
 
 ### 本地自检
 - `swift build --disable-sandbox` → Build complete!
-- `SwiftSeekSmokeTest` → 111 / 0（F2 +4 用例全过）
+- `SwiftSeekSmokeTest` → 115 / 0（F3 +4 用例全过）
 - `SwiftSeekStartup` → schema=4 + startup check PASS
 
 ### Blockers / Required fixes
 - 待 Codex round 1 实际判定。
 
 ### Non-blocking notes
-- F1 round 1 Codex 备注 environment 限制（SwiftShims module cache / SDK 不匹配），但 PASS 依据文件 + 结构审读 + 本地自检结果。
-- F2 未引入新 bonus 维度；只是用测试锁定当前 E1/F1 的得分公式。
+- F3 没有引入新的视图组件；列宽 + sort 状态都通过已有 settings 表。
+- deinit 清理了 NotificationCenter observer；无 leak。
 
 ## 轨道内已通过阶段
 - F1（2026-04-24 round 1 PASS）
+- F2（2026-04-24 round 2 PASS）
 
 ## 历史归档轨道
 - `v1-baseline`：P0 ~ P6 / PROJECT COMPLETE 2026-04-23

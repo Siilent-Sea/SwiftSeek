@@ -1,41 +1,44 @@
-# 下一阶段任务书（过渡 F2 → F3）
+# 下一阶段任务书（过渡 F3 → F4）
 
 ## Track
 `everything-performance`
 
 ## Stage
-F2 当前刚落地（等待 Codex 验收）。本文件是 F2 → F3 的过渡骨架。
+F3 当前刚落地（等待 Codex 验收）。本文件是 F3 → F4 过渡骨架。
 
-## F3 目标（预告）
-把结果列表从"已多列"推进到"更像文件搜索器"的高密度视图。
+## F4 目标（预告）
+把 DSL 和 root 健康状态真的做实、做透、让用户可解释。
 
 ### 必须做
-- 提升结果密度（行高 / 间距 / 字号 / 截断策略收口）
-- 强化 name / path / mtime / size 的扫读效率
-- 增强排序方式切换体验（sort desc 更明确 / persisted across restarts 可选）
-- 收口列布局与状态保留（列宽、显示/隐藏某列、排序状态）
+- 复查 `ext:` / `kind:` / `path:` / `root:` / `hidden:` 的真实行为与可用性
+- filter-only 查询路径的效率（当前部分会落 bounded scan，F4 做实）
+- `RootHealth` 从设置页 badge 推进到更完整心智：至少让搜索返回路径与 root 状态对应
+- 让用户能解释"为什么这个 root 没结果"（paused / offline / unavailable / 未索引）
 
 ### 明确不做
-- 不做 DSL 扩张（F4）
-- 不做新搜索后端
-- 不做根本的键盘流重做
+- 不做全文搜索
+- 不做云盘一致性承诺
+- 不做复杂布尔查询语言（OR / NOT / 括号）
+- 不改搜索后端
 
 ### 涉及关键文件
+- `Sources/SwiftSeekCore/SearchEngine.swift`
 - `Sources/SwiftSeek/UI/SearchViewController.swift`
-- `Sources/SwiftSeek/UI/SearchWindowController.swift`
-- `Sources/SwiftSeek/UI/ResultActionRunner.swift`
-- `docs/manual_test.md`
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
+- `Sources/SwiftSeekCore/SettingsTypes.swift`
+- `Sources/SwiftSeekCore/Database.swift`
+- `docs/known_issues.md`
 
 ### 验收标准
-1. 结果视图更高密度（可目测或通过固定行高 / 字号度量）
-2. 主要字段一眼可扫
-3. 相关性 / 路径 / 名称 / 修改时间 / 大小 等排序入口可用
-4. 现有键盘流、QuickLook、右键、拖拽不回退
+1. DSL 核心字段可用且高频场景效率可接受
+2. `RootHealth` 不再只停留在设置页 badge
+3. root 状态与搜索结果之间的关系对用户更可解释
+4. 文档能准确描述当前支持 / 不支持的 DSL 能力
 5. `swift build` + smoke 全绿
 
 ---
 
 ## 过渡期说明
-F2 round 1 验收完成后本文件需要刷新：
-1. 若 F2 PASS，正文展开为完整 F3 任务书
-2. 若 F2 REJECT，维持 F2 状态按 Codex required fix 修后重验
+F3 round 1 验收完成后本文件需要刷新：
+1. 若 F3 PASS，正文展开为完整 F4 任务书
+2. 若 F3 REJECT，维持 F3 状态按 Codex required fix 修后重验

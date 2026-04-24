@@ -32,6 +32,8 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     // SearchEngine.search. User clicking a column header cycles through
     // ascending / descending on that key; clicking the "score" column
     // (or the Reset action) returns to scoreDescending.
+    // F3: sort order is persisted via Database.{get,set}ResultSortOrder,
+    // and per-column widths are persisted on resize.
     private var sortOrder: SearchSortOrder = .scoreDescending
     private var rawResults: [SearchResult] = [] // unsorted from engine
     private static let col_name = NSUserInterfaceItemIdentifier("name")
@@ -39,12 +41,22 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     private static let col_mtime = NSUserInterfaceItemIdentifier("mtime")
     private static let col_size = NSUserInterfaceItemIdentifier("size")
 
+    /// F3: observer token for NSTableViewColumnDidResize so we can drop
+    /// it in deinit without leaking.
+    private var columnResizeObserver: NSObjectProtocol?
+
     init(database: Database) {
         self.database = database
         self.engine = SearchEngine(database: database)
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("unused") }
+
+    deinit {
+        if let token = columnResizeObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
 
     override func loadView() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 680, height: 440))
@@ -87,10 +99,48 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         tableView.menu = buildRowContextMenu()
         tableView.setDraggingSourceOperationMask([.copy, .link], forLocal: false)
 
-        addColumn(id: Self.col_name,   title: "名称", minWidth: 180, width: 260, sortKey: "name")
-        addColumn(id: Self.col_path,   title: "路径", minWidth: 180, width: 320, sortKey: "path")
-        addColumn(id: Self.col_mtime,  title: "修改时间", minWidth: 100, width: 120, sortKey: "mtime")
-        addColumn(id: Self.col_size,   title: "大小", minWidth: 70, width: 80, sortKey: "size")
+        // F3: fall back to programmed defaults when no persisted width exists.
+        addColumn(id: Self.col_name,   title: "名称", minWidth: 180,
+                  width: persistedWidth(for: SettingsKey.resultColumnWidthName) ?? 260,
+                  sortKey: "name")
+        addColumn(id: Self.col_path,   title: "路径", minWidth: 180,
+                  width: persistedWidth(for: SettingsKey.resultColumnWidthPath) ?? 320,
+                  sortKey: "path")
+        addColumn(id: Self.col_mtime,  title: "修改时间", minWidth: 100,
+                  width: persistedWidth(for: SettingsKey.resultColumnWidthMtime) ?? 120,
+                  sortKey: "mtime")
+        addColumn(id: Self.col_size,   title: "大小", minWidth: 70,
+                  width: persistedWidth(for: SettingsKey.resultColumnWidthSize) ?? 80,
+                  sortKey: "size")
+
+        // F3: listen for resize notifications on this specific table view.
+        // The notification payload userInfo has `NSTableColumn` so we can
+        // match it back to one of our column identifiers.
+        columnResizeObserver = NotificationCenter.default.addObserver(
+            forName: NSTableView.columnDidResizeNotification,
+            object: tableView,
+            queue: .main
+        ) { [weak self] note in
+            self?.persistColumnWidthIfNeeded(from: note)
+        }
+
+        // F3: restore persisted sort order so the window comes back the
+        // way the user left it. We set both the AppKit sortDescriptor
+        // (drives the header chevron) and our internal sortOrder so the
+        // next results reflow lands in the right order.
+        let restored: SearchSortOrder
+        do {
+            restored = try database.getResultSortOrder()
+        } catch {
+            NSLog("SwiftSeek: SearchViewController getResultSortOrder failed: \(error)")
+            restored = .scoreDescending
+        }
+        sortOrder = restored
+        if restored.key != .score {
+            let desc = NSSortDescriptor(key: restored.key.rawValue,
+                                        ascending: restored.ascending)
+            tableView.sortDescriptors = [desc]
+        }
 
         scroll.documentView = tableView
         root.addSubview(scroll)
@@ -185,6 +235,35 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         col.resizingMask = .userResizingMask
         col.sortDescriptorPrototype = NSSortDescriptor(key: sortKey, ascending: true)
         tableView.addTableColumn(col)
+    }
+
+    /// F3: pull a persisted column width from DB, nil on miss / malformed.
+    private func persistedWidth(for key: String) -> CGFloat? {
+        do {
+            if let d = try database.getResultColumnWidth(key: key) { return CGFloat(d) }
+        } catch {
+            NSLog("SwiftSeek: getResultColumnWidth(\(key)) failed: \(error)")
+        }
+        return nil
+    }
+
+    /// F3: map a resized column back to its settings key and save.
+    private func persistColumnWidthIfNeeded(from note: Notification) {
+        guard let col = note.userInfo?["NSTableColumn"] as? NSTableColumn else { return }
+        let key: String?
+        switch col.identifier {
+        case Self.col_name:  key = SettingsKey.resultColumnWidthName
+        case Self.col_path:  key = SettingsKey.resultColumnWidthPath
+        case Self.col_mtime: key = SettingsKey.resultColumnWidthMtime
+        case Self.col_size:  key = SettingsKey.resultColumnWidthSize
+        default:             key = nil
+        }
+        guard let k = key else { return }
+        do {
+            try database.setResultColumnWidth(key: k, width: Double(col.width))
+        } catch {
+            NSLog("SwiftSeek: setResultColumnWidth(\(k)) failed: \(error)")
+        }
     }
 
     private func buildRowContextMenu() -> NSMenu {
@@ -499,6 +578,12 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
             newOrder = .scoreDescending
         }
         sortOrder = newOrder
+        // F3: persist user's sort choice so the window restores it next launch.
+        do {
+            try database.setResultSortOrder(newOrder)
+        } catch {
+            NSLog("SwiftSeek: setResultSortOrder failed: \(error)")
+        }
         // Preserve the currently selected result (if any) across re-sort.
         let previouslySelected: SearchResult? = {
             let i = selection.currentIndex

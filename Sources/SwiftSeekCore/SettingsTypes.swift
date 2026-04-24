@@ -38,6 +38,15 @@ public enum SettingsKey {
     public static let searchLimit = "search_limit"               // positive integer, default 100
     public static let hotkeyKeyCode = "hotkey_key_code"          // Carbon virtual key code (UInt32 serialized as string)
     public static let hotkeyModifiers = "hotkey_modifiers"       // Carbon modifier mask (UInt32 serialized as string)
+    // F3 result view layout state. Persisting the sort + column widths
+    // lets the window come back the way the user left it across
+    // restarts — basic "remember my preferences" ergonomics.
+    public static let resultSortKey = "result_sort_key"          // SearchSortKey.rawValue (score/name/path/mtime/size)
+    public static let resultSortAscending = "result_sort_asc"    // "1" / "0"
+    public static let resultColumnWidthName  = "result_col_width_name"
+    public static let resultColumnWidthPath  = "result_col_width_path"
+    public static let resultColumnWidthMtime = "result_col_width_mtime"
+    public static let resultColumnWidthSize  = "result_col_width_size"
 }
 
 // MARK: - E5 hotkey presets
@@ -134,6 +143,37 @@ public func clampSearchLimit(_ value: Int) -> Int {
 }
 
 public extension Database {
+    /// F3: persisted result sort order, used by SearchViewController to
+    /// restore the last-used sort on launch. Returns `.scoreDescending`
+    /// on missing / malformed row so first-run UX is still sane.
+    func getResultSortOrder() throws -> SearchSortOrder {
+        let rawKey = try getSetting(SettingsKey.resultSortKey) ?? ""
+        let rawAsc = try getSetting(SettingsKey.resultSortAscending) ?? ""
+        guard let key = SearchSortKey(rawValue: rawKey) else {
+            return .scoreDescending
+        }
+        let ascending = (rawAsc == "1")
+        return SearchSortOrder(key: key, ascending: ascending)
+    }
+
+    /// F3: write back result sort order on user action.
+    func setResultSortOrder(_ order: SearchSortOrder) throws {
+        try setSetting(SettingsKey.resultSortKey, value: order.key.rawValue)
+        try setSetting(SettingsKey.resultSortAscending, value: order.ascending ? "1" : "0")
+    }
+
+    /// F3: persisted per-column width for the result table. Returns nil
+    /// when the column hasn't been resized; caller should fall back to
+    /// its programmed default.
+    func getResultColumnWidth(key: String) throws -> Double? {
+        guard let raw = try getSetting(key), let d = Double(raw) else { return nil }
+        return d
+    }
+
+    func setResultColumnWidth(key: String, width: Double) throws {
+        try setSetting(key, value: String(format: "%.0f", width))
+    }
+
     /// Read persisted hotkey (Carbon keyCode + modifier mask). Returns
     /// the default preset if missing or malformed so first launches /
     /// corrupt settings rows never leave the app without a working
