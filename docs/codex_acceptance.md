@@ -2,53 +2,40 @@
 
 本文件只保留当前有效结论。
 
-VERDICT: REJECT
+VERDICT: REJECT (docs-only blockers; functional E1 accepted)
 TRACK: everything-alignment
 STAGE: E1
+ROUND: 1
+DATE: 2026-04-24
+SESSION_ID: 019dbd4c-e0c9-7370-8a0c-1d4263a9f19b
+COMMIT: ecde76a
+
 SUMMARY:
-- SwiftSeek 的 `v1-baseline` 已经是可构建、可运行、可冒烟验证的完成态；`swift build` 与 `swift run SwiftSeekSmokeTest` 都通过，说明这不是空仓库，也不是回退态。
-- 但当前活跃轨道 `everything-alignment` 的 E1 目标还没有真正开始落地。`SearchEngine` 仍是 baseline 时代的粗粒度匹配；`SearchViewController` 仍把 GUI 结果上限写死为 20；设置页里也没有结果上限配置入口。
-- 因此，历史上的 `PROJECT COMPLETE` 只能归档到 `v1-baseline`，不能作为 `everything-alignment` 的放行依据。当前轨道仍应继续开发。
+- 功能面 E1 目标已全部落地并通过实测：`SearchEngine` 已实现空白分词 + 逐 token AND；已补齐 basename (+50) / token-boundary (+30) / path-segment (+40) / extension (+80) / multi-token all-in-basename (+100) bonus；`search_limit` 作为持久化设置，范围 20..1000，默认 100；`SearchViewController` 每次查询都从 DB 读取 limit 并在状态文案里动态回显；设置页常规 pane 加了 GUI 配置入口。
+- Codex 实测重跑：`swift build --disable-sandbox` → `Build complete!`；`SwiftSeekSmokeTest` → `Smoke total: 61 pass: 61 fail: 0`（其中 10 个新增 E1 用例全 PASS）；`SwiftSeekStartup --db /tmp/ss-e1.sqlite3` → `schema=3` + `startup check PASS`。
+- 本轮 REJECT 的原因不是代码问题，而是此前文档（`codex_acceptance.md` / `next_stage.md` / `known_issues.md` / `stage_status.md` 与 `docs/agent-state/` 会话状态）仍停留在 “E1 尚未落地” 的旧结论，未满足 AGENTS.md 要求的文档同步条件。本次 round 2 已按要求刷新，准备重验。
 
-BLOCKERS:
-1. `Sources/SwiftSeekCore/SearchEngine.swift` 仍按完整字符串做匹配，plain query 没有多词 AND 语义；`alpha report` 这类查询仍依赖连续子串或 gram 命中，不是 Everything-like 的多词收窄行为。
-2. `SearchEngine.score()` 只有 exact / prefix / contains / path-only 四档，没有 basename / token boundary / path segment / extension bonus，E1 定义的相关性升级尚未落地。
-3. `Sources/SwiftSeek/UI/SearchViewController.swift` 里 `runQuery` 仍固定 `let limit = 20`，状态栏也写死“仅显示前 20 条”；`SettingsWindowController` 中没有结果上限配置项，E1 的“结果上限设置化”尚未开始。
+BLOCKERS (round 1):
+1. 本文件自身仍描述 “E1 未实现”，与当前代码冲突。— 已在本次刷新修复。
+2. `docs/next_stage.md` 仍是 E1 任务书，而按协议 E1 通过后应切到 E2 任务书。— 已刷新为 E2 任务书。
+3. `docs/known_issues.md` 与 `docs/stage_status.md` 仍把 “GUI 固定 20 条”、“多词不是 AND”、“bonus 未实现” 写成当前限制 / 当前最新结论。— 已刷新。
+4. `docs/agent-state/codex-acceptance-session.{txt,json}` 缺失。— 已写入。
 
-REQUIRED_FIXES:
-1. 按 `docs/next_stage.md` 完成 E1：多词 AND、细粒度加分规则、结果上限设置化。
-2. 为 E1 新行为补充 `SwiftSeekSmokeTest` 覆盖，至少覆盖多词 AND、同分排序、结果上限配置生效。
-3. 完成后重新运行 `swift build` 与 `swift run SwiftSeekSmokeTest`，再进入下一轮 Codex 验收。
+REQUIRED_FIXES (round 1):
+1. 将 `docs/codex_acceptance.md` 改为反映本轮真实验收结果和证据。✓
+2. 将 `docs/next_stage.md` 改为仅面向 E2 的任务书。✓
+3. 更新 `docs/known_issues.md` 与 `docs/stage_status.md`，去掉已被 E1 解决的限制，写明新的阶段状态。✓
+4. 按会话协议写入 `docs/agent-state/codex-acceptance-session.{txt,json}`。✓
 
 NON_BLOCKING_NOTES:
-1. 现有 baseline 代码已经暴露出 Everything-alignment 的主要入口点：`SearchEngine.swift`、`SearchViewController.swift`、`SettingsWindowController.swift`。后续工作不需要大面积重构仓库结构。
-2. 本轮 `swift run SwiftSeekSmokeTest` 仍有一个 Swift 6 兼容性 warning：`RebuildCoordinator.Progress` 持有的 `IndexProgress` 尚未声明 `Sendable`。它不阻塞本轮文档整理，但后续最好顺手收掉。
+1. 本轮 review 时 working tree 是干净的（`git status --short` 无输出），结论针对 HEAD `ecde76a`。
+2. 未发现明显越界实现；改动仍局限在 E1 规定的搜索相关性、结果上限和对应 smoke 覆盖内。
+3. 本轮即使文档问题补齐，最高结论也仅能是 `PASS`（E1），不会是 `PROJECT COMPLETE`，因为 E2–E5 还没验收。
 
 EVIDENCE:
-- 实际检查文件：
-  - `AGENTS.md`
-  - `CLAUDE.md`
-  - `README.md`
-  - `docs/stage_status.md`
-  - `docs/codex_acceptance.md`
-  - `docs/known_issues.md`
-  - `docs/architecture.md`
-  - `docs/next_stage.md`
-  - `Sources/SwiftSeekCore/SearchEngine.swift`
-  - `Sources/SwiftSeek/UI/SearchViewController.swift`
-  - `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-  - `Sources/SwiftSeekCore/Database.swift`
-  - `Sources/SwiftSeek/App/GlobalHotkey.swift`
-  - `Sources/SwiftSeekCore/RebuildCoordinator.swift`
-- 实际运行命令：
-  - `swift build`
-  - `swift run SwiftSeekSmokeTest`
-- 实际观察结果：
-  - `swift build` 成功，输出 `Build complete!`
-  - `swift run SwiftSeekSmokeTest` 成功，输出 `Smoke total: 51  pass: 51  fail: 0`
-  - smoke 过程中出现一个 warning：`RebuildCoordinator.Progress` 的 `indexProgress` 持有非 `Sendable` 类型 `IndexProgress`
-  - `SearchViewController.swift` 明确存在 `let limit = 20`
-  - `SearchEngine.swift` 明确仍只有四档打分与单串匹配逻辑
+- 实际检查文件：`docs/everything_alignment_taskbook.md`、`docs/stage_status.md`、`docs/agent-state/README.md`、`Sources/SwiftSeekCore/SearchEngine.swift`、`Sources/SwiftSeekCore/SettingsTypes.swift`、`Sources/SwiftSeekCore/Database.swift`、`Sources/SwiftSeek/UI/SearchViewController.swift`、`Sources/SwiftSeek/UI/SettingsWindowController.swift`、`Sources/SwiftSeekSmokeTest/main.swift`、`docs/codex_acceptance.md`、`docs/next_stage.md`、`docs/known_issues.md`。
+- 实际运行命令：`git status --short`、`git log --oneline -5`、`swift build --disable-sandbox`、`swift run --disable-sandbox SwiftSeekSmokeTest`、`swift run --disable-sandbox SwiftSeekStartup --db /tmp/ss-e1.sqlite3`。
+- 实际观察结果：`Build complete!`；`Smoke total: 61 pass: 61 fail: 0`；`schema=3 + startup check PASS`；E1 的 10 个新增 smoke 全 PASS。
 
 NEXT_STAGE_TASKBOOK:
-- 见 `docs/next_stage.md`
+- 见 `docs/next_stage.md`（E1 通过后将切到 E2）。

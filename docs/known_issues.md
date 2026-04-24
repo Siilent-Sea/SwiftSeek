@@ -4,40 +4,41 @@
 
 ## 当前活跃轨道视角下的明显限制
 
-### 1. 搜索结果上限仍偏小
-- GUI 搜索窗口当前仍固定只显示前 20 条结果
-- CLI 可以传 `--limit`，但 GUI 没有对应设置入口
-- 这会让高命中查询很容易被截断，不符合 Everything-like 文件搜索器的使用习惯
-
-### 2. 查询语法尚未支持
-- 当前只有 plain text query
+### 1. 查询语法尚未支持（留给 E3）
+- 当前只有 plain text query（E1 已支持多词 AND）
 - 尚不支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` 等过滤语法
-- 这意味着用户只能依赖字符串本身和当前粗粒度排序
+- E3 阶段专门处理查询语法与过滤能力
 
-### 3. 结果列表还不是高密度 Everything 风格
+### 2. 结果列表还不是高密度 Everything 风格（留给 E2）
 - 当前 `SearchViewController` 仍是单列表单元格视图
-- 名称、路径、mtime、size 虽有部分展示，但不是高密度多列结果视图
+- 名称 / 路径 / mtime / size 虽有部分展示，但不是高密度多列结果视图
 - 目前也没有排序切换或列排序
+- E2 阶段专门处理结果视图与排序 / 显示密度
 
-### 4. 热键仍未可配置
+### 3. 热键仍未可配置（留给 E5）
 - 默认全局热键仍是固定的 `⌥Space`
 - 如果与 Spotlight、Alfred、Raycast 冲突，只能改别的 App，或改代码后重新编译
 - 设置页当前没有热键自定义入口
+- E5 阶段专门处理热键配置
 
-### 5. plain query 相关性仍是 baseline 级别
-- 当前 `SearchEngine` 主要还是 exact / prefix / contains / path-only 四档
-- 多词 query 还不是 AND 语义
-- basename、token boundary、path segment、extension 等细粒度 bonus 还没加上
-
-### 6. 索引自动化体验仍偏手动
+### 4. 索引自动化体验仍偏手动（留给 E4）
 - 新增 root 后当前是弹窗询问是否立即索引，不是默认后台自动开始
 - 隐藏文件开关改动后仍依赖手动重建
 - exclude 的清理路径已有，但整体“改完设置立即知道系统会怎么生效”的体验还不够完整
+- E4 阶段专门处理索引自动化 + root 状态
 
-### 7. 外接盘 / root 可用性状态感知不足
+### 5. 外接盘 / root 可用性状态感知不足（留给 E4）
 - root 当前只有启用 / 停用 / 移除语义
 - 没有更明确的“根目录当前离线 / 未挂载 / 不可访问”状态提示
 - 外接盘拔出后的索引残留主要还是靠手工处理
+
+## E1 已解决的限制（2026-04-24）
+
+以下三项在 E1 阶段已经落地（本文件同步移除“尚未”状态）：
+
+- **多词 query AND 语义**：`SearchEngine.tokenize` + 逐 token substring AND filter。
+- **相关性细粒度 bonus**：basename (+50) / token boundary (+30) / path segment (+40) / extension (+80) / 多词 all-in-basename (+100)。
+- **GUI 结果上限可配置**：`search_limit` 持久化到 settings 表，范围 [20, 1000]，默认 100；设置页常规 pane 提供配置入口；SearchViewController 每次查询读取，状态栏动态回显“仅显示前 N 条”。
 
 ## 环境约束
 
@@ -83,6 +84,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 ### hidden / exclude 生效方式
 - 新增 exclude 时会立即清理已索引子树
 - hidden 开关切换后，对已有索引数据仍需重建才能完全体现
+
+### 搜索结果上限
+- 可配置项，持久化到 DB 的 settings 表
+- 默认 100，范围 [20, 1000]
+- 超过后写入被 clamp 到边界
+- 设置页 → 常规 → 搜索结果上限
 
 ### Gatekeeper 首次运行拦截
 - release 可执行首次运行可能被 Gatekeeper 拦截

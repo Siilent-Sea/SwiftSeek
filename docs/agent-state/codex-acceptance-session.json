@@ -1,0 +1,11 @@
+{
+  "track": "everything-alignment",
+  "stage": "E1",
+  "session_id": "019dbd4c-e0c9-7370-8a0c-1d4263a9f19b",
+  "last_verdict": "REJECT",
+  "last_verdict_round": 1,
+  "last_verdict_date": "2026-04-24",
+  "last_verdict_reason": "functional E1 complete but docs (codex_acceptance / next_stage / known_issues / stage_status) still describe E1 as not landed; fix+re-verify needed",
+  "commit_at_review": "ecde76a",
+  "notes": "Written by Claude on first Codex acceptance attempt for everything-alignment track. This file is the authoritative session id for subsequent 'codex exec resume <id>' calls."
+}
