@@ -65,7 +65,7 @@
 ### 当前阶段：`F4`（查询 DSL + RootHealth 真正落地）
 
 #### 当前阶段目标（功能面落地，等待 Codex 验收）
-- ✅ `filterOnlyCandidates` 优先级重排：`path:` ≥3 → file_grams，`path:` ==2 → file_bigrams，`ext:` → trailing-wildcard LIKE，`root:` → prefix LIKE，`kind:` → is_dir=?，最后才 bounded scan
+- ✅ `filterOnlyCandidates` 优先级重排：`path:` ≥3 → file_grams，`path:` ==2 → file_bigrams，`ext:` → leading-wildcard LIKE（线性扫描 `name_lower`，SQLite 不走 B-tree；10k-100k 规模仍毫秒级），`root:` → `path_lower LIKE 'prefix/%'`（前缀在 wildcard 前，B-tree 可用），`kind:` → `is_dir = ?`，bounded scan 兜底（仅 `hidden:` 单独 或 `path:` 1-字符）
 - ✅ 0 结果空态提示：若有 offline / unavailable / paused root，列出状态 + 路径（新 `degradedRootsHint()`）
 - ✅ 文档：`known_issues.md` 第 7 节重写为 F4 后完整 DSL 支持/不支持清单；第 5 节 root 状态扩大到搜索窗口
 - ✅ smoke +3：path-only gram 路径 / path+ext 组合 / computeRootHealth ready+offline 分类
@@ -83,7 +83,7 @@
   - 新 `degradedRootsHint()` 聚合 offline/unavailable/paused roots
   - `refreshEmptyState` 0 结果时附加状态尾注
 - `Sources/SwiftSeekSmokeTest/main.swift`
-  - F4 +3 用例；总 118 pass
+  - F4 round 1 +3 用例（path-only / path+ext / mixed roots health）+ round 2 +1 用例（ext: 性能 200ms 上限）= 总 119 pass
 - 文档：`known_issues.md` 第 5/7 节改写
 
 #### 完成判定
@@ -91,7 +91,7 @@
 2. ✅ `RootHealth` 不只停留在设置页：搜索空态标注相关 root
 3. ✅ root 状态与搜索结果关系更可解释
 4. ✅ 文档描述的 DSL 支持/不支持清单与代码一致
-5. ✅ `swift build` + smoke 全绿（118/118）
+5. ✅ `swift build` + smoke 全绿（round 2 后 119/119）
 
 ---
 
