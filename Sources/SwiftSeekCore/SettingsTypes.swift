@@ -35,6 +35,16 @@ public enum SettingsKey {
     public static let lastRebuildAt = "last_rebuild_at"          // ISO8601 string
     public static let lastRebuildResult = "last_rebuild_result"  // "success" / "failed:<msg>"
     public static let lastRebuildStats = "last_rebuild_stats"    // human-readable summary
+    public static let searchLimit = "search_limit"               // positive integer, default 100
+}
+
+/// E1 search result limit bounds. A hard cap keeps pathological settings
+/// (e.g. 100_000) from swamping the GUI table reload; the floor keeps at
+/// least one screenful of results available.
+public enum SearchLimitBounds {
+    public static let minimum = 20
+    public static let maximum = 1000
+    public static let defaultValue = 100
 }
 
 /// Typed wrapper for the hidden-files toggle. Stored as "1" / "0" to keep the
@@ -47,6 +57,31 @@ public extension Database {
     func setHiddenFilesEnabled(_ enabled: Bool) throws {
         try setSetting(SettingsKey.hiddenFilesEnabled, value: enabled ? "1" : "0")
     }
+
+    /// E1 user-configurable search result limit. Reads the stored value if
+    /// present and valid; falls back to `SearchLimitBounds.defaultValue` for
+    /// missing / malformed / out-of-range entries. Callers should not have to
+    /// think about migration: this is always safe to read on a fresh DB.
+    func getSearchLimit() throws -> Int {
+        guard let raw = try getSetting(SettingsKey.searchLimit) else {
+            return SearchLimitBounds.defaultValue
+        }
+        guard let n = Int(raw) else { return SearchLimitBounds.defaultValue }
+        return clampSearchLimit(n)
+    }
+
+    /// Persist a validated search limit. Values are clamped into the allowed
+    /// [minimum, maximum] band before write so the settings table can never
+    /// hold values the search layer would have to reject at read time.
+    func setSearchLimit(_ value: Int) throws {
+        let clamped = clampSearchLimit(value)
+        try setSetting(SettingsKey.searchLimit, value: String(clamped))
+    }
+}
+
+public func clampSearchLimit(_ value: Int) -> Int {
+    return max(SearchLimitBounds.minimum,
+               min(SearchLimitBounds.maximum, value))
 }
 
 /// Static predicate shared by `Indexer` (full-walk) and the rescan / watcher

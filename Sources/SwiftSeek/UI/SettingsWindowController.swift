@@ -133,6 +133,11 @@ private final class GeneralPane: NSViewController {
                                     target: nil, action: nil)
     private let rebuildNowBtn = NSButton(title: "立即重建", target: nil, action: nil)
     private let note = NSTextField(wrappingLabelWithString: "")
+    // E1: search result limit setting
+    private let limitLabel = NSTextField(labelWithString: "搜索结果上限：")
+    private let limitField = NSTextField()
+    private let limitStepper = NSStepper()
+    private let limitNote = NSTextField(wrappingLabelWithString: "")
 
     init(database: Database, rebuildCoordinator: RebuildCoordinator) {
         self.database = database
@@ -167,9 +172,41 @@ private final class GeneralPane: NSViewController {
         row.spacing = 12
         row.translatesAutoresizingMaskIntoConstraints = false
 
+        // E1 search-limit row: label + number field + stepper + note
+        limitLabel.translatesAutoresizingMaskIntoConstraints = false
+        limitField.translatesAutoresizingMaskIntoConstraints = false
+        limitField.alignment = .right
+        limitField.isBordered = true
+        limitField.isEditable = true
+        limitField.target = self
+        limitField.action = #selector(onLimitFieldChanged)
+        limitField.formatter = NumberFormatter()
+        limitField.widthAnchor.constraint(equalToConstant: 72).isActive = true
+
+        limitStepper.translatesAutoresizingMaskIntoConstraints = false
+        limitStepper.minValue = Double(SearchLimitBounds.minimum)
+        limitStepper.maxValue = Double(SearchLimitBounds.maximum)
+        limitStepper.increment = 10
+        limitStepper.valueWraps = false
+        limitStepper.target = self
+        limitStepper.action = #selector(onLimitStepperChanged)
+
+        limitNote.translatesAutoresizingMaskIntoConstraints = false
+        limitNote.font = NSFont.systemFont(ofSize: 11)
+        limitNote.textColor = .secondaryLabelColor
+        limitNote.stringValue = "搜索窗每次最多显示的结果数量，范围 \(SearchLimitBounds.minimum)–\(SearchLimitBounds.maximum)，默认 \(SearchLimitBounds.defaultValue)。修改后无需重启。"
+
+        let limitRow = NSStackView(views: [limitLabel, limitField, limitStepper])
+        limitRow.orientation = .horizontal
+        limitRow.spacing = 8
+        limitRow.alignment = .centerY
+        limitRow.translatesAutoresizingMaskIntoConstraints = false
+
         root.addSubview(title)
         root.addSubview(row)
         root.addSubview(note)
+        root.addSubview(limitRow)
+        root.addSubview(limitNote)
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -182,6 +219,13 @@ private final class GeneralPane: NSViewController {
             note.topAnchor.constraint(equalTo: row.bottomAnchor, constant: 6),
             note.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             note.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            limitRow.topAnchor.constraint(equalTo: note.bottomAnchor, constant: 24),
+            limitRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            limitNote.topAnchor.constraint(equalTo: limitRow.bottomAnchor, constant: 6),
+            limitNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            limitNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
         ])
         self.view = root
     }
@@ -195,6 +239,17 @@ private final class GeneralPane: NSViewController {
             checkbox.state = .off
         }
         rebuildNowBtn.isEnabled = !rebuildCoordinator.isRebuilding
+
+        // E1: surface the current persisted limit (or default).
+        let current: Int
+        do {
+            current = try database.getSearchLimit()
+        } catch {
+            NSLog("SwiftSeek: GeneralPane read search limit failed: \(error)")
+            current = SearchLimitBounds.defaultValue
+        }
+        limitField.integerValue = current
+        limitStepper.integerValue = current
     }
 
     @objc private func onToggle(_ sender: NSButton) {
@@ -202,6 +257,28 @@ private final class GeneralPane: NSViewController {
             try database.setHiddenFilesEnabled(sender.state == .on)
         } catch {
             NSLog("SwiftSeek: failed to persist hidden-files toggle: \(error)")
+        }
+    }
+
+    @objc private func onLimitStepperChanged() {
+        let n = clampSearchLimit(limitStepper.integerValue)
+        limitField.integerValue = n
+        persistLimit(n)
+    }
+
+    @objc private func onLimitFieldChanged() {
+        let raw = limitField.integerValue
+        let n = clampSearchLimit(raw == 0 ? SearchLimitBounds.defaultValue : raw)
+        limitField.integerValue = n
+        limitStepper.integerValue = n
+        persistLimit(n)
+    }
+
+    private func persistLimit(_ n: Int) {
+        do {
+            try database.setSearchLimit(n)
+        } catch {
+            NSLog("SwiftSeek: failed to persist search limit: \(error)")
         }
     }
 

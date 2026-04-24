@@ -201,7 +201,16 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
 
     private func runQuery(_ raw: String, generation: Int) {
         let start = Date()
-        let limit = 20
+        // E1: limit is now user-configurable. Read the persisted value on
+        // every query so changes from the Settings window take effect without
+        // a restart. Read failures NSLog + fall back to the default.
+        let limit: Int
+        do {
+            limit = try database.getSearchLimit()
+        } catch {
+            NSLog("SwiftSeek: SearchViewController getSearchLimit failed, using default: \(error)")
+            limit = SearchLimitBounds.defaultValue
+        }
         let hits: [SearchResult]
         do {
             hits = try engine.search(raw, options: .init(limit: limit, candidateMultiplier: 4))

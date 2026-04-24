@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -374,6 +374,10 @@ reporter.check("SearchEngine.normalize trims, lowercases, collapses whitespace")
                          "non-ASCII collapse broken")
 }
 
+// NOTE: Post-E1 score bands are base tier (1000/800/500/200) + E1 bonuses
+// (+50 basename, +30 token-boundary, +40 path-segment, +80 extension, +100
+// multi-token all-in-basename). Tests below assert exact post-E1 scores.
+
 reporter.check("P2 filename prefix match beats path-only hit") {
     try withP2Fixture { db, _ in
         let engine = SearchEngine(database: db)
@@ -382,14 +386,18 @@ reporter.check("P2 filename prefix match beats path-only hit") {
         let first = results.first!
         try reporter.require(first.path.hasSuffix("/alpha.txt"),
                              "first result not alpha.txt: \(first.path)")
-        try reporter.require(first.score == 800, "first score=\(first.score)")
+        // alpha.txt: prefix(800) + basename(50) + boundary(30) = 880
+        try reporter.require(first.score == 880, "first score=\(first.score) expected 880")
         let readme = results.first(where: { $0.path.hasSuffix("/extras-with-alpha/README.md") })
         try reporter.require(readme != nil,
                              "expected path-only extras-with-alpha/README.md in results")
-        try reporter.require(readme!.score == 200,
-                             "extras-with-alpha/README.md score=\(readme!.score) expected 200")
+        // extras-with-alpha/README.md: path-only(200) + boundary(30) = 230
+        // ("alp" is preceded by "-" in "extras-with-alpha", a boundary char)
+        try reporter.require(readme!.score == 230,
+                             "extras-with-alpha/README.md score=\(readme!.score) expected 230")
         let readmeIdx = results.firstIndex(where: { $0.path == readme!.path })!
         for r in results.prefix(readmeIdx) {
+            // Everything above path-only hit must still come from base >= 500
             try reporter.require(r.score >= 500,
                                  "score \(r.score) ordered before path-only hit")
         }
@@ -405,8 +413,9 @@ reporter.check("P2 path-only query returns only matching descendant") {
         let r = results[0]
         try reporter.require(r.path.hasSuffix("/docs/alpha-notes.md"),
                              "wrong result: \(r.path)")
-        try reporter.require(r.score == 200,
-                             "score=\(r.score) expected 200 (path-only)")
+        // path-only(200) + boundary(30) = 230
+        try reporter.require(r.score == 230,
+                             "score=\(r.score) expected 230 (path-only + boundary)")
     }
 }
 
@@ -427,11 +436,19 @@ reporter.check("P2 3-gram candidate retrieval finds 'pha'") {
                              "missing path-only extras-with-alpha/README.md")
         for r in results {
             if r.path.hasSuffix("/extras-with-alpha/README.md") {
-                try reporter.require(r.score == 200,
-                                     "README score=\(r.score) expected 200")
+                // extras-with-alpha/README.md: path-only(200) + boundary(30 —
+                // "pha" ends alpha which is followed by "/") = 230
+                try reporter.require(r.score == 230,
+                                     "README score=\(r.score) expected 230")
             } else {
-                try reporter.require(r.score == 500,
-                                     "expected name-contains score 500 for \(r.path), got \(r.score)")
+                // "pha" in name (e.g. "alpha.txt" / "alphabet.txt" / "alpha-notes.md"
+                // / "alpha report.txt"): contains(500) + basename(50) +
+                // boundary(30 — followed by "." / "-" / " ") = 580. Except
+                // "alphabet.txt" which has "pha" sandwiched by "l" and "b" (no
+                // boundary) → 550.
+                let expected = r.path.hasSuffix("/alphabet.txt") ? 550 : 580
+                try reporter.require(r.score == expected,
+                                     "expected \(expected) for \(r.path), got \(r.score)")
             }
         }
     }
@@ -441,13 +458,16 @@ reporter.check("P2 ranking sorts shorter path first within same score") {
     try withP2Fixture { db, _ in
         let engine = SearchEngine(database: db)
         let results = try engine.search("alp")
-        let top800 = results.filter { $0.score == 800 }
-        try reporter.require(top800.count >= 4,
-                             "expected >=4 filename-prefix hits, got \(top800.count)")
-        try reporter.require(top800[0].path.hasSuffix("/alpha.txt"),
-                             "first 800 not alpha.txt: \(top800[0].path)")
-        try reporter.require(top800[1].path.hasSuffix("/alphabet.txt"),
-                             "second 800 not alphabet.txt: \(top800[1].path)")
+        // After E1 all filename-prefix hits become prefix(800) + basename(50) +
+        // boundary(30) = 880 (the "alp" is always at name start, which is
+        // preceded by "/" in the path).
+        let top = results.filter { $0.score == 880 }
+        try reporter.require(top.count >= 4,
+                             "expected >=4 top-tier hits, got \(top.count)")
+        try reporter.require(top[0].path.hasSuffix("/alpha.txt"),
+                             "first top not alpha.txt: \(top[0].path)")
+        try reporter.require(top[1].path.hasSuffix("/alphabet.txt"),
+                             "second top not alphabet.txt: \(top[1].path)")
         var prev = Int.max
         for r in results {
             try reporter.require(r.score <= prev,
@@ -466,8 +486,9 @@ reporter.check("P2 CJK filename query returns correct file") {
         let r = results[0]
         try reporter.require(r.path.hasSuffix("/中文文档.md"),
                              "wrong CJK result: \(r.path)")
-        try reporter.require(r.score == 800,
-                             "CJK score=\(r.score) expected 800")
+        // prefix(800) + basename(50) + boundary(30 — start of name) = 880
+        try reporter.require(r.score == 880,
+                             "CJK score=\(r.score) expected 880")
     }
 }
 
@@ -480,8 +501,11 @@ reporter.check("P2 query with space in filename works via gram path") {
         let r = results[0]
         try reporter.require(r.path.hasSuffix("/beta/alpha report.txt"),
                              "wrong space result: \(r.path)")
-        try reporter.require(r.score == 800,
-                             "space score=\(r.score) expected 800")
+        // Multi-token AND: alpha token → prefix(800)+basename(50)+boundary(30)=880;
+        // report token → contains(500)+basename(50)+boundary(30)=580; both in
+        // basename → multi-token all-in-basename bonus(100). Total 880+580+100=1560
+        try reporter.require(r.score == 1560,
+                             "multi-token score=\(r.score) expected 1560")
     }
 }
 
@@ -537,8 +561,9 @@ reporter.check("P2 v1→v2 migration backfills path_lower and grams so old rows 
     let zeta = try engine.search("zeta")
     try reporter.require(zeta.count == 1 && zeta[0].path == "/legacy/Zeta.TXT",
                          "legacy row not searchable via grams: \(zeta)")
-    try reporter.require(zeta[0].score == 800,
-                         "legacy score=\(zeta[0].score)")
+    // zeta on zeta.txt: prefix(800)+basename(50)+boundary(30 — start of name) = 880
+    try reporter.require(zeta[0].score == 880,
+                         "legacy score=\(zeta[0].score) expected 880")
 }
 
 // MARK: - P3 incremental update
@@ -1284,6 +1309,166 @@ reporter.check("P5 HiddenPath helper recognises dot components, not mid-name dot
                          "regular file wrongly called hidden")
     try reporter.require(!HiddenPath.isHidden("/Users/x/foo.bar/baz"),
                          "mid-name dot wrongly called hidden")
+}
+
+// MARK: - E1 (everything-alignment): relevance + limit
+
+reporter.check("E1 tokenize splits on whitespace, preserves /") {
+    try reporter.require(SearchEngine.tokenize("  foo  bar  ") == ["foo", "bar"],
+                         "multi-space split broken")
+    try reporter.require(SearchEngine.tokenize("docs/alpha") == ["docs/alpha"],
+                         "slashes must stay intra-token")
+    try reporter.require(SearchEngine.tokenize("") == [],
+                         "empty query must yield no tokens")
+    try reporter.require(SearchEngine.tokenize("\tALPHA\nBETA  gamma") == ["alpha", "beta", "gamma"],
+                         "tokenize should normalize case and whitespace")
+}
+
+reporter.check("E1 multi-word query has AND semantics") {
+    // Fixture with: foo-only row, bar-only row, and one row with both.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("sub"),
+                           withIntermediateDirectories: true)
+    for f in ["foo-alpha.txt", "bar-beta.txt", "sub/foo-bar-report.txt"] {
+        try "".write(to: root.appendingPathComponent(f),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("foo bar")
+    try reporter.require(hits.count == 1,
+                         "AND should match exactly one row, got \(hits.count): \(hits.map(\.path))")
+    try reporter.require(hits[0].path.hasSuffix("/sub/foo-bar-report.txt"),
+                         "wrong AND hit: \(hits[0].path)")
+}
+
+reporter.check("E1 basename bonus: name-match outscores path-only match") {
+    // Same base tier (contains vs path-only), bonus pushes name-match above.
+    let n1 = SearchEngine.score(query: "foo", nameLower: "myfoobar.txt", pathLower: "/a/myfoobar.txt")
+    let n2 = SearchEngine.score(query: "foo", nameLower: "readme.md", pathLower: "/a/foodir/readme.md")
+    try reporter.require(n1 > n2,
+                         "basename-match should outscore path-only: \(n1) vs \(n2)")
+}
+
+reporter.check("E1 token-boundary bonus kicks in at / . - _ space") {
+    // "foo" with boundary: preceded by "/" in path and start-of-name.
+    let boundary = SearchEngine.score(query: "foo",
+                                      nameLower: "foo.txt",
+                                      pathLower: "/a/foo.txt")
+    // "foo" buried mid-name without any boundary adjacency.
+    let noBoundary = SearchEngine.score(query: "foo",
+                                        nameLower: "xfoox.txt",
+                                        pathLower: "/a/xfoox.txt")
+    try reporter.require(boundary > noBoundary,
+                         "boundary hit should outscore mid-name hit: \(boundary) vs \(noBoundary)")
+}
+
+reporter.check("E1 path-segment bonus rewards exact segment match") {
+    // "docs" as exact segment vs contained inside a longer segment.
+    let segment = SearchEngine.score(query: "docs",
+                                     nameLower: "readme.md",
+                                     pathLower: "/a/docs/readme.md")
+    let inside = SearchEngine.score(query: "docs",
+                                    nameLower: "readme.md",
+                                    pathLower: "/a/docs-old/readme.md")
+    try reporter.require(segment > inside,
+                         "exact segment should outscore contained: \(segment) vs \(inside)")
+}
+
+reporter.check("E1 extension bonus rewards matching extension token") {
+    // Keep base tier the same (both name-contains, not prefix) so that the
+    // only score delta comes from the extension bonus itself.
+    //   readme.md → contains(500)+basename(50)+ext(80)+boundary(30)=660
+    //   readme.mdx → contains(500)+basename(50)+boundary(30)=580 (ext=mdx, no bonus)
+    let extHit = SearchEngine.score(query: "md",
+                                    nameLower: "readme.md",
+                                    pathLower: "/a/readme.md")
+    let noExt = SearchEngine.score(query: "md",
+                                   nameLower: "readme.mdx",
+                                   pathLower: "/a/readme.mdx")
+    try reporter.require(extHit > noExt,
+                         "extension match should outscore non-extension: \(extHit) vs \(noExt)")
+    try reporter.require(extHit - noExt == 80,
+                         "extension bonus should be +80, got delta \(extHit - noExt)")
+}
+
+reporter.check("E1 multi-token all-in-basename bonus applies when every token hits basename") {
+    // Two tokens both in name vs split across name and path.
+    let allName = SearchEngine.scoreTokens(["foo", "bar"],
+                                           nameLower: "foo-bar-report.txt",
+                                           pathLower: "/a/foo-bar-report.txt")
+    let splitAcross = SearchEngine.scoreTokens(["foo", "bar"],
+                                               nameLower: "foo-report.txt",
+                                               pathLower: "/a/bar/foo-report.txt")
+    try reporter.require(allName > splitAcross,
+                         "all-in-basename should outscore split match: \(allName) vs \(splitAcross)")
+}
+
+reporter.check("E1 search limit setting round-trips through Database settings table") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+
+    // Unset → default
+    try reporter.require(try db.getSearchLimit() == SearchLimitBounds.defaultValue,
+                         "default limit should be \(SearchLimitBounds.defaultValue)")
+    // Valid write
+    try db.setSearchLimit(250)
+    try reporter.require(try db.getSearchLimit() == 250, "round-trip 250 failed")
+    // Clamping: above max
+    try db.setSearchLimit(99999)
+    let high = try db.getSearchLimit()
+    try reporter.require(high == SearchLimitBounds.maximum,
+                         "upper clamp failed: got \(high)")
+    // Clamping: below min
+    try db.setSearchLimit(1)
+    let low = try db.getSearchLimit()
+    try reporter.require(low == SearchLimitBounds.minimum,
+                         "lower clamp failed: got \(low)")
+}
+
+reporter.check("E1 search limit actually caps returned results") {
+    // Fixture: index >30 files, verify a limit of 5 caps the result count.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for i in 0..<40 {
+        try "".write(to: root.appendingPathComponent("alpha-\(i).txt"),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let few = try engine.search("alpha", options: .init(limit: 5))
+    try reporter.require(few.count == 5,
+                         "limit=5 should cap results, got \(few.count)")
+    let many = try engine.search("alpha", options: .init(limit: 100))
+    try reporter.require(many.count == 40,
+                         "limit=100 should return all 40, got \(many.count)")
+}
+
+reporter.check("E1 SearchEngine.Options.limit default is the configured floor, not hardcoded 20") {
+    // Regression guard against re-introducing the legacy hardcoded 20.
+    let opt = SearchEngine.Options()
+    try reporter.require(opt.limit >= SearchLimitBounds.minimum,
+                         "default limit \(opt.limit) below floor \(SearchLimitBounds.minimum)")
+    try reporter.require(opt.limit > 20,
+                         "default limit \(opt.limit) still hardcoded at the legacy 20")
 }
 
 exit(reporter.summary())

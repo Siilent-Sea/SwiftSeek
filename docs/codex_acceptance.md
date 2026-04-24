@@ -1,58 +1,54 @@
 # Codex 验收记录
 
-本文件由 Codex 独立验收代理维护，仅保留当前有效结论。
+本文件只保留当前有效结论。
 
-## 当前有效结论
-- 日期：2026-04-23
-- 阶段：P6
-- Verdict：PROJECT COMPLETE
+VERDICT: REJECT
+TRACK: everything-alignment
+STAGE: E1
+SUMMARY:
+- SwiftSeek 的 `v1-baseline` 已经是可构建、可运行、可冒烟验证的完成态；`swift build` 与 `swift run SwiftSeekSmokeTest` 都通过，说明这不是空仓库，也不是回退态。
+- 但当前活跃轨道 `everything-alignment` 的 E1 目标还没有真正开始落地。`SearchEngine` 仍是 baseline 时代的粗粒度匹配；`SearchViewController` 仍把 GUI 结果上限写死为 20；设置页里也没有结果上限配置入口。
+- 因此，历史上的 `PROJECT COMPLETE` 只能归档到 `v1-baseline`，不能作为 `everything-alignment` 的放行依据。当前轨道仍应继续开发。
 
-## Summary
-- P6 范围内的五条硬性验收命令全部通过：debug build、51/51 smoke、headless startup、`scripts/build.sh --sandbox` 本地交付链路、以及 `.build/release/SwiftSeekStartup` 独立运行均为退出码 0。
-- silent-fail 审计点已真实落地：`SettingsWindowController` 四个 pane 的关键 DB 读失败会 `NSLog` 且给出 UI 可见错误文案；`RebuildCoordinator.stampResult` 失败会记录日志；`SearchEngine.listRoots` 失败会记录日志并明确回退到 legacy unfiltered 行为。
-- 交付与文档闭环成立：`README.md` 提供本地交付路径，`scripts/build.sh` 会 release build + smoke + startup 并列出五个可执行，`docs/manual_test.md` / `docs/known_issues.md` / `docs/architecture.md` 与当前实现匹配。
-- P0 ~ P5 无回归证据充分：`SwiftSeekSmokeTest` 仍覆盖并通过 51 条历史能力用例，包含 P5 round 2 的 disabled-root 闭环。
+BLOCKERS:
+1. `Sources/SwiftSeekCore/SearchEngine.swift` 仍按完整字符串做匹配，plain query 没有多词 AND 语义；`alpha report` 这类查询仍依赖连续子串或 gram 命中，不是 Everything-like 的多词收窄行为。
+2. `SearchEngine.score()` 只有 exact / prefix / contains / path-only 四档，没有 basename / token boundary / path segment / extension bonus，E1 定义的相关性升级尚未落地。
+3. `Sources/SwiftSeek/UI/SearchViewController.swift` 里 `runQuery` 仍固定 `let limit = 20`，状态栏也写死“仅显示前 20 条”；`SettingsWindowController` 中没有结果上限配置项，E1 的“结果上限设置化”尚未开始。
 
-## Blockers
-- None
+REQUIRED_FIXES:
+1. 按 `docs/next_stage.md` 完成 E1：多词 AND、细粒度加分规则、结果上限设置化。
+2. 为 E1 新行为补充 `SwiftSeekSmokeTest` 覆盖，至少覆盖多词 AND、同分排序、结果上限配置生效。
+3. 完成后重新运行 `swift build` 与 `swift run SwiftSeekSmokeTest`，再进入下一轮 Codex 验收。
 
-## Required Fixes
-- None
+NON_BLOCKING_NOTES:
+1. 现有 baseline 代码已经暴露出 Everything-alignment 的主要入口点：`SearchEngine.swift`、`SearchViewController.swift`、`SettingsWindowController.swift`。后续工作不需要大面积重构仓库结构。
+2. 本轮 `swift run SwiftSeekSmokeTest` 仍有一个 Swift 6 兼容性 warning：`RebuildCoordinator.Progress` 持有的 `IndexProgress` 尚未声明 `Sendable`。它不阻塞本轮文档整理，但后续最好顺手收掉。
 
-## Non-blocking Notes
-1. 受限沙箱下 SwiftPM 仍会打印 user-level cache / manifest cache readonly 告警，但本轮 build、smoke、startup、delivery script、release binary 均成功，不构成 blocker。
-2. `docs/stage_status.md` 的 P6 完成判定标准段落里仍混有旧 P4 条目；不影响本轮独立验收结论，但如果后续继续维护仓库，建议清理该文档残留内容。
-3. 当前目录不是 git repo，本轮无法通过 `git status` 或 commit diff 辅助审查，只能基于当前工作树与实际运行结果验收。
-
-## Evidence
-- 检查文件：
-  - `docs/stage_status.md`
+EVIDENCE:
+- 实际检查文件：
+  - `AGENTS.md`
+  - `CLAUDE.md`
   - `README.md`
-  - `docs/manual_test.md`
-  - `docs/architecture.md`
+  - `docs/stage_status.md`
+  - `docs/codex_acceptance.md`
   - `docs/known_issues.md`
-  - `scripts/build.sh`
+  - `docs/architecture.md`
+  - `docs/next_stage.md`
   - `Sources/SwiftSeekCore/SearchEngine.swift`
-  - `Sources/SwiftSeekCore/RebuildCoordinator.swift`
+  - `Sources/SwiftSeek/UI/SearchViewController.swift`
   - `Sources/SwiftSeek/UI/SettingsWindowController.swift`
+  - `Sources/SwiftSeekCore/Database.swift`
+  - `Sources/SwiftSeek/App/GlobalHotkey.swift`
+  - `Sources/SwiftSeekCore/RebuildCoordinator.swift`
 - 实际运行命令：
-  - `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox`
-  - `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox SwiftSeekSmokeTest`
-  - `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox SwiftSeekStartup --db /tmp/ss-p6.sqlite3`
-  - `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/build.sh --sandbox`
-  - `.build/release/SwiftSeekStartup --db /tmp/ss-release.sqlite3`
+  - `swift build`
+  - `swift run SwiftSeekSmokeTest`
 - 实际观察结果：
-  - build 退出码 0，末尾为 `Build complete!`
-  - smoke 退出码 0，输出 `Smoke total: 51  pass: 51  fail: 0`
-  - startup 退出码 0，输出：
-    - `SwiftSeek: database ready at /tmp/ss-p6.sqlite3 schema=3`
-    - `SwiftSeek: startup check PASS`
-  - `./scripts/build.sh --sandbox` 退出码 0，实际完成 `swift build -c release`、`SwiftSeekSmokeTest`、`SwiftSeekStartup`，并列出：
-    - `.build/release/SwiftSeek`
-    - `.build/release/SwiftSeekIndex`
-    - `.build/release/SwiftSeekSearch`
-    - `.build/release/SwiftSeekSmokeTest`
-    - `.build/release/SwiftSeekStartup`
-  - release 二进制独立运行输出：
-    - `SwiftSeek: database ready at /tmp/ss-release.sqlite3 schema=3`
-    - `SwiftSeek: startup check PASS`
+  - `swift build` 成功，输出 `Build complete!`
+  - `swift run SwiftSeekSmokeTest` 成功，输出 `Smoke total: 51  pass: 51  fail: 0`
+  - smoke 过程中出现一个 warning：`RebuildCoordinator.Progress` 的 `indexProgress` 持有非 `Sendable` 类型 `IndexProgress`
+  - `SearchViewController.swift` 明确存在 `let limit = 20`
+  - `SearchEngine.swift` 明确仍只有四档打分与单串匹配逻辑
+
+NEXT_STAGE_TASKBOOK:
+- 见 `docs/next_stage.md`

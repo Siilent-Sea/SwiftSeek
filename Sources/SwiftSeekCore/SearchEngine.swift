@@ -46,7 +46,8 @@ public final class SearchEngine {
         public var limit: Int
         public var candidateMultiplier: Int
 
-        public init(limit: Int = 100, candidateMultiplier: Int = 4) {
+        public init(limit: Int = SearchLimitBounds.defaultValue,
+                    candidateMultiplier: Int = 4) {
             self.limit = limit
             self.candidateMultiplier = candidateMultiplier
         }
@@ -68,8 +69,11 @@ public final class SearchEngine {
         self.database = database
     }
 
-    // MARK: - Query normalization
+    // MARK: - Query normalization / tokenization
 
+    /// Normalize query: trim, lowercase, collapse internal whitespace runs into
+    /// single spaces. Preserves intra-token `/` so path-shaped queries like
+    /// `docs/alpha` still work.
     public static func normalize(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if trimmed.isEmpty { return "" }
@@ -77,52 +81,48 @@ public final class SearchEngine {
         return parts.joined(separator: " ")
     }
 
+    /// E1 multi-word AND: split normalized query into whitespace-separated
+    /// tokens. Each token is required to match (AND), not any-of.
+    public static func tokenize(_ raw: String) -> [String] {
+        let n = normalize(raw)
+        if n.isEmpty { return [] }
+        return n.split(whereSeparator: { $0.isWhitespace }).map { String($0) }
+    }
+
     // MARK: - Search
 
     public func search(_ rawQuery: String, options: Options = .init()) throws -> [SearchResult] {
-        let q = SearchEngine.normalize(rawQuery)
-        guard !q.isEmpty else { return [] }
-        let qLen = q.count
-        let rows: [Row]
-        if qLen < Gram.size {
-            rows = try shortQueryCandidates(q, limit: options.limit * options.candidateMultiplier)
-        } else {
-            rows = try gramCandidates(q, limit: options.limit * options.candidateMultiplier)
-        }
+        let tokens = SearchEngine.tokenize(rawQuery)
+        guard !tokens.isEmpty else { return [] }
+
+        let candidatePool = max(options.limit * options.candidateMultiplier, options.limit)
+        let rows = try candidates(tokens: tokens, limit: candidatePool)
+
         // P5 root-enabled filter: drop candidates whose path is not covered by
-        // any enabled root. Rationale: the UI lets the user flip `enabled` on
-        // `roots` rows without clearing the indexed data under them (reversible
-        // pause). Without this gate, a disabled root would still surface
-        // results — contradicting P5's "UI changed, index scope changed" rule.
-        // Empty result from `listRoots` means a fresh DB with no indexing yet,
-        // so the filter naturally yields no hits, which matches expectations.
+        // any enabled root. Pre-P5 / unconfigured DBs (empty `roots` table) fall
+        // through to legacy unfiltered behaviour so existing test DBs keep
+        // working without forced migration.
         let allRoots: [RootRow]
         do {
             allRoots = try database.listRoots()
         } catch {
-            // Don't silently show old results when the roots table is
-            // unreadable — fall through to legacy behaviour (no filter) but
-            // surface the cause so the user can investigate via Console.app.
             NSLog("SwiftSeek: SearchEngine listRoots failed, falling back to unfiltered search: \(error)")
             allRoots = []
         }
         let enabledRoots = allRoots.filter { $0.enabled }.map { $0.path }
         let filtered: [Row]
         if allRoots.isEmpty {
-            // Pre-P5 / unconfigured DBs that still have files but no `roots` row:
-            // don't silently suppress, keep legacy behaviour.
             filtered = rows
         } else {
             filtered = rows.filter { SearchEngine.pathUnderAnyRoot($0.path, roots: enabledRoots) }
         }
-        let scored = rank(rows: filtered, query: q)
+        let scored = rank(rows: filtered, tokens: tokens)
         return Array(scored.prefix(options.limit))
     }
 
     /// True iff `path` equals one of `roots` or is a descendant (shares a `/`
     /// boundary). Empty `roots` returns false — caller must handle the
-    /// "no enabled roots" case explicitly, since that usually means the user
-    /// disabled everything.
+    /// "no enabled roots" case explicitly.
     public static func pathUnderAnyRoot(_ path: String, roots: [String]) -> Bool {
         for r in roots {
             if path == r { return true }
@@ -133,14 +133,49 @@ public final class SearchEngine {
 
     // MARK: - Candidate retrieval
 
-    private func shortQueryCandidates(_ q: String, limit: Int) throws -> [Row] {
-        // Short queries fall back to LIKE on name_lower / path_lower. Still bounded by limit.
+    /// Retrieve the candidate pool for a multi-token query. Uses the union of
+    /// grams from all tokens >=3 chars; tokens shorter than gram size add a
+    /// LIKE constraint instead. Post-filters to ensure every token is a
+    /// substring somewhere on each row (nameLower OR pathLower).
+    private func candidates(tokens: [String], limit: Int) throws -> [Row] {
+        var longTokens: [String] = []
+        var shortTokens: [String] = []
+        for t in tokens {
+            if t.count >= Gram.size { longTokens.append(t) } else { shortTokens.append(t) }
+        }
+
+        let rawRows: [Row]
+        if longTokens.isEmpty {
+            // All tokens short. Any single one becomes the primary LIKE filter
+            // (pick first), remaining tokens are applied as post-filters.
+            guard let primary = shortTokens.first else { return [] }
+            rawRows = try likeCandidates(token: primary, limit: limit)
+        } else {
+            // Use union of grams across all long tokens, requiring all unique
+            // grams present via HAVING. Short tokens are post-filtered below.
+            rawRows = try gramCandidates(longTokens: longTokens, limit: limit)
+        }
+
+        // Per-token substring AND: every token must be a substring of name OR
+        // path; gram retrieval alone is only a gate, the contiguous match is
+        // still required.
+        return rawRows.filter { row in
+            for t in tokens {
+                if !row.nameLower.contains(t) && !row.pathLower.contains(t) {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
+    private func likeCandidates(token: String, limit: Int) throws -> [Row] {
         let sql = """
         SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
         WHERE name_lower LIKE ? OR path_lower LIKE ?
         LIMIT ?;
         """
-        let like = "%\(q)%"
+        let like = "%\(token)%"
         return try executeQuery(sql) { stmt, transient in
             _ = sqlite3_bind_text(stmt, 1, like, -1, transient)
             _ = sqlite3_bind_text(stmt, 2, like, -1, transient)
@@ -148,8 +183,12 @@ public final class SearchEngine {
         }
     }
 
-    private func gramCandidates(_ q: String, limit: Int) throws -> [Row] {
-        let grams = Array(Gram.grams(of: q))
+    private func gramCandidates(longTokens: [String], limit: Int) throws -> [Row] {
+        var gramSet: Set<String> = []
+        for t in longTokens {
+            gramSet.formUnion(Gram.grams(of: t))
+        }
+        let grams = Array(gramSet)
         guard !grams.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: grams.count).joined(separator: ",")
         let sql = """
@@ -161,7 +200,7 @@ public final class SearchEngine {
         HAVING COUNT(DISTINCT fg.gram) = ?
         LIMIT ?;
         """
-        let rows = try executeQuery(sql) { stmt, transient in
+        return try executeQuery(sql) { stmt, transient in
             var idx: Int32 = 1
             for g in grams {
                 _ = sqlite3_bind_text(stmt, idx, g, -1, transient)
@@ -171,9 +210,6 @@ public final class SearchEngine {
             idx += 1
             _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
         }
-        // The gram gate can admit false positives (grams all present but not contiguous),
-        // so we still enforce a literal substring match on either name_lower or path_lower.
-        return rows.filter { $0.nameLower.contains(q) || $0.pathLower.contains(q) }
     }
 
     private func executeQuery(_ sql: String,
@@ -217,23 +253,129 @@ public final class SearchEngine {
 
     // MARK: - Scoring
 
-    /// Score bands (higher is better):
+    /// Back-compat single-token scoring entry point. Preserved so legacy
+    /// callers / tests that pass a single raw query keep working.
+    /// Base tiers (higher is better):
     ///   1000 filename exact match
     ///    800 filename starts with query
-    ///    500 filename contains query (not at start)
+    ///    500 filename contains query
     ///    200 path (but not filename) contains query
-    /// Ties break on shorter path, then alphabetical path.
-    static func score(query q: String, nameLower: String, pathLower: String) -> Int {
-        if nameLower == q { return 1000 }
-        if nameLower.hasPrefix(q) { return 800 }
-        if nameLower.contains(q) { return 500 }
-        if pathLower.contains(q) { return 200 }
-        return 0
+    ///      0 no match
+    /// E1 bonus bands (additive on top of base tier):
+    ///   +50 basename bonus: token appears in basename, not only in path
+    ///   +30 token-boundary bonus: match aligns with `/`, `.`, `-`, `_`, or space
+    ///   +40 path-segment bonus: token equals an entire path segment or the basename
+    ///   +80 extension bonus: token equals the file extension (after last `.`)
+    public static func score(query q: String, nameLower: String, pathLower: String) -> Int {
+        return scoreToken(q, nameLower: nameLower, pathLower: pathLower)
     }
 
-    private func rank(rows: [Row], query q: String) -> [SearchResult] {
+    /// Multi-token score. Every token must match (AND); returns 0 if any
+    /// token is absent from both nameLower and pathLower. Final score is the
+    /// sum of per-token scores plus an `all-in-basename` multi-token bonus.
+    public static func scoreTokens(_ tokens: [String],
+                                   nameLower: String,
+                                   pathLower: String) -> Int {
+        guard !tokens.isEmpty else { return 0 }
+        var total = 0
+        var allInName = true
+        for t in tokens {
+            let s = scoreToken(t, nameLower: nameLower, pathLower: pathLower)
+            guard s > 0 else { return 0 }
+            total += s
+            if !nameLower.contains(t) { allInName = false }
+        }
+        if tokens.count >= 2 && allInName {
+            total += 100 // every word appears in basename — a strong signal
+        }
+        return total
+    }
+
+    /// Per-token scoring with E1 bonuses applied.
+    static func scoreToken(_ t: String, nameLower: String, pathLower: String) -> Int {
+        let base: Int
+        if nameLower == t { base = 1000 }
+        else if nameLower.hasPrefix(t) { base = 800 }
+        else if nameLower.contains(t) { base = 500 }
+        else if pathLower.contains(t) { base = 200 }
+        else { return 0 }
+
+        var bonus = 0
+        // Basename bonus: token appears in basename, not only in path.
+        if nameLower.contains(t) {
+            bonus += 50
+        }
+        // Path-segment bonus: token equals a whole path segment or the name.
+        if isExactSegment(t, in: pathLower) || nameLower == t {
+            bonus += 40
+        }
+        // Extension bonus: token equals the file's trailing extension.
+        if extensionMatches(t, name: nameLower) {
+            bonus += 80
+        }
+        // Token-boundary bonus: match is adjacent to a word boundary char.
+        if atWordBoundary(t, in: nameLower) || atWordBoundary(t, in: pathLower) {
+            bonus += 30
+        }
+        return base + bonus
+    }
+
+    // MARK: - Bonus predicates
+
+    static func atWordBoundary(_ needle: String, in haystack: String) -> Bool {
+        guard !needle.isEmpty, !haystack.isEmpty else { return false }
+        // Look for any occurrence where either the preceding or following
+        // character is a boundary (or the match touches a string end).
+        var searchFrom = haystack.startIndex
+        while searchFrom < haystack.endIndex,
+              let range = haystack.range(of: needle,
+                                         range: searchFrom..<haystack.endIndex) {
+            let beforeBoundary: Bool
+            if range.lowerBound == haystack.startIndex {
+                beforeBoundary = true
+            } else {
+                let prev = haystack[haystack.index(before: range.lowerBound)]
+                beforeBoundary = isBoundaryChar(prev)
+            }
+            let afterBoundary: Bool
+            if range.upperBound == haystack.endIndex {
+                afterBoundary = true
+            } else {
+                let next = haystack[range.upperBound]
+                afterBoundary = isBoundaryChar(next)
+            }
+            if beforeBoundary || afterBoundary { return true }
+            searchFrom = haystack.index(after: range.lowerBound)
+        }
+        return false
+    }
+
+    static func isBoundaryChar(_ c: Character) -> Bool {
+        return c == "/" || c == "." || c == "-" || c == "_" || c == " "
+    }
+
+    static func isExactSegment(_ needle: String, in pathLower: String) -> Bool {
+        guard !needle.isEmpty else { return false }
+        for seg in pathLower.split(separator: "/", omittingEmptySubsequences: true) {
+            if seg == needle { return true }
+        }
+        return false
+    }
+
+    static func extensionMatches(_ needle: String, name nameLower: String) -> Bool {
+        guard !needle.isEmpty,
+              let dot = nameLower.lastIndex(of: ".") else { return false }
+        let extPart = nameLower[nameLower.index(after: dot)...]
+        return String(extPart) == needle
+    }
+
+    // MARK: - Ranking
+
+    private func rank(rows: [Row], tokens: [String]) -> [SearchResult] {
         let scored: [SearchResult] = rows.compactMap { row in
-            let s = SearchEngine.score(query: q, nameLower: row.nameLower, pathLower: row.pathLower)
+            let s = SearchEngine.scoreTokens(tokens,
+                                             nameLower: row.nameLower,
+                                             pathLower: row.pathLower)
             guard s > 0 else { return nil }
             return SearchResult(path: row.path,
                                 name: row.name,
