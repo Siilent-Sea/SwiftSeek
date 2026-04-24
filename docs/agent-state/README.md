@@ -9,10 +9,10 @@
 - 轨道切换时明确隔离历史 session，避免把已归档轨道的 `PROJECT COMPLETE` 误当成当前轨道结论
 
 ## 当前轨道
-- 当前活跃轨道：`everything-footprint`
-- 当前阶段：`G1`
+- 当前活跃轨道：`everything-usage`
+- 当前阶段：`H2`
 - 要求：创建新的 Codex 验收 session 后再写入 `.txt` / `.json`
-- 禁止：混用已归档 `everything-performance` session
+- 禁止：混用已归档 `everything-footprint` session
 
 ## 约定文件
 
@@ -34,6 +34,6 @@
 - 不与临时分析会话混用
 - 不与一次性问答会话混用
 - 轨道切换时要同步更新
-- `v1-baseline`、`everything-alignment`、`everything-performance` 的历史 session 均只作为归档背景
-- `everything-footprint` 必须使用新的验收 session
+- `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint` 的历史 session 均只作为归档背景
+- `everything-usage` 必须使用新的验收 session
 - 如果当前轨道还没创建正式验收会话，可以暂时只有这个 README；首次创建后再补 `.txt` 和 `.json`
