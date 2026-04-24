@@ -122,21 +122,49 @@ public struct QueryFilters: Equatable, Sendable {
     }
 }
 
+/// H3: usage-driven query mode. `.normal` is the pre-H3 behavior.
+/// `.recent` / `.frequent` reroute the candidate retrieval through
+/// `file_usage` JOIN `files` and sort by `last_opened_at DESC` /
+/// `open_count DESC`. Plain tokens and filters still compose via
+/// post-filter so `recent: ext:md` means "most recent .md files I've
+/// opened through SwiftSeek". Modes are mutually exclusive — the first
+/// `recent:` / `frequent:` token wins and any later one is ignored
+/// (typo tolerance, matches how `kind:` / `root:` behave).
+///
+/// Semantics boundary:
+///   * Only files that have a `file_usage` row (openCount >= 1) show up.
+///   * Ordering is the usage column; `score` is set to a baseline so
+///     the existing H2 tie-break logic is a no-op here.
+///   * NOT the macOS global recent-items list — `docs/known_issues.md`
+///     §1 stays authoritative: Run Count / 最近打开 == SwiftSeek
+///     internal `.open` only.
+public enum UsageMode: Equatable, Sendable {
+    case normal
+    case recent
+    case frequent
+}
+
 /// Result of parsing a raw user query into `plainTokens` (fed to the
 /// scoring path) and `filters` (applied post-candidate).
 public struct ParsedQuery: Equatable, Sendable {
     public var plainTokens: [String]
     public var filters: QueryFilters
+    /// H3: `.recent` / `.frequent` reroute candidate retrieval through
+    /// `file_usage`. `.normal` preserves pre-H3 behavior.
+    public var usageMode: UsageMode
 
-    public init(plainTokens: [String] = [], filters: QueryFilters = QueryFilters()) {
+    public init(plainTokens: [String] = [],
+                filters: QueryFilters = QueryFilters(),
+                usageMode: UsageMode = .normal) {
         self.plainTokens = plainTokens
         self.filters = filters
+        self.usageMode = usageMode
     }
 
     /// A query with no meaningful input at all. `search()` short-circuits
     /// to an empty result list for this case.
     public var isEmpty: Bool {
-        plainTokens.isEmpty && filters.isEmpty
+        plainTokens.isEmpty && filters.isEmpty && usageMode == .normal
     }
 }
 
@@ -235,6 +263,12 @@ public final class SearchEngine {
     /// tokens (i.e. literal substring), NOT silently adopted as filters.
     private static let filterKeys: Set<String> = ["ext", "kind", "path", "root", "hidden"]
 
+    /// H3 usage-mode keys. Appear as bare `recent:` / `frequent:`
+    /// tokens with no value. The first one wins; later ones are
+    /// ignored (typo tolerance). Mixing `recent:` and `frequent:` in
+    /// the same query is allowed but only the first sets the mode.
+    private static let usageModeKeys: Set<String> = ["recent", "frequent"]
+
     /// Parse raw user input into `ParsedQuery`. Tokens formatted `key:value`
     /// where `key` is in `filterKeys` are treated as filters; all other
     /// tokens go to `plainTokens` verbatim.
@@ -265,6 +299,15 @@ public final class SearchEngine {
             let key = String(token[..<colonIdx])
             let valueStart = token.index(after: colonIdx)
             let value = String(token[valueStart...])
+            // H3: `recent:` / `frequent:` are bare mode switches; they
+            // take no value. First one wins; we consume the token so
+            // it doesn't leak into `plainTokens` as literal text.
+            if usageModeKeys.contains(key), value.isEmpty {
+                if parsed.usageMode == .normal {
+                    parsed.usageMode = (key == "recent") ? .recent : .frequent
+                }
+                continue
+            }
             if !filterKeys.contains(key) {
                 parsed.plainTokens.append(token)
                 continue
@@ -325,7 +368,14 @@ public final class SearchEngine {
 
         let candidatePool = max(options.limit * options.candidateMultiplier, options.limit)
         let rows: [Row]
-        if !parsed.plainTokens.isEmpty {
+        if parsed.usageMode != .normal {
+            // H3: `recent:` / `frequent:` candidate pool comes straight
+            // from file_usage INNER JOIN files — by definition we only
+            // want files the user has opened through SwiftSeek. SQL
+            // emits them already in usage order so the post-filter
+            // pipeline preserves ordering.
+            rows = try usageCandidates(mode: parsed.usageMode, limit: candidatePool)
+        } else if !parsed.plainTokens.isEmpty {
             rows = try candidates(tokens: parsed.plainTokens,
                                   pathTokens: parsed.filters.pathTokens,
                                   mode: mode,
@@ -371,7 +421,12 @@ public final class SearchEngine {
             // match somewhere in nameLower. In fullpath mode name OR
             // path is accepted (pre-G3 semantics preserved inside
             // candidates()).
-            if mode == .compact {
+            // H3: usage modes also use the name-contain semantic
+            // regardless of index mode — `recent: todo` means "most
+            // recent files whose name contains todo". We never widen
+            // back to path substring here so the usage pool stays
+            // predictable.
+            if mode == .compact || parsed.usageMode != .normal {
                 for t in parsed.plainTokens {
                     if !row.nameLower.contains(t) { return false }
                 }
@@ -386,7 +441,25 @@ public final class SearchEngine {
         // in freshest-first order. Presence of plain tokens always keeps
         // the scoring path as the primary ranking signal.
         let scored: [SearchResult]
-        if !parsed.plainTokens.isEmpty {
+        if parsed.usageMode != .normal {
+            // H3: the SQL ORDER BY already emitted rows in usage order
+            // (last_opened_at DESC for .recent / open_count DESC for
+            // .frequent), and `filter` preserves input order. Map to
+            // SearchResult with a baseline score so the result view's
+            // existing plumbing (limit, selection preservation) works
+            // unchanged. score is identical for every hit so the H2
+            // tie-break is a no-op here.
+            scored = filtered.map { row in
+                SearchResult(path: row.path,
+                             name: row.name,
+                             isDir: row.isDir,
+                             size: row.size,
+                             mtime: row.mtime,
+                             score: 100,
+                             openCount: row.openCount,
+                             lastOpenedAt: row.lastOpenedAt)
+            }
+        } else if !parsed.plainTokens.isEmpty {
             scored = rank(rows: filtered, tokens: parsed.plainTokens)
         } else {
             scored = filtered.map { row in
@@ -775,6 +848,41 @@ public final class SearchEngine {
     /// G2 contract explicitly allows one segment to satisfy multiple
     /// tokens (e.g. `path:doc path:docs` both satisfied by segment
     /// "docs").
+    /// H3: candidate rows for `recent:` / `frequent:` modes. INNER
+    /// JOIN with `file_usage` so only files the user has actually
+    /// opened through SwiftSeek appear (openCount >= 1 by
+    /// construction — recordOpen only creates rows on success). Order
+    /// is decided here in SQL so the post-filter pipeline preserves
+    /// it by doing index-stable Array filtering.
+    ///
+    /// Tie-break: on equal primary key we fall back to the other
+    /// usage column so the ordering is total. Paths are not used as a
+    /// SQL tie-break — if two rows truly have identical open_count +
+    /// last_opened_at, Array.filter + post-sort still yields a stable
+    /// deterministic order via the root-gating / filter layer.
+    private func usageCandidates(mode: UsageMode, limit: Int) throws -> [Row] {
+        let orderBy: String
+        switch mode {
+        case .recent:
+            orderBy = "u.last_opened_at DESC, u.open_count DESC"
+        case .frequent:
+            orderBy = "u.open_count DESC, u.last_opened_at DESC"
+        case .normal:
+            return [] // caller shouldn't dispatch .normal here.
+        }
+        let sql = """
+        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower,
+               u.open_count, u.last_opened_at
+        FROM file_usage u
+        JOIN files f ON f.id = u.file_id
+        ORDER BY \(orderBy)
+        LIMIT ?;
+        """
+        return try executeQuery(sql) { stmt, _ in
+            _ = sqlite3_bind_int64(stmt, 1, Int64(limit))
+        }
+    }
+
     private func pathSegmentCandidates(pathTokens: [String], limit: Int) throws -> [Row] {
         guard !pathTokens.isEmpty else { return [] }
         let cases = pathTokens.map { _ in "(ps.segment = ? OR ps.segment LIKE ?)" }

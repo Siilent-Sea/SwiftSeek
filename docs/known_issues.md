@@ -31,6 +31,15 @@
 - 列宽通过 `result_col_width_open_count` / `result_col_width_last_opened` 落盘，跨重启保留。
 - 排序键 round-trip 同样走 F3 的 `result_sort_key` / `result_sort_asc`。
 
+### 5. 最近 / 常用入口已在 H3 落地
+- 查询 `recent:`（空 value 的裸 token）→ 返回 `file_usage INNER JOIN files` 按 `last_opened_at DESC, open_count DESC` 排序的结果；只含 SwiftSeek 内部 `.open` 过的文件。
+- 查询 `frequent:` → 同上，按 `open_count DESC, last_opened_at DESC`。
+- 两种模式可叠加其它 filter：`recent: ext:md` / `frequent: path:docs`。plain token 也参与：`recent: todo` = 最近打开且 name 包含 todo。
+- 互斥：同一 query 中首个 `recent:` 或 `frequent:` 赢，后续同类 token 被忽略（typo 容错）。
+- `recent:foo`（带 value）不是 mode 开关；落回 plain token 字面量。
+- 空查询当前不自动展示最近/常用（明确选择，不做空查询仪表盘）。
+- **语义边界不变**：recent/frequent 只来自 SwiftSeek 内部 `.open` 历史，不代表 macOS 系统最近项目或全局历史。
+
 ### 5. 当前没有使用历史清理 / 隐私控制
 - 设置页没有“记录使用历史”开关。
 - 设置页没有“清空使用历史”入口。

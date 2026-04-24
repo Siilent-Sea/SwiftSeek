@@ -758,6 +758,24 @@ chmod a-w /tmp/readonly.sqlite3
    - 可核 `sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 "SELECT key,value FROM settings WHERE key LIKE 'result_col_width_%';"` 能看到两个新 key
 7. 既有排序不回退：点 `名称` / `路径` / `修改时间` / `大小` 列头，排序依然按这些键（与 F3 一致），不应被 usage 打乱。
 
+### 33j. H3 recent: / frequent: 入口
+前置：通过 33h/33i 已确认 `file_usage` 在 `.open` 后累加。先打开几个不同的文件（至少 3 个，其中两个多开几次）。
+
+1. 搜索窗输入 `recent:`（带冒号的裸 token），回车。结果应按最近打开时间倒序排列；从未打开过的文件不应出现。
+2. 输入 `frequent:`。结果应按打开次数倒序排列。对比 sqlite3：
+   ```bash
+   sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 \
+     "SELECT f.path, u.open_count, u.last_opened_at FROM file_usage u JOIN files f ON f.id = u.file_id ORDER BY u.open_count DESC LIMIT 10;"
+   ```
+   顺序应一致。
+3. 组合 filter：`recent: ext:md` 只返回 .md 文件中最近打开的；`frequent: path:Documents` 只返回路径含 Documents 段的高频文件。
+4. plain token 组合：`recent: todo` 只返回最近打开且 name 含 "todo" 的文件。
+5. 边界：同时写 `recent: frequent:` — 首个赢（mode=.recent），第二个被忽略，行为不报错。
+6. 非 mode 形式不被误识别：
+   - `recent:foo` 不是 mode 开关；应当作字面 token 处理（普通搜索路径，不走 file_usage）
+   - 只有 **空 value 的裸** `recent:` / `frequent:` 才是 mode 开关
+7. 普通 query 不被污染：输入 `todo`（无 `recent:` 前缀）应返回 name 含 todo 的所有文件，不只返回已打开过的（这点和 H2 tie-break 不冲突 — 高 usage 项仅在同 score 下靠前）。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

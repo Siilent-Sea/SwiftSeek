@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3477,6 +3477,161 @@ reporter.check("H2 SearchSortKey.openCount / .lastOpenedAt round-trip and sort c
     let sortedLOAsc = SearchEngine.sort([b, a], by: SearchSortOrder(key: .lastOpenedAt, ascending: true))
     try reporter.require(sortedLOAsc.map(\.path) == ["/x/a.txt", "/x/b.txt"],
                          "lastOpenedAt asc should put a(100) before b(200), got \(sortedLOAsc.map(\.path))")
+}
+
+// MARK: - H3 recent: / frequent: entry points
+
+// Helper: a DB with 3 indexed files; each gets a distinct usage row.
+func makeH3Fixture(recordOpens: Bool = true) throws
+    -> (Database, SearchEngine, URL, URL, [String]) {
+    let dbDir = try makeTempDir()
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    try db.migrate()
+    let root = try makeTempDir()
+    let fm = FileManager.default
+    let names = ["alpha.md", "beta.md", "gamma.txt"]
+    for name in names {
+        try "".write(to: root.appendingPathComponent(name),
+                     atomically: true, encoding: .utf8)
+    }
+    let indexer = Indexer(database: db)
+    _ = try indexer.indexRoot(root)
+    // Indexer.canonicalize resolves symlinks (realpath). macOS temp
+    // dirs live under `/var/folders/...` which realpath to
+    // `/private/var/folders/...`. Use the canonical form so
+    // recordOpen(path:) finds the matching files.id.
+    let paths_ = names.map { Indexer.canonicalize(path: root.appendingPathComponent($0).path) }
+    if recordOpens {
+        // alpha.md: opened 5 times, most recent
+        // beta.md:  opened 3 times, middle
+        // gamma.txt: opened 1 time, earliest
+        for _ in 0..<5 { _ = try db.recordOpen(path: paths_[0], now: 1_700_000_300) }
+        for _ in 0..<3 { _ = try db.recordOpen(path: paths_[1], now: 1_700_000_200) }
+        _ = try db.recordOpen(path: paths_[2], now: 1_700_000_100)
+    }
+    let engine = SearchEngine(database: db)
+    return (db, engine, dbDir, root, paths_)
+}
+
+reporter.check("H3 parseQuery recognizes recent: / frequent: bare tokens and strips them") {
+    let r1 = SearchEngine.parseQuery("recent:")
+    try reporter.require(r1.usageMode == .recent,
+                         "recent: should set usageMode=.recent, got \(r1.usageMode)")
+    try reporter.require(r1.plainTokens.isEmpty,
+                         "recent: should not leak into plainTokens, got \(r1.plainTokens)")
+    let f1 = SearchEngine.parseQuery("frequent:")
+    try reporter.require(f1.usageMode == .frequent,
+                         "frequent: should set usageMode=.frequent, got \(f1.usageMode)")
+    // First mode wins on collision.
+    let both = SearchEngine.parseQuery("recent: frequent:")
+    try reporter.require(both.usageMode == .recent,
+                         "first mode wins, got \(both.usageMode)")
+    // `recent:foo` (with value) is NOT a mode switch; falls through
+    // to plainTokens as a literal `recent:foo` (unknown filter key).
+    let withValue = SearchEngine.parseQuery("recent:foo")
+    try reporter.require(withValue.usageMode == .normal,
+                         "recent:foo is not a mode switch, got \(withValue.usageMode)")
+    try reporter.require(withValue.plainTokens == ["recent:foo"],
+                         "recent:foo should fall through to plainTokens literally, got \(withValue.plainTokens)")
+}
+
+reporter.check("H3 recent: returns files ordered by last_opened_at DESC") {
+    let (db, engine, dbDir, root, paths_) = try makeH3Fixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    let hits = try engine.search("recent:")
+    try reporter.require(hits.count == 3,
+                         "expected 3 recent hits, got \(hits.count): \(hits.map(\.path))")
+    try reporter.require(hits.map(\.path) == paths_,
+                         "recent ordering wrong. got \(hits.map(\.path)) expected \(paths_)")
+}
+
+reporter.check("H3 frequent: returns files ordered by open_count DESC") {
+    let (db, engine, dbDir, root, paths_) = try makeH3Fixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    let hits = try engine.search("frequent:")
+    try reporter.require(hits.count == 3, "expected 3 frequent hits")
+    // alpha (5) > beta (3) > gamma (1) — same ordering as paths_
+    // by construction but verify explicitly.
+    try reporter.require(hits[0].path == paths_[0] && hits[0].openCount == 5,
+                         "alpha should lead at openCount=5, got \(hits[0].path) \(hits[0].openCount)")
+    try reporter.require(hits[1].path == paths_[1] && hits[1].openCount == 3,
+                         "beta should be middle at openCount=3, got \(hits[1].path) \(hits[1].openCount)")
+    try reporter.require(hits[2].path == paths_[2] && hits[2].openCount == 1,
+                         "gamma should be last at openCount=1, got \(hits[2].path) \(hits[2].openCount)")
+}
+
+reporter.check("H3 usage mode excludes files without a usage row") {
+    let (db, engine, dbDir, root, paths_) = try makeH3Fixture(recordOpens: false)
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // No .open recorded yet — every indexed file has no usage row.
+    let recent = try engine.search("recent:")
+    try reporter.require(recent.isEmpty,
+                         "recent: should be empty when no usage rows, got \(recent.map(\.path))")
+    let frequent = try engine.search("frequent:")
+    try reporter.require(frequent.isEmpty,
+                         "frequent: should be empty when no usage rows, got \(frequent.map(\.path))")
+    // After one open, exactly one file shows up.
+    _ = try db.recordOpen(path: paths_[1], now: 1_700_000_000)
+    let recentOne = try engine.search("recent:")
+    try reporter.require(recentOne.count == 1 && recentOne.first?.path == paths_[1],
+                         "only opened file should appear in recent:, got \(recentOne.map(\.path))")
+}
+
+reporter.check("H3 recent: composes with filters (recent: ext:md drops .txt)") {
+    let (db, engine, dbDir, root, paths_) = try makeH3Fixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    let hits = try engine.search("recent: ext:md")
+    try reporter.require(hits.count == 2,
+                         "expected 2 .md recent hits, got \(hits.count): \(hits.map(\.path))")
+    // alpha.md (last_opened 300) before beta.md (200); gamma.txt excluded.
+    try reporter.require(hits.map(\.path) == [paths_[0], paths_[1]],
+                         "recent+ext:md order wrong. got \(hits.map(\.path))")
+    for h in hits {
+        try reporter.require(h.name.hasSuffix(".md"),
+                             "ext:md filter failed, got \(h.name)")
+    }
+}
+
+reporter.check("H3 normal query path not polluted by recent:/frequent: implementation") {
+    // A DB where two files have identical basename but only one has
+    // been opened. Normal (no `recent:` prefix) search must still
+    // return BOTH — the recent/frequent routing must not leak into
+    // non-usage queries.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("a"),
+                           withIntermediateDirectories: true)
+    try fm.createDirectory(at: root.appendingPathComponent("b"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("a/todo.md"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("b/todo.md"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    // Open only one of them. Path canonicalized to match what the
+    // indexer stored (realpath resolves /var/folders -> /private/var/folders).
+    let openedPath = Indexer.canonicalize(path: root.appendingPathComponent("a/todo.md").path)
+    _ = try db.recordOpen(path: openedPath, now: 1_700_000_000)
+    // Normal query returns BOTH — usage has only a tie-break role.
+    let normalHits = try engine.search("todo")
+    try reporter.require(normalHits.count == 2,
+                         "normal query should still return both files; got \(normalHits.count): \(normalHits.map(\.path))")
+    // The opened file leads because of H2 tie-break.
+    try reporter.require(normalHits[0].path == openedPath,
+                         "H2 tie-break should keep opened file first, got \(normalHits[0].path)")
+    // `recent:` query returns ONLY the opened file.
+    let recentHits = try engine.search("recent:")
+    try reporter.require(recentHits.count == 1 && recentHits[0].path == openedPath,
+                         "recent: should only return opened file; got \(recentHits.map(\.path))")
 }
 
 reporter.check("H2 non-score sort keys unaffected by usage tie-break (name regression)") {
