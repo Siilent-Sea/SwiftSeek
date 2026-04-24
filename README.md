@@ -2,7 +2,7 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance` 都已归档；当前新活跃轨道是 `everything-footprint`，目标是解决 500k+ 文件规模下的 DB 体积、迁移和维护体验问题。
+当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint` 均已归档。`everything-footprint`（G1-G5）于 2026-04-24 `PROJECT COMPLETE`，解决了 500k+ 文件规模下的 DB 体积、迁移和维护体验问题。**当前无活跃轨道**，新轨道由用户发起。
 
 ## 当前能力（截至 `everything-performance` 完成）
 - **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
@@ -25,7 +25,7 @@ macOS 原生本地极速文件搜索器。
 - **RootHealth**：ready / indexing / paused / offline / unavailable，设置页 badge + 搜索空态双重暴露
 
 ## 当前限制
-500k+ 文件量下，当前 v4 索引策略会让 `file_grams + file_bigrams` 快速增长。完整路径也会进入 bigram/trigram 滑窗，因此 DB footprint、WAL 维护、迁移成本和 root 级体积归因是当前新轨道重点。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
+500k+ 文件规模下，Schema v5 compact 模式已把 DB 体积从 fullpath 3.46 GB 压到 1.07 GB（3.2× 更小），迁移 CREATE-only（reopen/migrate ms 级），compact 回填由后台 MigrationCoordinator 分批执行。仍保留的限制（如 warm 3+char 在 500k 下超 F1 旧 30ms/100ms 目标等规模效应事实）见 [docs/known_issues.md](docs/known_issues.md)。
 
 ## 明确不做
 全文内容搜索、OCR、AI 语义搜索、云盘实时一致性、跨平台、Electron / Web UI 替代原生、APFS 原始解析、Finder 插件、App Store 沙盒适配、代码签名 / 公证。
@@ -33,9 +33,9 @@ macOS 原生本地极速文件搜索器。
 ## 当前进度
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
-- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
-- 当前活跃轨道：`everything-footprint`（G1 / G2 / G3 / G4 round 2 PASS；G5 round 2 落地 500k 实测 + reopen/migrate 计时，当前等待 Codex PROJECT COMPLETE 判定）
-- 500k 实测亮点：compact 1.07 GB vs fullpath 3.46 GB（3.2× 更小），首次索引 44.87s vs 197.62s（4.4× 更快），reopen/migrate 都是 ms 级
+- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`（G1-G5，2026-04-24 PROJECT COMPLETE）
+- 当前活跃轨道：**无**（新轨道启动由用户发起）
+- everything-footprint 500k 实测亮点：compact 1.07 GB vs fullpath 3.46 GB（3.2× 更小），首次索引 44.87s vs 197.62s（4.4× 更快），reopen/migrate 都是 ms 级
 
 ## 快速上手（本地交付）
 
