@@ -34,11 +34,14 @@
 
 ### 当前阶段：`F3`（高密度结果视图与排序入口）
 
-#### 当前阶段目标（全部已落地，等待 Codex 验收）
+#### 当前阶段目标（round 2 全部已落地，等待 Codex 复验）
+**Round 1 REJECT 原因**：仅做了 sort/width 持久化，未触 UI 密度；未补手测。Round 2 补齐：
+- ✅ **视觉密度改动**：rowHeight 22→18；intercellSpacing 纵向 2→1；gridStyleMask 清零；name 列 .medium 字重；path 列 tertiaryLabel 灰；mtime/size 列 `monospacedDigitSystemFont` 数字对齐；文件夹 icon 蓝色 tint 区分 dir/file
 - ✅ 结果视图列布局保留：用户调整列宽后持久化，重启恢复
 - ✅ 排序状态保留：用户点击列头切换后持久化，重启恢复到上次选择
 - ✅ 非法 / 缺失持久值 fallback 到默认（scoreDescending / 程序默认列宽），不崩不乱
 - ✅ 现有键盘流 / QuickLook / 右键 / 拖拽 / substring 高亮不回退（E2+UX polish 全部保留）
+- ✅ `docs/manual_test.md` 补 §33d（高密度 + 排序 + 持久化手测）+ §33e（malformed 不崩）
 
 #### 当前阶段禁止事项
 - 不做 DSL 扩张（F4）

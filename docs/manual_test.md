@@ -648,6 +648,29 @@ chmod a-w /tmp/readonly.sqlite3
 2. 搜索一个高命中 query（例如 `txt`）
 3. 期望状态栏 `仅显示前 50 条`；改回 100 立即生效（无需重启）
 
+### 33d. F3 高密度结果视图 + 排序入口 + 持久化
+1. 启动 GUI，`⌥Space` 呼出搜索窗，搜索一个较高命中 query（例如 `txt`）
+2. 行高应为 18px（比 E2 的 22px 更紧凑），单屏可见行数明显增多
+3. 名称列使用 **中等字重**（.medium），路径列使用 **三级灰**（tertiaryLabel），视觉层次分明
+4. 修改时间 / 大小列使用 **等宽数字字体**（monospacedDigitSystemFont），行间数字对齐
+5. 文件夹图标带蓝色 tint，文件图标保留 template 灰色，首屏可区分
+6. 点击 `名称` 列头切换排序（asc/desc 交替），再点 `大小` 列头切到 size 排序
+7. 拖动列边界调整列宽
+8. 关闭搜索窗再次呼出 —— 上次的排序 key + 方向 + 列宽应完整恢复
+9. 完全退出 GUI 再启动（`⌘Q` 再 `swift run SwiftSeek`）—— 排序与列宽仍应恢复到上次
+10. 操作过程中验证键盘流 ↑↓/⏎/⌘⏎/⌘⇧C/⌘Y/ESC 全部不回退
+11. 右键菜单、拖拽到 Finder、QuickLook 预览 全部不回退
+12. 将列宽拖到很小的值（例如名称 100px）再呼出 —— 应恢复到该值，不重置
+
+### 33e. F3 malformed 配置不崩
+1. 关 GUI
+2. 手动污染 settings：
+   ```
+   sqlite3 ~/Library/Application\ Support/SwiftSeek/index.sqlite3 \
+     "UPDATE settings SET value='bogus-key' WHERE key='result_sort_key';"
+   ```
+3. 再启动 GUI —— 应回退到 score 降序，不崩不警告死循环
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

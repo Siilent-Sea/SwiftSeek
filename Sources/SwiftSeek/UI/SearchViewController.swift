@@ -80,11 +80,17 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         scroll.borderType = .bezelBorder
         scroll.autohidesScrollers = true
 
-        // E2: multi-column high-density layout with click-to-sort headers.
+        // E2 introduced 4-column layout + click-to-sort. F3 round 2 tightens
+        // it to a real "file-searcher" density:
+        //   rowHeight 22 → 18  (one more visible row per ~80px vs E2)
+        //   intercell vertical spacing 2 → 1 (kills dead pixels between rows)
+        //   horizontal spacing stays 8 so columns don't visually touch
+        //   alternating row shading stays on for left-to-right tracking
         tableView.headerView = NSTableHeaderView()
-        tableView.rowHeight = 22
-        tableView.intercellSpacing = NSSize(width: 8, height: 2)
+        tableView.rowHeight = 18
+        tableView.intercellSpacing = NSSize(width: 8, height: 1)
         tableView.usesAlternatingRowBackgroundColors = true
+        tableView.gridStyleMask = []
         tableView.allowsMultipleSelection = false
         tableView.allowsEmptySelection = true
         tableView.style = .fullWidth
@@ -697,8 +703,12 @@ private final class NameColumnCell: NSView {
     required init?(coder: NSCoder) { fatalError("unused") }
 
     func configure(hit: SearchResult, tokens: [String]) {
+        // F3: bump the name to .medium weight so it reads as the primary
+        // column at a glance; the path column below can stay at regular
+        // secondary weight without competing for attention.
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .regular)
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.labelColor
         ]
         let attr = NSMutableAttributedString(string: hit.name, attributes: attrs)
         highlightTokens(attr, segment: hit.name, start: 0, tokens: tokens)
@@ -707,10 +717,22 @@ private final class NameColumnCell: NSView {
         // E2 preserves the E1 UX polish pattern: show a generic SF Symbol
         // immediately, kick off the real Finder icon fetch on a utility
         // queue so scroll + re-sort stay smooth even when results cross
-        // onto slow volumes.
-        iconView.image = hit.isDir
-            ? NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-            : NSImage(systemSymbolName: "doc", accessibilityDescription: nil)
+        // onto slow volumes. F3: colour-tint the placeholder so dir vs
+        // file is visible even before the real icon loads.
+        let placeholder: NSImage?
+        if hit.isDir {
+            placeholder = NSImage(systemSymbolName: "folder.fill",
+                                  accessibilityDescription: nil)
+            placeholder?.isTemplate = false
+        } else {
+            placeholder = NSImage(systemSymbolName: "doc",
+                                  accessibilityDescription: nil)
+            placeholder?.isTemplate = true
+        }
+        iconView.image = placeholder
+        iconView.contentTintColor = hit.isDir
+            ? NSColor.systemBlue.withAlphaComponent(0.9)
+            : NSColor.secondaryLabelColor
         iconLoadPath = hit.path
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let img = NSWorkspace.shared.icon(forFile: hit.path)
@@ -741,9 +763,12 @@ private final class PathColumnCell: NSView {
     required init?(coder: NSCoder) { fatalError("unused") }
 
     func configure(hit: SearchResult, tokens: [String], query: String) {
+        // F3: path de-emphasised (tertiaryLabelColor) so the name column
+        // wins the visual hierarchy. Token highlights on the parent dir
+        // still draw the eye to where the match occurred.
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .foregroundColor: NSColor.tertiaryLabelColor
         ]
         // Show the parent directory in the path column; the name column
         // already shows the basename. That avoids redundant content and
@@ -766,8 +791,13 @@ private final class PlainColumnCell: NSView {
         label.usesSingleLineMode = true
         label.lineBreakMode = .byTruncatingTail
         label.alignment = alignment
-        label.font = NSFont.systemFont(ofSize: 11)
-        label.textColor = .tertiaryLabelColor
+        // F3: use monospaced digits so size and date columns line up
+        // vertically even when row values differ in digit count
+        // ("1.2 MB" above "12 KB", "3 天前" above "刚刚" etc.). Cell label
+        // colour stays on secondaryLabelColor to stay legible but
+        // still visually below the primary name column.
+        label.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
