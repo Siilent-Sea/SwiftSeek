@@ -822,6 +822,14 @@ private final class MaintenancePane: NSViewController {
     private let rebuildButton = NSButton(title: "重建索引", target: nil, action: nil)
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let progressIndicator = NSProgressIndicator()
+    // G1: DB footprint stats block.
+    private let statsTitle = NSTextField(labelWithString: "DB 体积")
+    private let statsLabel = NSTextField(wrappingLabelWithString: "")
+    private let statsRefreshBtn = NSButton(title: "刷新", target: nil, action: nil)
+    private let checkpointBtn = NSButton(title: "WAL checkpoint", target: nil, action: nil)
+    private let optimizeBtn   = NSButton(title: "Optimize", target: nil, action: nil)
+    private let vacuumBtn     = NSButton(title: "VACUUM…", target: nil, action: nil)
+    private let maintStatus   = NSTextField(wrappingLabelWithString: "")
 
     init(database: Database, rebuildCoordinator: RebuildCoordinator) {
         self.database = database
@@ -831,7 +839,7 @@ private final class MaintenancePane: NSViewController {
     required init?(coder: NSCoder) { fatalError("unused") }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 360))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 560))
 
         let title = NSTextField(labelWithString: "维护")
         title.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
@@ -855,7 +863,44 @@ private final class MaintenancePane: NSViewController {
         progressIndicator.isIndeterminate = true
         progressIndicator.isDisplayedWhenStopped = false
 
-        [title, note, rebuildButton, progressIndicator, statusLabel].forEach { root.addSubview($0) }
+        // G1 stats block
+        statsTitle.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        statsTitle.translatesAutoresizingMaskIntoConstraints = false
+        statsLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        statsLabel.textColor = .secondaryLabelColor
+        statsLabel.translatesAutoresizingMaskIntoConstraints = false
+        statsLabel.stringValue = "—"
+        statsRefreshBtn.bezelStyle = .rounded
+        statsRefreshBtn.controlSize = .small
+        statsRefreshBtn.target = self
+        statsRefreshBtn.action = #selector(onRefreshStats)
+        statsRefreshBtn.translatesAutoresizingMaskIntoConstraints = false
+        checkpointBtn.bezelStyle = .rounded
+        checkpointBtn.controlSize = .small
+        checkpointBtn.target = self
+        checkpointBtn.action = #selector(onCheckpoint)
+        checkpointBtn.translatesAutoresizingMaskIntoConstraints = false
+        optimizeBtn.bezelStyle = .rounded
+        optimizeBtn.controlSize = .small
+        optimizeBtn.target = self
+        optimizeBtn.action = #selector(onOptimize)
+        optimizeBtn.translatesAutoresizingMaskIntoConstraints = false
+        vacuumBtn.bezelStyle = .rounded
+        vacuumBtn.controlSize = .small
+        vacuumBtn.target = self
+        vacuumBtn.action = #selector(onVacuum)
+        vacuumBtn.translatesAutoresizingMaskIntoConstraints = false
+        maintStatus.font = NSFont.systemFont(ofSize: 11)
+        maintStatus.textColor = .secondaryLabelColor
+        maintStatus.translatesAutoresizingMaskIntoConstraints = false
+
+        let maintRow = NSStackView(views: [statsRefreshBtn, checkpointBtn, optimizeBtn, vacuumBtn])
+        maintRow.orientation = .horizontal
+        maintRow.spacing = 8
+        maintRow.translatesAutoresizingMaskIntoConstraints = false
+
+        [title, note, rebuildButton, progressIndicator, statusLabel,
+         statsTitle, statsLabel, maintRow, maintStatus].forEach { root.addSubview($0) }
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -875,6 +920,22 @@ private final class MaintenancePane: NSViewController {
             statusLabel.topAnchor.constraint(equalTo: rebuildButton.bottomAnchor, constant: 16),
             statusLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             statusLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            // stats block below the rebuild area
+            statsTitle.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 28),
+            statsTitle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            statsLabel.topAnchor.constraint(equalTo: statsTitle.bottomAnchor, constant: 6),
+            statsLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            statsLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+
+            maintRow.topAnchor.constraint(equalTo: statsLabel.bottomAnchor, constant: 10),
+            maintRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            maintStatus.topAnchor.constraint(equalTo: maintRow.bottomAnchor, constant: 8),
+            maintStatus.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            maintStatus.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            maintStatus.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
         ])
         self.view = root
     }
@@ -883,6 +944,77 @@ private final class MaintenancePane: NSViewController {
         super.viewWillAppear()
         reflectLastResult()
         reflectRunning()
+        refreshStatsLabel()
+    }
+
+    // MARK: - G1 stats + maintenance
+
+    @objc private func onRefreshStats() { refreshStatsLabel() }
+
+    private func refreshStatsLabel() {
+        let s = database.computeStats()
+        var lines: [String] = []
+        lines.append("main : \(DatabaseStats.humanBytes(s.mainFileBytes))   wal : \(DatabaseStats.humanBytes(s.walFileBytes))   shm : \(DatabaseStats.humanBytes(s.shmFileBytes))")
+        lines.append("pages: count=\(DatabaseStats.humanCount(s.pageCount)) size=\(DatabaseStats.humanBytes(s.pageSize))")
+        lines.append("files=\(DatabaseStats.humanCount(s.filesRowCount))   grams=\(DatabaseStats.humanCount(s.fileGramsRowCount))   bigrams=\(DatabaseStats.humanCount(s.fileBigramsRowCount))")
+        lines.append("avg grams/file=\(DatabaseStats.humanAvg(s.avgGramsPerFile))   avg bigrams/file=\(DatabaseStats.humanAvg(s.avgBigramsPerFile))")
+        if let per = s.perTable, !per.isEmpty {
+            lines.append("per-table:")
+            for row in per.prefix(6) {
+                lines.append("  \(row.name): \(DatabaseStats.humanBytes(row.approxBytes))  pages=\(DatabaseStats.humanCount(row.pageCount))")
+            }
+            if per.count > 6 { lines.append("  … (+\(per.count - 6) more)") }
+        }
+        statsLabel.stringValue = lines.joined(separator: "\n")
+    }
+
+    @objc private func onCheckpoint() {
+        runMaintenanceOffMain(.checkpoint, label: "WAL checkpoint")
+    }
+
+    @objc private func onOptimize() {
+        runMaintenanceOffMain(.optimize, label: "Optimize")
+    }
+
+    @objc private func onVacuum() {
+        // G1 requires an explicit confirmation banner before VACUUM.
+        let s = database.computeStats()
+        let alert = NSAlert()
+        alert.messageText = "确认执行 VACUUM？"
+        alert.informativeText = """
+        这是耗时操作，可能花几分钟到几十分钟（取决于库大小）。
+
+        开始前请确认：
+          • 已退出其他正在使用该 DB 的 SwiftSeek GUI / CLI
+          • 磁盘剩余空间至少 \(DatabaseStats.humanBytes(s.mainFileBytes))（VACUUM 需要先写一份完整重排副本再替换原文件）
+          • 期间 App 主界面会短暂不响应搜索（维护在后台线程，但 DB 锁住）
+
+        VACUUM 只能临时压实当前库，不能根治 full-path gram 索引膨胀问题。
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "开始 VACUUM")
+        if alert.runModal() == .alertSecondButtonReturn {
+            runMaintenanceOffMain(.vacuum, label: "VACUUM")
+        }
+    }
+
+    private func runMaintenanceOffMain(_ kind: MaintenanceKind, label: String) {
+        maintStatus.stringValue = "\(label) 中…"
+        [statsRefreshBtn, checkpointBtn, optimizeBtn, vacuumBtn].forEach { $0.isEnabled = false }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let result = self.database.runMaintenance(kind)
+            DispatchQueue.main.async {
+                [self.statsRefreshBtn, self.checkpointBtn, self.optimizeBtn, self.vacuumBtn].forEach { $0.isEnabled = true }
+                if let err = result.error {
+                    self.maintStatus.stringValue = "\(label) 失败（\(String(format: "%.2fs", result.durationSeconds))）：\(err)"
+                } else {
+                    self.maintStatus.stringValue = "\(label) 完成，用时 \(String(format: "%.2fs", result.durationSeconds))"
+                }
+                self.refreshStatsLabel()
+            }
+        }
     }
 
     private func reflectLastResult() {

@@ -3,41 +3,45 @@
 本文件只保留当前有效结论。
 
 ## 当前有效结论
-**VERDICT: PROJECT COMPLETE**
-TRACK: everything-performance
-STAGE: F5 (final)
-ROUND: 2
+**VERDICT: REJECT**
+TRACK: everything-footprint
+STAGE: G1
+ROUND: 0
 DATE: 2026-04-24
-SESSION_ID: 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
-COMMIT: 145d11f
+SESSION_ID: pending-new-track-session
 
 ### Summary
-Codex 2026-04-24 独立验收 F5 round 2 颁发 `VERDICT: PROJECT COMPLETE for everything-performance track`。
+用户基于真实使用反馈发起新轨道 `everything-footprint`。历史 `v1-baseline`、`everything-alignment`、`everything-performance` 均已归档，其中 `everything-performance` 已拿到 `PROJECT COMPLETE`，但该结论只覆盖搜索性能和 Everything-like 落地，不覆盖 500k+ 文件规模下 DB footprint、迁移和维护体验。
 
-- F1-F4 全部 PASS，F5 是 docs + final verdict
-- F5 round 1 REJECT 原因：stage_status F4 归档块还保留 round-1 旧口径（"trailing-wildcard LIKE" / "118 pass"）
-- F5 round 2 修：stage_status line 68 / 86 / 94 同步到最终 `ext:` 实际行为（leading-wildcard LIKE 线性扫描）+ smoke 数（119 含 round-2 新增 ext: perf 用例）
-- 复跑 build / smoke / startup 全绿
-- F1-F4 不回退
+当前代码审计确认：
+- schema v4 同时存在 `file_grams` 与 `file_bigrams`。
+- trigram / bigram 都来自 `nameLower + pathLower`，完整路径滑窗会显著放大大库行数。
+- v2/v4 migration backfill 在 `Database.migrate()` 的单个事务内执行，且先全量读取 `files` 行到内存。
+- App 内没有 DB size / WAL size / table stats / avg grams per file / root attribution 的清晰展示。
+- App 内没有 checkpoint / optimize / VACUUM 的安全维护入口。
 
 ### Blockers / Required fixes
-- None
+1. G1 尚未实现 DB stats 能力。
+2. G1 尚未实现 CLI / bench DB stats 入口。
+3. G1 尚未实现设置 / 维护页简版 stats。
+4. G1 尚未实现 checkpoint / optimize / VACUUM 安全入口与 VACUUM 风险确认。
+5. G1 尚未补充相关测试和手测记录。
 
-### Non-blocking notes（Codex 原文）
-1. F5 不引入 usage-based tie-break 是保守决策，任务书把它列为可选项。
-2. codex_acceptance / next_stage / agent-state session 原预写状态应在最终写盘同步为 "轨道已关闭"（本次提交已同步）。
+### Non-blocking notes
+1. 本轮只完成新轨道立项、差距文档、任务书和状态切换。
+2. 不应把 VACUUM / checkpoint 当作根治方案；根治方向应在 G2-G4 通过 compact index 设计和实现推进。
 
-## 轨道内已通过阶段（最终）
-- F1（2026-04-24 round 1 PASS）
-- F2（2026-04-24 round 2 PASS）
-- F3（2026-04-24 round 2 PASS）
-- F4（2026-04-24 round 2 PASS）
-- F5（2026-04-24 round 2 PROJECT COMPLETE）
+## 当前轨道阶段
+- 当前活跃轨道：`everything-footprint`
+- 当前阶段：`G1`
+- 当前任务书：`docs/next_stage.md`
+- 完整阶段计划：`docs/everything_footprint_taskbook.md`
+- 差距清单：`docs/everything_footprint_gap.md`
 
 ## 历史归档轨道
-- `v1-baseline`：P0 ~ P6 / PROJECT COMPLETE 2026-04-23
-- `everything-alignment`：E1 ~ E5 / PROJECT COMPLETE 2026-04-24
-- `everything-performance`：F1 ~ F5 / PROJECT COMPLETE 2026-04-24（本轮）
+- `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23
+- `everything-alignment`：E1-E5 / PROJECT COMPLETE 2026-04-24
+- `everything-performance`：F1-F5 / PROJECT COMPLETE 2026-04-24
 
-## 轨道归档
-`everything-performance` 在 2026-04-24 Codex 独立验收下达到 PROJECT COMPLETE。**无活跃后续阶段**，仓库进入下一轨道由用户发起的等待状态。
+## 轨道切换说明
+`everything-footprint` 必须使用新的 Codex 验收 session。不得混用已归档 `everything-performance` 的 session id。

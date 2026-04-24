@@ -13,6 +13,7 @@ let package = Package(
         .executable(name: "SwiftSeekSmokeTest", targets: ["SwiftSeekSmokeTest"]),
         .executable(name: "SwiftSeekStartup", targets: ["SwiftSeekStartup"]),
         .executable(name: "SwiftSeekBench", targets: ["SwiftSeekBench"]),
+        .executable(name: "SwiftSeekDBStats", targets: ["SwiftSeekDBStats"]),
         .library(name: "SwiftSeekCore", targets: ["SwiftSeekCore"])
     ],
     targets: [
@@ -56,6 +57,14 @@ let package = Package(
             name: "SwiftSeekBench",
             dependencies: ["SwiftSeekCore"],
             path: "Sources/SwiftSeekBench"
+        ),
+        // G1: DB footprint observability + maintenance CLI. Runs
+        // `computeStats` against a given DB and optionally fires
+        // checkpoint / optimize / VACUUM.
+        .executableTarget(
+            name: "SwiftSeekDBStats",
+            dependencies: ["SwiftSeekCore"],
+            path: "Sources/SwiftSeekDBStats"
         )
     ]
 )

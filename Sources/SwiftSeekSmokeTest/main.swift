@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -2662,6 +2662,163 @@ reporter.check("F1 warm 2-char search timing under generous CI bound (200ms medi
     let median = samples[samples.count / 2]
     try reporter.require(median < 200,
                          "2-char median \(median)ms exceeded 200ms ceiling (regression?)")
+}
+
+// MARK: - G1 (DB footprint observability + maintenance entries)
+
+reporter.check("G1 computeStats on fresh DB: known tables all row-count=0, no crash") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let s = db.computeStats()
+    try reporter.require(s.filesRowCount == 0,
+                         "fresh files should be 0, got \(s.filesRowCount)")
+    try reporter.require(s.fileGramsRowCount == 0,
+                         "fresh file_grams should be 0, got \(s.fileGramsRowCount)")
+    try reporter.require(s.fileBigramsRowCount == 0,
+                         "fresh file_bigrams should be 0, got \(s.fileBigramsRowCount)")
+    try reporter.require(s.rootsRowCount == 0, "fresh roots should be 0")
+    try reporter.require(s.excludesRowCount == 0, "fresh excludes should be 0")
+    try reporter.require(s.settingsRowCount == 0, "fresh settings should be 0")
+    try reporter.require(s.pageCount > 0, "page_count should be positive")
+    try reporter.require(s.pageSize > 0, "page_size should be positive")
+    try reporter.require(s.mainFileBytes > 0, "main file should exist")
+    try reporter.require(s.avgGramsPerFile == nil, "avg grams should be nil when files=0")
+    try reporter.require(s.avgBigramsPerFile == nil, "avg bigrams should be nil when files=0")
+}
+
+reporter.check("G1 computeStats averages: per-file grams/bigrams match row counts") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for f in ["alpha.txt", "beta.md", "gamma.swift"] {
+        try "".write(to: root.appendingPathComponent(f),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let s = db.computeStats()
+    try reporter.require(s.filesRowCount > 0,
+                         "files should be >0 after index")
+    try reporter.require(s.fileGramsRowCount > 0, "grams should be >0")
+    try reporter.require(s.fileBigramsRowCount > 0, "bigrams should be >0")
+    let expectedAvgG = Double(s.fileGramsRowCount) / Double(s.filesRowCount)
+    let expectedAvgB = Double(s.fileBigramsRowCount) / Double(s.filesRowCount)
+    try reporter.require(s.avgGramsPerFile == expectedAvgG,
+                         "avgGrams mismatch: \(String(describing: s.avgGramsPerFile)) vs \(expectedAvgG)")
+    try reporter.require(s.avgBigramsPerFile == expectedAvgB,
+                         "avgBigrams mismatch: \(String(describing: s.avgBigramsPerFile)) vs \(expectedAvgB)")
+}
+
+reporter.check("G1 computeStats: WAL / SHM byte fields present and sane") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Writing a row forces a WAL file to appear.
+    _ = try db.registerRoot(path: "/tmp/\(UUID().uuidString)")
+    let s = db.computeStats()
+    // WAL path either exists with a size, or is -1 (not present yet on
+    // some platforms). Both are acceptable — the important property is
+    // that the call does not crash and returns a valid Int64.
+    try reporter.require(s.walFileBytes >= -1,
+                         "walFileBytes must be -1 or non-negative, got \(s.walFileBytes)")
+    try reporter.require(s.shmFileBytes >= -1,
+                         "shmFileBytes must be -1 or non-negative, got \(s.shmFileBytes)")
+}
+
+reporter.check("G1 computeStats: missing-table fallback returns -1 instead of crashing") {
+    // Simulate a partially-broken DB (v3 schema without file_bigrams).
+    // We can't easily drop the table mid-flight; instead, build a new
+    // DB manually at v3 and confirm computeStats handles the missing
+    // file_bigrams table gracefully.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let dbURL = dbDir.appendingPathComponent("partial.sqlite3")
+    do {
+        let db = try Database.open(at: dbURL)
+        try db.exec("""
+        CREATE TABLE files (id INTEGER PRIMARY KEY, parent_id INTEGER,
+          path TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+          name_lower TEXT NOT NULL, path_lower TEXT NOT NULL DEFAULT '',
+          is_dir INTEGER NOT NULL, size INTEGER NOT NULL DEFAULT 0,
+          mtime INTEGER NOT NULL DEFAULT 0, inode INTEGER, volume_id INTEGER);
+        CREATE TABLE roots (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE,
+          enabled INTEGER NOT NULL DEFAULT 1);
+        PRAGMA user_version=3;
+        """)
+        db.close()
+    }
+    // Open raw (no migrate) so file_bigrams never gets created.
+    let db = try Database.open(at: dbURL)
+    defer { db.close() }
+    let s = db.computeStats()
+    try reporter.require(s.fileBigramsRowCount == -1,
+                         "missing file_bigrams should return -1, got \(s.fileBigramsRowCount)")
+    try reporter.require(s.filesRowCount == 0,
+                         "existing files table should still be countable")
+    try reporter.require(s.excludesRowCount == -1,
+                         "missing excludes table should return -1")
+    try reporter.require(s.settingsRowCount == -1,
+                         "missing settings table should return -1")
+}
+
+reporter.check("G1 runMaintenance: checkpoint / optimize succeed on fresh DB") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let r1 = db.runMaintenance(.checkpoint)
+    try reporter.require(r1.error == nil,
+                         "checkpoint should succeed, got \(r1.error ?? "?")")
+    let r2 = db.runMaintenance(.optimize)
+    try reporter.require(r2.error == nil,
+                         "optimize should succeed, got \(r2.error ?? "?")")
+}
+
+reporter.check("G1 runMaintenance: vacuum succeeds on a small DB (core path)") {
+    // Verifies that the Core-level VACUUM helper works. The UI-layer
+    // confirmation dialog is covered by manual test 33f.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    try "".write(to: root.appendingPathComponent("a.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let r = db.runMaintenance(.vacuum)
+    try reporter.require(r.error == nil,
+                         "vacuum on small DB should succeed, got \(r.error ?? "?")")
+}
+
+reporter.check("G1 humanBytes / humanCount / humanAvg render — for missing values") {
+    try reporter.require(DatabaseStats.humanBytes(-1) == "—",
+                         "humanBytes(-1) should be '—'")
+    try reporter.require(DatabaseStats.humanCount(-1) == "—",
+                         "humanCount(-1) should be '—'")
+    try reporter.require(DatabaseStats.humanAvg(nil) == "—",
+                         "humanAvg(nil) should be '—'")
+    // Real values render reasonably.
+    try reporter.require(DatabaseStats.humanBytes(1024 * 1024).contains("MB")
+                         || DatabaseStats.humanBytes(1024 * 1024).contains("KB"),
+                         "1 MB should produce MB-ish string")
+    try reporter.require(DatabaseStats.humanAvg(3.141) == "3.14",
+                         "humanAvg(3.141) should be '3.14'")
 }
 
 exit(reporter.summary())

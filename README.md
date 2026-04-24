@@ -2,37 +2,40 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline` 已完成，`everything-alignment` 已归档；当前开启的新活跃轨道是 `everything-performance`。
+当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance` 都已归档；当前新活跃轨道是 `everything-footprint`，目标是解决 500k+ 文件规模下的 DB 体积、迁移和维护体验问题。
 
-## 当前能力（截至 `everything-performance` F4）
+## 当前能力（截至 `everything-performance` 完成）
 - **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
-- **索引**：首次全量扫描 + FSEvents / polling 双 backend 增量；3-gram + 2-gram（F1）倒排
+- **索引**：首次全量扫描 + FSEvents / polling 双 backend 增量；3-gram + 2-gram 倒排
 - **搜索**：
-  - 多词 AND 语义（E1）
-  - basename / token boundary / path segment / extension bonus（E1）
-  - 过滤语法：`ext:` / `kind:` / `path:` / `root:` / `hidden:`（E3/F4）
-  - filter-only 候选路径分层：path-gram > ext-scan > root-prefix > kind > fallback（F4）
-  - 热路径：prepared statement cache + roots/settings cache（F1）
-  - Bench 实测（10k 合成文件，release）：warm 2-char median ~3ms，warm 3+-char median ~3ms
+  - 多词 AND 语义
+  - basename / token boundary / path segment / extension bonus
+  - 过滤语法：`ext:` / `kind:` / `path:` / `root:` / `hidden:`
+  - filter-only 候选路径分层：path-gram > ext-scan > root-prefix > kind > fallback
+  - 热路径：prepared statement cache + roots/settings cache
+  - Bench 实测（10k 合成文件，release）：warm 2-char median 约 3ms，warm 3+char median 约 3ms
 - **结果窗**：
-  - ⌥Space 浮动呼出；热键可在预设中切换（E5）
-  - 4 列视图（名称 / 路径 / 修改时间 / 大小）；列头排序；列宽 + 排序跨重启持久化（E2/F3）
-  - 行高 18px 密度，等宽数字对齐，folder/doc 图标分色（F3）
-  - 键盘流：↑/↓ 移动 · ⏎ 打开 · ⌘⏎ Reveal · ⌘⇧C 复制路径 · ⌘Y QuickLook · ESC 隐藏
-  - 右键菜单、结果拖出、substring 高亮（E5 UX polish）
-  - 0 结果空态标注 offline / unavailable / paused 的 root（F4）
+  - 全局热键浮动呼出；热键可在预设中切换
+  - 4 列视图（名称 / 路径 / 修改时间 / 大小）；列头排序；列宽 + 排序跨重启持久化
+  - 行高 18px，等宽数字对齐，folder/doc 图标分色
+  - 键盘流：↑/↓ 移动、Enter 打开、Command+Enter Reveal、Command+Shift+C 复制路径、Command+Y QuickLook、ESC 隐藏
+  - 右键菜单、结果拖出、substring 高亮
+  - 0 结果空态标注 offline / unavailable / paused 的 root
 - **设置页**：索引目录、排除目录、隐藏文件开关、热键预设、结果上限、重建索引、诊断信息
-- **RootHealth** 5 档（E4/F4）：ready / indexing / paused / offline / unavailable，设置页 badge + 搜索空态双重暴露
+- **RootHealth**：ready / indexing / paused / offline / unavailable，设置页 badge + 搜索空态双重暴露
+
+## 当前限制
+500k+ 文件量下，当前 v4 索引策略会让 `file_grams + file_bigrams` 快速增长。完整路径也会进入 bigram/trigram 滑窗，因此 DB footprint、WAL 维护、迁移成本和 root 级体积归因是当前新轨道重点。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
 ## 明确不做
-全文内容搜索、OCR、AI 语义搜索、云盘实时一致性、跨平台、Electron / Web UI 替代原生、APFS 原始解析、Finder 插件、App Store 沙盒适配、代码签名 / 公证。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
+全文内容搜索、OCR、AI 语义搜索、云盘实时一致性、跨平台、Electron / Web UI 替代原生、APFS 原始解析、Finder 插件、App Store 沙盒适配、代码签名 / 公证。
 
 ## 当前进度
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
-- 已归档轨道：`v1-baseline`、`everything-alignment`
-- 当前活跃轨道：`everything-performance`
-- 当前阶段：轨道内 F1 / F2 / F3 / F4 全部 PASS；F5 为最终收尾 + PROJECT COMPLETE
+- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
+- 当前活跃轨道：`everything-footprint`
+- 当前阶段：`G1` - DB 体积观测与维护入口
 
 ## 快速上手（本地交付）
 
@@ -51,12 +54,12 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 ```
 
 构建完成后二进制在 `.build/release/` 下：
-- `SwiftSeek` — GUI 主程序
-- `SwiftSeekIndex` — CLI 首次 / 增量索引
-- `SwiftSeekSearch` — CLI 搜索入口（默认 limit 读 `settings.search_limit`，F2 起 GUI/CLI 同源）
-- `SwiftSeekStartup` — 非 GUI 启动检查（headless）
-- `SwiftSeekSmokeTest` — 冒烟测试（119+ 用例）
-- `SwiftSeekBench` — 搜索热路径 perf probe（F1，`--enforce-targets` 验收用）
+- `SwiftSeek` - GUI 主程序
+- `SwiftSeekIndex` - CLI 首次 / 增量索引
+- `SwiftSeekSearch` - CLI 搜索入口
+- `SwiftSeekStartup` - 非 GUI 启动检查
+- `SwiftSeekSmokeTest` - 冒烟测试
+- `SwiftSeekBench` - 搜索热路径 perf probe
 
 ## 构建与验证
 
@@ -69,10 +72,14 @@ swift run SwiftSeekSearch <query>
 ```
 
 ## Roadmap
-当前路线已切到 `everything-performance`，README 只保留入口：
+当前下一轨道是 `everything-footprint`：
 
-- 当前性能 / 落地差距清单：[docs/everything_performance_gap.md](docs/everything_performance_gap.md)
-- 当前阶段任务书：[docs/everything_performance_taskbook.md](docs/everything_performance_taskbook.md)
+- 大库体积与维护差距：[docs/everything_footprint_gap.md](docs/everything_footprint_gap.md)
+- G1-G5 阶段任务书：[docs/everything_footprint_taskbook.md](docs/everything_footprint_taskbook.md)
+
+历史性能轨道文档仍保留归档参考：
+- [docs/everything_performance_gap.md](docs/everything_performance_gap.md)
+- [docs/everything_performance_taskbook.md](docs/everything_performance_taskbook.md)
 
 ## 目录
 ```text
@@ -83,6 +90,7 @@ Sources/
   SwiftSeekSearch/      CLI 搜索入口
   SwiftSeekStartup/     headless 启动检查
   SwiftSeekSmokeTest/   冒烟测试
+  SwiftSeekBench/       benchmark / probe
 docs/
   stage_status.md
   codex_acceptance.md
@@ -94,6 +102,8 @@ docs/
   everything_alignment_taskbook.md
   everything_performance_gap.md
   everything_performance_taskbook.md
+  everything_footprint_gap.md
+  everything_footprint_taskbook.md
   agent-state/
 AGENTS.md / CLAUDE.md
 ```
@@ -101,4 +111,4 @@ AGENTS.md / CLAUDE.md
 ## 协作模式
 - Claude：主开发代理，负责实现、自检。
 - Codex：独立验收代理，负责 REJECT / PASS / 下一阶段任务书。
-- 历史 `v1-baseline` 与 `everything-alignment` 都已归档；当前继续推进的是 `everything-performance`。
+- 当前继续推进的是 `everything-footprint`，不得因历史轨道 `PROJECT COMPLETE` 而停止。

@@ -25,9 +25,19 @@ SwiftSeek 不再是“一次性做完即停止”的单轨项目，后续按 tra
 - 状态：历史上已经拿到 `PROJECT COMPLETE`
 - 结论边界：这个 `PROJECT COMPLETE` 只代表 `v1-baseline` 完成，不代表后续所有轨道都结束
 
+### 已归档轨道：`everything-alignment`
+- 含义：Everything-like 体验第一轮对齐（E1 ~ E5）
+- 状态：历史上已经拿到 `PROJECT COMPLETE`
+- 结论边界：不代表后续性能、体积、维护轨道都结束
+
+### 已归档轨道：`everything-performance`
+- 含义：搜索热路径性能、真实相关性接线、结果视图、DSL、RootHealth 与索引自动化收口（F1 ~ F5）
+- 状态：历史上已经拿到 `PROJECT COMPLETE`
+- 结论边界：不覆盖 500k+ 文件规模下的 DB footprint、迁移和维护体验
+
 ### 当前活跃轨道
 - 一律以 `docs/stage_status.md` 为准
-- 本轮如果 `docs/stage_status.md` 指向 `everything-performance`，你就按该轨道验收
+- 本轮如果 `docs/stage_status.md` 指向 `everything-footprint`，你就按该轨道验收
 - 不允许因为历史上出现过一次 `PROJECT COMPLETE`，就让新轨道直接停止
 
 ---
@@ -52,7 +62,7 @@ SwiftSeek 是一个面向 macOS 的本地极速文件搜索器。
 
 ### 当前后续轨道目标
 当前主线由 `docs/stage_status.md` 与对应轨道任务书定义。
-如果当前活跃轨道是 `everything-performance`，其目标是在保持原生 macOS 文件搜索器定位不变的前提下，优先解决搜索热路径性能、真实落地差距与文档漂移，再继续收口 Everything-like 体验，但仍保持：
+如果当前活跃轨道是 `everything-footprint`，其目标是在保持 `everything-performance` 搜索速度成果不回退的前提下，解决大库体积、迁移和维护体验问题，但仍保持：
 - 本地
 - 原生 macOS
 - 文件名 / 路径搜索为主
@@ -162,7 +172,7 @@ Codex 验收会话必须优先使用项目内显式 session id。
 4. 文档齐全到“不是只有作者自己会用”的程度
 
 注意：
-- `v1-baseline` 与 `everything-alignment` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
+- `v1-baseline`、`everything-alignment`、`everything-performance` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，该轨道才允许停止
 
 ---
@@ -171,8 +181,8 @@ Codex 验收会话必须优先使用项目内显式 session id。
 你的回复必须以如下格式输出，字段名不要改：
 
 VERDICT: REJECT | PASS | PROJECT COMPLETE
-TRACK: v1-baseline | everything-alignment | everything-performance | <docs/stage_status.md 当前轨道名>
-STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | <当前阶段名>
+TRACK: v1-baseline | everything-alignment | everything-performance | everything-footprint | <docs/stage_status.md 当前轨道名>
+STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | G1 | G2 | G3 | G4 | G5 | <当前阶段名>
 SUMMARY:
 - ...
 
@@ -224,6 +234,8 @@ NEXT_STAGE_TASKBOOK:
 - `docs/everything_alignment_taskbook.md`
 - `docs/everything_performance_gap.md`
 - `docs/everything_performance_taskbook.md`
+- `docs/everything_footprint_gap.md`
+- `docs/everything_footprint_taskbook.md`
 - `docs/agent-state/README.md`
 
 要求：

@@ -671,6 +671,31 @@ chmod a-w /tmp/readonly.sqlite3
    ```
 3. 再启动 GUI —— 应回退到 score 降序，不崩不警告死循环
 
+### 33f. G1 DB 体积观测 + 维护入口
+1. CLI：对当前默认 DB 运行
+   ```bash
+   swift run SwiftSeekDBStats
+   ```
+   期望输出：DB path、schema version、main/wal/shm 文件大小、page_count/size、六张表行数、avg grams/bigrams per file、per-table 列表
+2. CLI 对小库可执行 maintenance：
+   ```bash
+   swift run SwiftSeekDBStats --db /tmp/ss-g1.sqlite3 --run checkpoint
+   swift run SwiftSeekDBStats --db /tmp/ss-g1.sqlite3 --run optimize
+   swift run SwiftSeekDBStats --db /tmp/ss-g1.sqlite3 --run vacuum
+   ```
+   - 不带 `--yes` 时 vacuum 会打印风险横幅并 exit 1
+   - 带 `--yes` 时 vacuum 实际执行，末尾打印 before/after main+wal 对比
+3. GUI：
+   - 设置 → 维护 tab
+   - 在"重建索引"下方应显示：`DB 体积` 标题 + 多行 monospace stats（main/wal/shm、pages、files/grams/bigrams 行数、avg、per-table）
+   - 四个按钮：`刷新` / `WAL checkpoint` / `Optimize` / `VACUUM…`
+   - 点刷新 → stats 立刻重新计算
+   - 点 checkpoint / optimize → 下方状态栏显示 "X 完成，用时 Y.YYs"
+   - 点 `VACUUM…` → 弹出确认对话框，包含退出其他进程 / 磁盘空间要求 / 耗时 / "只是临时压实，不能根治" 四条
+   - 点取消 → 什么都不发生
+   - 点"开始 VACUUM" → 后台线程执行，期间按钮禁用；完成后状态栏显示用时 + stats 自动刷新
+4. stats 读取失败 fallback：删除 file_bigrams 表（手动 sqlite3）再打开维护 tab，应继续显示其它字段，不崩
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求
