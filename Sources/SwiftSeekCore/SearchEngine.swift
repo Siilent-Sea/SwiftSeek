@@ -427,14 +427,25 @@ public final class SearchEngine {
     /// Emits a single SQL query biased toward whichever filter is likely
     /// to be most selective.
     ///
-    /// F4 priority order:
-    ///   1. `path:` token(s) ≥3 chars → file_grams index (trigram)
-    ///   2. `path:` token(s) ==2 chars → file_bigrams index
-    ///   3. extension filter → `name_lower LIKE '%.ext'` (trailing-only
-    ///      wildcard, B-tree-indexable)
-    ///   4. root prefix → `path_lower LIKE 'prefix/%'` (trailing wildcard)
-    ///   5. kind filter → `is_dir = ?`
-    ///   6. fallback bounded scan
+    /// F4 priority order — picks the candidate retrieval most likely to
+    /// narrow the row set before post-filtering:
+    ///   1. `path:` token(s) ≥3 chars → file_grams index (trigram).
+    ///   2. `path:` token(s) ==2 chars → file_bigrams index.
+    ///   3. extension filter → linear scan of `name_lower` using
+    ///      `LIKE '%.ext'`. SQLite cannot use a B-tree index for a
+    ///      pattern with a leading `%`, so this is a table scan in
+    ///      practice. On typical SwiftSeek databases (10k–100k rows)
+    ///      this still returns in milliseconds; the benefit is we
+    ///      never materialise rows whose extension doesn't match at
+    ///      SQL level, so post-filtering is cheap.
+    ///   4. root prefix → `path_lower LIKE 'prefix/%'`. The `prefix/`
+    ///      portion is before the wildcard, so B-tree
+    ///      `idx_files_path_lower` IS usable for this one.
+    ///   5. kind filter → `is_dir = ?`. No index on `is_dir`; it's a
+    ///      cheap binary filter so the scan cost is bounded by limit.
+    ///   6. fallback bounded scan. Reached for queries whose only
+    ///      selectors are `hidden:` or `path:` with a 1-character token
+    ///      (too short for either gram table).
     /// The first match wins; remaining filters are applied post-candidate
     /// via `rowMatches`.
     private func filterOnlyCandidates(filters: QueryFilters, limit: Int) throws -> [Row] {

@@ -55,12 +55,12 @@
   - `hidden:true` / `hidden:false`（接受 true/false/yes/no/1/0/on/off 多种别名）
 - 组合语义：所有 filter 之间 AND；filter 可与 plain query 组合
 - filter-only 查询候选路径优先级（F4 更新）：
-  1. `path:` token ≥3 字符 → `file_grams`（trigram）
-  2. `path:` token ==2 字符 → `file_bigrams`（bigram）
-  3. `ext:` → `name_lower LIKE '%.ext'`（trailing wildcard，B-tree 可用）
-  4. `root:` → `path_lower LIKE 'prefix/%'`
-  5. `kind:` → `is_dir = ?`
-  6. bounded scan 兜底（只有 `hidden:` 单独使用时触发）
+  1. `path:` token ≥3 字符 → `file_grams`（trigram 索引）
+  2. `path:` token ==2 字符 → `file_bigrams`（bigram 索引）
+  3. `ext:` → `name_lower LIKE '%.ext'`（leading wildcard，SQLite 不能走 B-tree；实为线性扫描 `name_lower` 列。F4 没有索引化 ext，只是把它作为 SQL 层过滤避免后续 post-filter，10k-100k 规模仍是毫秒级）
+  4. `root:` → `path_lower LIKE 'prefix/%'`（前缀在 wildcard 前，B-tree `idx_files_path_lower` 可用）
+  5. `kind:` → `is_dir = ?`（无索引，但只是廉价二元过滤，bounded by limit）
+  6. bounded scan 兜底（触发条件：仅 `hidden:` 或仅 `path:` 1-字符 token 时）
 - 不支持：OR / NOT / 括号 / 引号短语 / 复杂布尔组合
 
 ### 8. 索引自动化的真实现状

@@ -2540,6 +2540,54 @@ reporter.check("F4 path:-only + ext: combination applies both filters") {
                          "expected only a.md, got \(names)")
 }
 
+reporter.check("F4 ext:-only filter candidate path stays under 200ms on a 1k fixture (linear scan acceptable)") {
+    // Codex F4 round 1 flagged that we had overclaimed ext: as
+    // "B-tree indexable" — the leading '%' means SQLite falls back to
+    // a linear scan. This smoke is the concrete evidence that even
+    // as a linear scan, the ext: hot path is well under the 200ms
+    // "high-frequency scenario" ceiling we document.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    var rows: [FileRow] = []
+    for i in 0..<1000 {
+        let ext = (i % 3 == 0) ? "md" : ((i % 3 == 1) ? "txt" : "swift")
+        let name = "note-\(i).\(ext)"
+        let path = "\(root.path)/\(name)"
+        rows.append(FileRow(
+            path: path,
+            pathLower: path.lowercased(),
+            name: name,
+            nameLower: name.lowercased(),
+            isDir: false,
+            size: Int64(10 * i),
+            mtime: Int64(1_700_000_000 + i)
+        ))
+    }
+    try db.insertFiles(rows)
+    _ = try db.registerRoot(path: root.path)
+    let engine = SearchEngine(database: db)
+    // Warm the stmt cache.
+    _ = try engine.search("ext:md")
+    _ = try engine.search("ext:md")
+    // Measure median of 11 runs.
+    var samples: [Double] = []
+    for _ in 0..<11 {
+        let t0 = Date()
+        _ = try engine.search("ext:md")
+        samples.append(Date().timeIntervalSince(t0) * 1000)
+    }
+    samples.sort()
+    let median = samples[samples.count / 2]
+    try reporter.require(median < 200,
+                         "ext:md median \(median)ms exceeded 200ms ceiling (regression?)")
+}
+
 reporter.check("F4 RootHealth surfaces in the empty-state suffix logic (via computeRootHealth)") {
     // We can't render the actual AppKit label from smoke, but the
     // key contract is that computeRootHealth classifies offline and
