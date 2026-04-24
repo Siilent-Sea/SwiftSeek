@@ -1,9 +1,9 @@
-# SwiftSeek 手工测试（baseline + 所有归档轨道）
+# SwiftSeek 手工测试（baseline + 所有归档轨道 + everything-ux-parity）
 
 > Note:
-> 这份文档覆盖 P0-P6、E1-E5、F1-F5 已落地能力的手工验证。
-> 当前活跃轨道是 `everything-footprint`，阶段 G1 起的 DB 体积 / 维护要求以 `docs/everything_footprint_taskbook.md` 为准；G1 手测见 §33f。
-> 历史性能轨道 benchmark 仍可参考 `docs/everything_performance_taskbook.md`（已归档）。
+> 这份文档覆盖 P0-P6、E1-E5、F1-F5、G1-G5、H1-H5、J1-J6 已落地能力的手工验证。
+> `everything-ux-parity` 已完成；当前活跃轨道若未来切换，以 `docs/stage_status.md` 为准。
+> 历史性能 / footprint / usage 轨道 benchmark 与任务书仍保留归档参考。
 
 前置：macOS 13+，Swift 6.x 可用。
 
@@ -35,7 +35,7 @@ swift run --disable-sandbox SwiftSeekSmokeTest
 ```
 期望末尾：
 ``` 
-Smoke total: 98  pass: 98  fail: 0
+Smoke total: 198  pass: 198  fail: 0
 ```
 并以 exit code 0 结束。
 

@@ -3,38 +3,9 @@
 本文件只保留当前轨道的当前有效视图。历史 `PROJECT COMPLETE` 只代表对应历史轨道完成，不会自动阻止新轨道继续推进。
 
 ## 轨道总览
-- 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J6`
-- 当前轨道目标：补齐 SwiftSeek 作为长期使用 macOS 桌面工具时仍欠缺的窗口生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单、首次使用与权限引导体验，让实际使用更接近 Everything-like 工具，而不是只停留在搜索性能和数据层能力。
-- 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage`
-
-## 当前阶段：J6
-
-### 阶段目标
-把 SwiftSeek 从“能工作的开发者工具”进一步收口为长期可用的 Mac 工具体验，并为 `everything-ux-parity` 的最终验收做准备。
-
-### 当前代码审计依据
-- 当前窗口生命周期、Run Count 可见性、查询表达、查询复用和上下文菜单都已收口，剩余主要缺口转向“首次使用与长期使用体验”。
-- 当前仍缺更明确的首次使用引导、权限异常提示、Launch 行为结论，以及窗口状态记忆的最终收口。
-- J6 需要在不碰 private API、不读取系统隐私数据的前提下，把这些体验补齐，并统一收口文档。
-
-### 当前阶段禁止事项
-- 不承诺 App Store 沙盒适配。
-- 不承诺签名 / 公证已完成，除非真实完成。
-- 不读取系统隐私数据。
-- 不做云同步。
-- 不做遥测。
-- 不读取系统搜索历史。
-
-### 当前阶段完成判定标准
-J6 只有同时满足以下条件才可验收通过：
-1. 首次使用用户能清楚知道先加 root、为何需要权限、索引模式怎么选。
-2. 权限不足时不是沉默失败。
-3. Launch at Login 有明确实现或明确推迟说明，不能假实现。
-4. 窗口状态记忆不破坏现有列宽 / 排序持久化。
-5. `docs/manual_test.md` 或等价手测文档补齐 J6 GUI 验证步骤；能自动化的设置项补 smoke。
-6. README / known_issues / manual_test / ux parity gap / acceptance / next_stage 等最终文档与代码一致。
-7. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
+- 当前活跃轨道：**无**（`everything-ux-parity` 已于 2026-04-25 `PROJECT COMPLETE`，J6 round 1，session `019dc07b-55f0-7712-9d7f-74441d7c81df`）
+- 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage` / `everything-ux-parity`
+- 新轨道启动由用户发起
 
 ## 已归档轨道
 
@@ -49,15 +20,30 @@ J6 只有同时满足以下条件才可验收通过：
 
 ### `everything-footprint`
 - `PROJECT COMPLETE` 2026-04-24，G1-G5，session `019dbdf8-b2c9-7c03-b316-dbbf7040d5d9`。
-- 范围：DB 体积观测、compact index、Schema v5、分批回填、索引模式 UI、500k benchmark 与最终收口。
 - 500k 实测亮点：compact 1.07 GB vs fullpath 3.46 GB（3.2× 更小），首次索引 44.87s vs 197.62s（4.4× 更快），reopen/migrate ms 级。
 
 ### `everything-usage`
 - `PROJECT COMPLETE` 2026-04-24，H1-H5，session `019dbe5f-9680-7872-9eac-cc41e5f0f40e`。
-- 范围：Schema v6 `file_usage`、`.open` 记录、usage JOIN、同 score tie-break、结果表“打开次数 / 最近打开”、`recent:` / `frequent:`、隐私开关、500k usage benchmark。
-- 结论边界：usage 轨道证明了数据层和基础 UI 已落地，但不覆盖设置窗口生命周期、Dock/Menu Bar 行为、Run Count 用户可见性复核、搜索历史、Saved Filters、更多 Everything-style 查询语法和上下文菜单。
+- 500k bench 亮点：3+char 加 100k usage JOIN 中位数 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs。
+
+### `everything-ux-parity`
+- `PROJECT COMPLETE` 2026-04-25，J1-J6，session `019dc07b-55f0-7712-9d7f-74441d7c81df`。
+- J1 round 1 PASS — 设置窗 hide-only close + Dock reopen + 菜单入口稳定
+- J2 round 1 PASS — 搜索窗加宽 + 列 tooltip + 重置列宽，Run Count 真正可见
+- J3 round 3 PASS — wildcard(`*`/`?`) + phrase(`"..."`) + OR(`|`) + NOT(`!`/`-`)；纯 OR 走 orUnionCandidates 完整检索；OR + 纯 wildcard alt 走 bounded scan union
+- J4 round 1 PASS — Schema v7 query_history + saved_filters；隐私开关；搜索窗"最近/收藏"下拉 + 设置页管理
+- J5 round 1 PASS — 右键菜单加 Open With… / Copy Name / Copy 完整路径 / Copy 所在文件夹路径；Trash 二次确认；Run Count 隔离仅 Open 计入
+- J6 round 1 PROJECT COMPLETE — 首次使用 banner + Launch at Login（SMAppService 公开 API）+ 窗口 frame 记忆 + 设置 tab 记忆 + 最终文档收口
+- 文档位置：
+  - 任务书：`docs/everything_ux_parity_taskbook.md`
+  - 差距清单：`docs/everything_ux_parity_gap.md`
+  - 最终验收记录：`docs/codex_acceptance.md`
+
+## 下一步
+- 新轨道启动由用户发起
+- 历史轨道 session 保留在 `docs/agent-state/codex-acceptance-session.json` 的 `archived_tracks` 数组，不混用
 
 ## 当前文档入口
-- UX 差距清单：`docs/everything_ux_parity_gap.md`
-- J1-J6 阶段任务书：`docs/everything_ux_parity_taskbook.md`
-- 当前阶段给 Claude 的任务摘要：`docs/next_stage.md`
+- 历史 UX 差距清单：`docs/everything_ux_parity_gap.md`
+- 历史 J1-J6 阶段任务书：`docs/everything_ux_parity_taskbook.md`
+- 历史阶段摘要：`docs/next_stage.md`（当前为"无活跃轨道"占位）

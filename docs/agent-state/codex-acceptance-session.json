@@ -1,14 +1,14 @@
 {
-  "track": "everything-ux-parity",
-  "stage": "J6",
-  "session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df",
+  "track": null,
+  "stage": null,
+  "session_id": null,
   "updated_at": "2026-04-25",
-  "purpose": "Current active track acceptance state for everything-ux-parity. A new Codex acceptance session must be created for this track; do not reuse archived everything-usage or earlier track sessions.",
-  "last_verdict": "PASS",
+  "purpose": "No active track. everything-ux-parity completed on 2026-04-25 (J1-J6 PROJECT COMPLETE in session 019dc07b-55f0-7712-9d7f-74441d7c81df). Future tracks must use a new Codex acceptance session and must not reuse any archived session id.",
+  "last_verdict": "PROJECT COMPLETE",
   "last_verdict_round": 1,
   "last_verdict_date": "2026-04-25",
-  "last_verdict_reason": "J5 accepted on commit b7cbf79: context menu now covers Open With, copy-name/full-path/parent-folder, destructive trash confirm, and only openSelected still records usage/query history; smoke passed 196/196.",
-  "passed_stages": ["J1", "J2", "J3", "J4", "J5"],
+  "last_verdict_reason": "everything-ux-parity J6 round 1 PROJECT COMPLETE on commit 8c5f327: first-run banner, tab memory, Launch at Login via public SMAppService API, window frame autosave, smoke 198/198, and docs aligned.",
+  "passed_stages": [],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -34,7 +34,14 @@
       "final_verdict": "PROJECT COMPLETE",
       "date": "2026-04-24",
       "previous_session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e"
+    },
+    {
+      "track": "everything-ux-parity",
+      "final_verdict": "PROJECT COMPLETE",
+      "date": "2026-04-25",
+      "previous_session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df"
     }
   ],
-  "notes": "Active session for everything-ux-parity track (J1 PASS on 14c94ab, J2 PASS on 69a7098, J3 round 1 REJECT on c12db20, J3 round 2 REJECT on 83d6026, J3 PASS on 695b1ae, J4 PASS on 98a1561, J5 PASS on b7cbf79). Next target stage is J6. .txt file mirrors this session id."
+  "commit_at_review": "8c5f327",
+  "notes": "No active track. New track to be initiated by owner."
 }
