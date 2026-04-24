@@ -56,6 +56,12 @@ public enum SettingsKey {
     // fullpath to preserve the pre-existing user capability until they
     // explicitly switch.
     public static let indexMode              = "index_mode"
+    // H4: usage history privacy toggle. "1" = record (default), "0" =
+    // disabled. While disabled, Database.recordOpen is a no-op that
+    // logs via NSLog; no rows are written. Flipping this back to "1"
+    // resumes recording from 0; SwiftSeek does not retroactively fill
+    // in missed opens.
+    public static let usageHistoryEnabled    = "usage_history_enabled"
 }
 
 /// G3 index modes defined in `docs/everything_footprint_v5_proposal.md` § 3/4.

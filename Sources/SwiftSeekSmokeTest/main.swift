@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3489,7 +3489,6 @@ func makeH3Fixture(recordOpens: Bool = true) throws
     let db = try Database.open(at: paths.databaseURL)
     try db.migrate()
     let root = try makeTempDir()
-    let fm = FileManager.default
     let names = ["alpha.md", "beta.md", "gamma.txt"]
     for name in names {
         try "".write(to: root.appendingPathComponent(name),
@@ -3632,6 +3631,93 @@ reporter.check("H3 normal query path not polluted by recent:/frequent: implement
     let recentHits = try engine.search("recent:")
     try reporter.require(recentHits.count == 1 && recentHits[0].path == openedPath,
                          "recent: should only return opened file; got \(recentHits.map(\.path))")
+}
+
+// MARK: - H4 usage history privacy controls
+
+reporter.check("H4 usage history toggle defaults to on + round-trips") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Fresh DB: unset setting → default true.
+    try reporter.require(try db.isUsageHistoryEnabled(),
+                         "fresh DB should default to enabled")
+    try db.setUsageHistoryEnabled(false)
+    try reporter.require(try !db.isUsageHistoryEnabled(),
+                         "expected disabled after setUsageHistoryEnabled(false)")
+    try db.setUsageHistoryEnabled(true)
+    try reporter.require(try db.isUsageHistoryEnabled(),
+                         "expected enabled after setUsageHistoryEnabled(true)")
+}
+
+reporter.check("H4 recordOpen is a no-op while history recording is disabled") {
+    let (db, fileId, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    try db.setUsageHistoryEnabled(false)
+    let ok = try db.recordOpen(path: path, now: 1_700_000_000)
+    try reporter.require(!ok, "recordOpen should return false while disabled")
+    try reporter.require(try db.getUsageByFileId(fileId) == nil,
+                         "usage row should NOT exist after disabled recordOpen")
+    let remaining = try db.countRows(in: "file_usage")
+    try reporter.require(remaining == 0,
+                         "file_usage should remain empty, got \(remaining)")
+    // Re-enable → write works again.
+    try db.setUsageHistoryEnabled(true)
+    let ok2 = try db.recordOpen(path: path, now: 1_700_000_100)
+    try reporter.require(ok2, "recordOpen should return true after re-enabling")
+    try reporter.require(try db.getUsageByFileId(fileId)?.openCount == 1,
+                         "openCount should be 1 after re-enable + one open")
+}
+
+reporter.check("H4 clearFileUsage empties the table and returns rows removed") {
+    let (db, _, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    _ = try db.recordOpen(path: path, now: 1_700_000_000)
+    _ = try db.recordOpen(path: path, now: 1_700_000_100)
+    try reporter.require(try db.countRows(in: "file_usage") == 1,
+                         "precondition: one usage row present")
+    let removed = try db.clearFileUsage()
+    try reporter.require(removed == 1,
+                         "clearFileUsage should return 1 (rows deleted), got \(removed)")
+    try reporter.require(try db.countRows(in: "file_usage") == 0,
+                         "file_usage should be empty after clear")
+    // Clear does NOT flip the recording toggle.
+    try reporter.require(try db.isUsageHistoryEnabled(),
+                         "clear should not flip the recording toggle; history should still be enabled")
+}
+
+reporter.check("H4 clear makes recent: / frequent: immediately return empty") {
+    let (db, engine, dbDir, root, _) = try makeH3Fixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // Sanity: recent: returns 3 before clear.
+    try reporter.require(try engine.search("recent:").count == 3,
+                         "precondition: 3 recent hits")
+    let removed = try db.clearFileUsage()
+    try reporter.require(removed == 3,
+                         "expected 3 rows cleared, got \(removed)")
+    try reporter.require(try engine.search("recent:").isEmpty,
+                         "recent: should be empty after clear")
+    try reporter.require(try engine.search("frequent:").isEmpty,
+                         "frequent: should be empty after clear")
+}
+
+reporter.check("H4 DatabaseStats.fileUsageRowCount reflects current state") {
+    let (db, _, path, dbDir) = try makeH1Fixture()
+    defer { db.close(); cleanup(dbDir) }
+    let preStats = db.computeStats()
+    try reporter.require(preStats.fileUsageRowCount == 0,
+                         "fresh DB should show fileUsageRowCount=0, got \(preStats.fileUsageRowCount)")
+    _ = try db.recordOpen(path: path, now: 1_700_000_000)
+    let midStats = db.computeStats()
+    try reporter.require(midStats.fileUsageRowCount == 1,
+                         "after one recordOpen fileUsageRowCount should be 1, got \(midStats.fileUsageRowCount)")
+    _ = try db.clearFileUsage()
+    let postStats = db.computeStats()
+    try reporter.require(postStats.fileUsageRowCount == 0,
+                         "after clear fileUsageRowCount should be 0, got \(postStats.fileUsageRowCount)")
 }
 
 reporter.check("H2 non-score sort keys unaffected by usage tie-break (name regression)") {

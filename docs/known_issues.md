@@ -40,7 +40,13 @@
 - 空查询当前不自动展示最近/常用（明确选择，不做空查询仪表盘）。
 - **语义边界不变**：recent/frequent 只来自 SwiftSeek 内部 `.open` 历史，不代表 macOS 系统最近项目或全局历史。
 
-### 6. 当前没有使用历史清理 / 隐私控制
+### 6. 使用历史隐私控制已在 H4 落地
+- `SettingsKey.usageHistoryEnabled` 默认 "1"（记录）。设置 → 维护 tab → "使用历史" 段的复选框绑定它。
+- 关闭后 `Database.recordOpen(...)` 直接返回 false + `NSLog` 诊断（同 H1 path-miss 路径），不 silent fail。H2 tie-break / H3 recent:/frequent: 对同一 DB 立即反映为"没有新 usage 数据"。
+- `Database.clearFileUsage()` 清空 `file_usage` 表；返回移除行数。维护 tab "清空使用历史…" 按钮二次确认后调用。
+- 清空不会改开关：如果想同时关闭后续记录，用户需另勾复选框。
+- `DatabaseStats.fileUsageRowCount` 字段 + CLI `SwiftSeekDBStats` / Settings → 维护 tab stats 区都会显示 file_usage 行数。per-table fallback 也已加 `file_usage`。
+- 隐私边界重申：usage 只保存本地 SwiftSeek DB；不上传、不同步、不遥测；关闭 → 停止新增；清空 → 移除已有；Run Count 永远只表示通过 SwiftSeek 打开的次数。
 - 设置页没有“记录使用历史”开关。
 - 设置页没有“清空使用历史”入口。
 - DB stats 尚未展示 usage 表大小和行数。

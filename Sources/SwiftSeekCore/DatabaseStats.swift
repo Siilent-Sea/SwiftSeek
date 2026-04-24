@@ -28,6 +28,10 @@ public struct DatabaseStats: Equatable, Sendable {
     public var rootsRowCount: Int64
     public var excludesRowCount: Int64
     public var settingsRowCount: Int64
+    /// H4 — number of `file_usage` rows. -1 when the table is missing
+    /// (pre-v6 DB). Surfaced in CLI + Settings → 维护 tab so users can
+    /// see whether usage data is present and (post-clear) confirm 0.
+    public var fileUsageRowCount: Int64
 
     // Derived averages. `nil` when files is 0 / missing so UIs can show
     // "—" cleanly instead of a divide-by-zero.
@@ -64,6 +68,7 @@ public struct DatabaseStats: Equatable, Sendable {
                 rootsRowCount: Int64 = -1,
                 excludesRowCount: Int64 = -1,
                 settingsRowCount: Int64 = -1,
+                fileUsageRowCount: Int64 = -1,
                 avgGramsPerFile: Double? = nil,
                 avgBigramsPerFile: Double? = nil,
                 perTable: [PerTable]? = nil) {
@@ -78,6 +83,7 @@ public struct DatabaseStats: Equatable, Sendable {
         self.rootsRowCount = rootsRowCount
         self.excludesRowCount = excludesRowCount
         self.settingsRowCount = settingsRowCount
+        self.fileUsageRowCount = fileUsageRowCount
         self.avgGramsPerFile = avgGramsPerFile
         self.avgBigramsPerFile = avgBigramsPerFile
         self.perTable = perTable
@@ -114,6 +120,7 @@ public extension Database {
         stats.rootsRowCount       = countIfExists(table: "roots")
         stats.excludesRowCount    = countIfExists(table: "excludes")
         stats.settingsRowCount    = countIfExists(table: "settings")
+        stats.fileUsageRowCount   = countIfExists(table: "file_usage")
 
         // --- Derived averages -------------------------------------------
         if stats.filesRowCount > 0 {
@@ -185,7 +192,7 @@ public extension Database {
     /// "—" instead of a misleading number.
     private func perTableBytesFallback() -> [DatabaseStats.PerTable] {
         let names = ["files", "file_grams", "file_bigrams",
-                     "roots", "excludes", "settings"]
+                     "roots", "excludes", "settings", "file_usage"]
         var out: [DatabaseStats.PerTable] = []
         for name in names {
             let rows = countIfExists(table: name)

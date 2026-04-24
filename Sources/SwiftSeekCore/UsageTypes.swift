@@ -29,6 +29,38 @@ public struct UsageRecord: Equatable, Sendable {
 }
 
 public extension Database {
+    /// H4 — read the "record usage history" privacy toggle. Defaults
+    /// to true when the setting is unset or malformed (H1-H3 DBs may
+    /// not have seen the key yet; existing Run Count behavior is
+    /// preserved). Callers wanting the strict default without going
+    /// through the full extension helper can also read
+    /// `getSetting(SettingsKey.usageHistoryEnabled)` directly.
+    func isUsageHistoryEnabled() throws -> Bool {
+        let raw = try getSetting(SettingsKey.usageHistoryEnabled) ?? ""
+        if raw.isEmpty { return true }      // unset → default on
+        return raw != "0"
+    }
+
+    /// H4 — flip the privacy toggle. `false` halts future recordOpen
+    /// writes (they log + return false). `true` resumes from the
+    /// current `file_usage` state; no retroactive fill-in.
+    func setUsageHistoryEnabled(_ enabled: Bool) throws {
+        try setSetting(SettingsKey.usageHistoryEnabled, value: enabled ? "1" : "0")
+    }
+
+    /// H4 — clear the usage table. Returns the number of rows that
+    /// were removed so UI / CLI can confirm to the user what happened.
+    /// The toggle state (`usage_history_enabled`) is NOT flipped — a
+    /// user who clears but leaves recording on keeps recording going
+    /// forward; a user who also wants to stop recording flips the
+    /// toggle separately via `setUsageHistoryEnabled(false)`.
+    @discardableResult
+    func clearFileUsage() throws -> Int64 {
+        let before = try countRows(in: "file_usage")
+        try exec("DELETE FROM file_usage;")
+        return before
+    }
+
     /// H1 — look up `files.id` by canonical path. Returns nil if path is
     /// not indexed (yet). Callers in the recordOpen path use this to
     /// distinguish "usage write succeeded" from "target not in DB" so
@@ -71,6 +103,14 @@ public extension Database {
     ///     to `recordOpen` is the contract that "the action succeeded".
     @discardableResult
     func recordOpen(path: String, now: Int64? = nil) throws -> Bool {
+        // H4: respect the privacy toggle. If the user disabled usage
+        // history we intentionally do NOT fall through to lookup +
+        // upsert; we also don't silently fail — callers get a false
+        // back and a diagnostic log line so it's audit-trailable.
+        if try !isUsageHistoryEnabled() {
+            NSLog("SwiftSeek: recordOpen skipped, usage history disabled: \(path)")
+            return false
+        }
         let ts = now ?? Int64(Date().timeIntervalSince1970)
         guard let fileId = try lookupFileId(path: path) else {
             NSLog("SwiftSeek: recordOpen skipped, path not in index: \(path)")
@@ -85,6 +125,10 @@ public extension Database {
     /// path lookup round-trip.
     @discardableResult
     func recordOpen(fileId: Int64, now: Int64? = nil) throws -> Bool {
+        if try !isUsageHistoryEnabled() {
+            NSLog("SwiftSeek: recordOpen(fileId:) skipped, usage history disabled: \(fileId)")
+            return false
+        }
         let ts = now ?? Int64(Date().timeIntervalSince1970)
         try upsertUsage(fileId: fileId, now: ts)
         return true

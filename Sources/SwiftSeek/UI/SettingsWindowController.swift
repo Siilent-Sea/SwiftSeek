@@ -952,6 +952,15 @@ private final class MaintenancePane: NSViewController {
     // migration_progress state.
     private let compactBackfillBtn = NSButton(title: "开始 / 继续 compact 回填", target: nil, action: nil)
     private var compactCoordinator: MigrationCoordinator?
+    // H4: usage history privacy controls. The checkbox flips
+    // `SettingsKey.usageHistoryEnabled`; the button empties `file_usage`
+    // after a confirmation alert. `usageRowLabel` shows current row
+    // count so the user can verify recording state.
+    private let usageTitle = NSTextField(labelWithString: "使用历史")
+    private let usageCheckbox = NSButton(checkboxWithTitle: "记录通过 SwiftSeek 打开的次数（Run Count / 最近打开）",
+                                         target: nil, action: nil)
+    private let clearUsageBtn = NSButton(title: "清空使用历史…", target: nil, action: nil)
+    private let usageRowLabel = NSTextField(wrappingLabelWithString: "")
 
     init(database: Database, rebuildCoordinator: RebuildCoordinator) {
         self.database = database
@@ -1032,8 +1041,24 @@ private final class MaintenancePane: NSViewController {
         compactRow.spacing = 8
         compactRow.translatesAutoresizingMaskIntoConstraints = false
 
+        // H4 usage history controls
+        usageTitle.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        usageTitle.translatesAutoresizingMaskIntoConstraints = false
+        usageCheckbox.target = self
+        usageCheckbox.action = #selector(onToggleUsageHistory(_:))
+        usageCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        clearUsageBtn.bezelStyle = .rounded
+        clearUsageBtn.controlSize = .small
+        clearUsageBtn.target = self
+        clearUsageBtn.action = #selector(onClearUsageHistory)
+        clearUsageBtn.translatesAutoresizingMaskIntoConstraints = false
+        usageRowLabel.font = NSFont.systemFont(ofSize: 11)
+        usageRowLabel.textColor = .secondaryLabelColor
+        usageRowLabel.translatesAutoresizingMaskIntoConstraints = false
+
         [title, note, rebuildButton, progressIndicator, statusLabel,
-         statsTitle, statsLabel, maintRow, compactRow, maintStatus].forEach { root.addSubview($0) }
+         statsTitle, statsLabel, maintRow, compactRow, maintStatus,
+         usageTitle, usageCheckbox, clearUsageBtn, usageRowLabel].forEach { root.addSubview($0) }
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -1071,7 +1096,21 @@ private final class MaintenancePane: NSViewController {
             maintStatus.topAnchor.constraint(equalTo: compactRow.bottomAnchor, constant: 8),
             maintStatus.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             maintStatus.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            maintStatus.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
+
+            // H4 usage history section — below existing maintenance block.
+            usageTitle.topAnchor.constraint(equalTo: maintStatus.bottomAnchor, constant: 24),
+            usageTitle.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            usageCheckbox.topAnchor.constraint(equalTo: usageTitle.bottomAnchor, constant: 8),
+            usageCheckbox.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            clearUsageBtn.topAnchor.constraint(equalTo: usageCheckbox.bottomAnchor, constant: 8),
+            clearUsageBtn.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            usageRowLabel.topAnchor.constraint(equalTo: clearUsageBtn.bottomAnchor, constant: 8),
+            usageRowLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            usageRowLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            usageRowLabel.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
         ])
         self.view = root
     }
@@ -1082,6 +1121,7 @@ private final class MaintenancePane: NSViewController {
         reflectRunning()
         refreshStatsLabel()
         reflectCompactBackfillState()
+        reflectUsageHistoryState()
     }
 
     // MARK: - G1 stats + maintenance
@@ -1093,7 +1133,7 @@ private final class MaintenancePane: NSViewController {
         var lines: [String] = []
         lines.append("main : \(DatabaseStats.humanBytes(s.mainFileBytes))   wal : \(DatabaseStats.humanBytes(s.walFileBytes))   shm : \(DatabaseStats.humanBytes(s.shmFileBytes))")
         lines.append("pages: count=\(DatabaseStats.humanCount(s.pageCount)) size=\(DatabaseStats.humanBytes(s.pageSize))")
-        lines.append("files=\(DatabaseStats.humanCount(s.filesRowCount))   grams=\(DatabaseStats.humanCount(s.fileGramsRowCount))   bigrams=\(DatabaseStats.humanCount(s.fileBigramsRowCount))")
+        lines.append("files=\(DatabaseStats.humanCount(s.filesRowCount))   grams=\(DatabaseStats.humanCount(s.fileGramsRowCount))   bigrams=\(DatabaseStats.humanCount(s.fileBigramsRowCount))   file_usage=\(DatabaseStats.humanCount(s.fileUsageRowCount))")
         lines.append("avg grams/file=\(DatabaseStats.humanAvg(s.avgGramsPerFile))   avg bigrams/file=\(DatabaseStats.humanAvg(s.avgBigramsPerFile))")
         if let per = s.perTable, !per.isEmpty {
             lines.append("per-table:")
@@ -1211,6 +1251,67 @@ private final class MaintenancePane: NSViewController {
         compactBackfillBtn.toolTip = (mode == .compact)
             ? "手动触发 / 继续 compact 回填（MigrationCoordinator.backfillCompact，resume:true）"
             : "只在 Compact 模式下有意义。切换到 Compact 模式可用（常规 tab）。"
+    }
+
+    // MARK: - H4 usage history privacy controls
+
+    private func reflectUsageHistoryState() {
+        let enabled: Bool
+        do {
+            enabled = try database.isUsageHistoryEnabled()
+        } catch {
+            NSLog("SwiftSeek: isUsageHistoryEnabled failed: \(error)")
+            enabled = true
+        }
+        usageCheckbox.state = enabled ? .on : .off
+        let stats = database.computeStats()
+        let count = stats.fileUsageRowCount
+        usageRowLabel.stringValue = "当前记录 \(DatabaseStats.humanCount(count)) 条 `.open` 历史（file_usage 表）。Run Count / 最近打开只包含通过 SwiftSeek 打开的文件，不读 macOS 全局。"
+        // If disabled, keep the clear button available so the user can
+        // still tidy up stale data after turning recording off. If the
+        // table is empty there's nothing to clear — disable the button
+        // so we don't no-op the user.
+        clearUsageBtn.isEnabled = count > 0
+    }
+
+    @objc private func onToggleUsageHistory(_ sender: NSButton) {
+        let wantEnabled = (sender.state == .on)
+        do {
+            try database.setUsageHistoryEnabled(wantEnabled)
+        } catch {
+            NSLog("SwiftSeek: setUsageHistoryEnabled(\(wantEnabled)) failed: \(error)")
+            // Revert the checkbox on write failure so UI doesn't lie
+            // about the persisted state.
+            sender.state = wantEnabled ? .off : .on
+        }
+        reflectUsageHistoryState()
+    }
+
+    @objc private func onClearUsageHistory() {
+        let alert = NSAlert()
+        alert.messageText = "清空使用历史？"
+        alert.informativeText = """
+        将删除 `file_usage` 表中的所有记录。
+
+        清空后：
+          • 所有结果的 Run Count 归零，最近打开栏显示 —
+          • `recent:` / `frequent:` 查询结果为空
+          • 搜索排序的 H2 usage tie-break 立即退回“无 usage 数据”行为
+
+        此操作不可撤销。使用历史记录开关状态不会被改变——如果想同时停止后续记录，请另外取消勾选上方复选框。
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "清空")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        do {
+            let removed = try database.clearFileUsage()
+            maintStatus.stringValue = "使用历史已清空，移除 \(DatabaseStats.humanCount(removed)) 条记录。"
+        } catch {
+            maintStatus.stringValue = "清空使用历史失败：\(error)"
+        }
+        reflectUsageHistoryState()
+        refreshStatsLabel()
     }
 
     private func reflectLastResult() {

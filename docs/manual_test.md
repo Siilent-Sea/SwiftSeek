@@ -776,6 +776,34 @@ chmod a-w /tmp/readonly.sqlite3
    - 只有 **空 value 的裸** `recent:` / `frequent:` 才是 mode 开关
 7. 普通 query 不被污染：输入 `todo`（无 `recent:` 前缀）应返回 name 含 todo 的所有文件，不只返回已打开过的（这点和 H2 tie-break 不冲突 — 高 usage 项仅在同 score 下靠前）。
 
+### 33k. H4 使用历史隐私控制
+前置：通过 33h-33j 已确认 `file_usage` 运作。
+
+1. 设置 → 维护 tab → 滚动到最下方，应看到 "使用历史" 段：
+   - 复选框 `记录通过 SwiftSeek 打开的次数（Run Count / 最近打开）`
+   - 按钮 `清空使用历史…`
+   - 说明文字：`当前记录 N 条 .open 历史（file_usage 表）`
+2. 开关关闭测试：
+   - 取消复选框勾选。核 sqlite3：
+     ```bash
+     sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 \
+       "SELECT value FROM settings WHERE key='usage_history_enabled';"
+     ```
+     应返回 `0`
+   - 搜索窗打开任一文件；再次核 `file_usage` 对应行 `open_count` 不应增加（观察前后差）
+   - Console 应有 `SwiftSeek: recordOpen skipped, usage history disabled: ...` 日志
+3. 重新勾选复选框；`usage_history_enabled=1`。打开文件，`open_count` 恢复累加。
+4. 清空测试：
+   - 点 `清空使用历史…` → 弹二次确认窗，说明效果和不可撤销；点 `清空`
+   - 维护 tab 状态栏显示 "使用历史已清空，移除 N 条记录"
+   - DB 体积 stats 区 `file_usage` 行数变为 0
+   - 搜索窗 `recent:` / `frequent:` 立即返回空
+   - 已有搜索结果的"打开次数"列全显示 `—`、"最近打开"列全显示 `—`
+5. 边界：
+   - 清空后复选框**不应**被改动（清空仅清数据，不改开关）
+   - `file_usage` 为空时 `清空使用历史…` 按钮 disabled（无意义）
+6. CLI 核对：`./.build/release/SwiftSeekDBStats` 输出里有 `file_usage : N` 一行
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求
