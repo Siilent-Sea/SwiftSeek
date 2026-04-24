@@ -4,7 +4,8 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-footprint`
-- 当前阶段：`G1`
+- 当前阶段：`G2`（纯设计文档，等待 Codex 验收）
+- 轨道内已通过：G1（2026-04-24 round 2 PASS）
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
 - 当前轨道任务书：`docs/everything_footprint_taskbook.md`
 - 当前差距清单：`docs/everything_footprint_gap.md`
@@ -48,7 +49,49 @@
 - `Sources/SwiftSeekBench/main.swift` 目前是 F1 搜索热路径 benchmark，不统计 DB size、WAL size、gram row count 或 500k footprint。
 - `Sources/SwiftSeekIndex/main.swift` 只输出 roots/files 行数，不提供 DB stats 或维护命令。
 
-## 当前阶段：`G1` - DB 体积观测与维护入口
+## 已通过：`G1`（2026-04-24 round 2 PASS）
+- DB stats API in Core (`DatabaseStats` + `Database.computeStats()`)
+- `SwiftSeekDBStats` CLI target（含 `--run checkpoint/optimize/vacuum` + `--yes` + 风险横幅）
+- Settings 维护页 DB 体积 block + 4 maintenance buttons + VACUUM 确认弹窗
+- Smoke +7 → 126/126
+- manual_test §33f
+
+## 当前阶段：`G2` - 紧凑索引策略设计
+
+### 当前阶段目标（零代码，纯设计文档）
+- ✅ 输出 `docs/everything_footprint_v5_proposal.md`：
+  - Compact mode 表结构（file_name_grams / file_name_bigrams / file_path_segments）
+  - Full-path substring 作为高级模式保留 v4 表
+  - 能力差异矩阵（basename vs segment vs full substring）
+  - Schema v5 migration statements 草案
+  - 分批 backfill / MigrationCoordinator 接口约束
+  - v4 表保留 + rollback 策略
+  - 查询路径分流方案
+  - G5 benchmark 指标 + 预期数字
+  - 11 节 + 验收矩阵 + 变更日志
+
+### 当前阶段禁止事项
+- 不直接实现 Schema v5（G3）
+- 不删除 v4 `file_grams` / `file_bigrams`
+- 不改用户现有库
+- 不做 UI 切换（G4）
+- 不给最终 benchmark 数字（G5）
+
+### 代码状态（G2 快照）
+- 零代码改动
+- 新增 `docs/everything_footprint_v5_proposal.md`
+- stage_status.md 本段
+
+### 完成判定
+1. ✅ 文档明确 compact mode vs full-path substring mode 的能力差异
+2. ✅ 文档明确 v4 到 v5 的数据迁移策略
+3. ✅ 文档明确失败恢复、回滚和重建策略
+4. ✅ 文档明确 500k benchmark 目标（G5 实测）
+5. ✅ Codex 可据此判断 G3 是否越界
+
+---
+
+### 原 G1 阶段快照（归档保留）
 
 ### 当前阶段目标
 先让用户知道 DB 到底大在哪里，并提供安全、可解释的维护入口。本阶段只做观测和维护入口，不改 schema，不改变索引语义。
@@ -90,9 +133,9 @@
 6. `swift build` 与相关 smoke / 新增测试通过。
 
 ## 当前最新 Codex 结论
-- `everything-footprint / G1 / REJECT`（round 1，2026-04-24，session 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9）
-- REJECT 原因：G1 功能面 Codex 确认已落地（CLI / Core / UI / smoke 126/0 / startup PASS 全部对上），但 4 份状态文档仍停留在 round-0 立项占位（agent-state 指向旧轨道、codex_acceptance 写"G1 尚未实现"、stage_status 本段写"G1 尚未实现"、manual_test 顶 note 还指向 everything-performance）。
-- Round 2 将这 4 份文档刷新到 HEAD 真实状态后重验。
+- `everything-footprint / G1 / REJECT round 1`（2026-04-24）
+- `everything-footprint / G1 / PASS round 2`（2026-04-24，session 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9）
+- `everything-footprint / G2`：功能面已落地（纯设计 doc），等待 round 1 验收
 
 ## 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`
