@@ -86,6 +86,13 @@ struct BenchResult {
     let fileNameBigramsRows: Int64
     let filePathSegsRows: Int64
     let indexingTimeSec: Double
+    /// G5 round 2: measure re-open cost. This is the closest proxy to
+    /// "startup time" the user observes when launching SwiftSeek
+    /// against a populated DB (open + migrate).
+    let reopenTimeSec: Double
+    /// G5 round 2: migrate() cost when opening the DB (no-op on fresh
+    /// or already-current DB; non-zero on a v4→v5 upgrade).
+    let migrateTimeSec: Double
     let twoCharMedianMs: Double
     let twoCharP95Ms: Double
     let threePlusCharMedianMs: Double
@@ -154,10 +161,26 @@ func timedSearch(_ q: String, iterations: Int, engine: SearchEngine) -> (median:
 func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResult {
     print("[bench] building \(fileCount) files in \(mode.rawValue) mode…")
     let (db, scratchDir, idxTime) = try buildFixture(mode: mode, fileCount: fileCount)
-    defer { try? FileManager.default.removeItem(at: scratchDir); db.close() }
     print(String(format: "[bench] indexed in %.2fs", idxTime))
 
-    let engine = SearchEngine(database: db)
+    // G5 round 2: close + reopen + migrate to measure the
+    // startup-against-populated-DB cost. Migrate is a no-op here (we
+    // already stamped v5 during build), but open still has to parse
+    // headers / checkpoint / warm the B-tree; that's what the user
+    // experiences on SwiftSeek launch.
+    let dbURL = db.url
+    db.close()
+    let t0 = Date()
+    let reopened = try Database.open(at: dbURL)
+    let reopenT = Date().timeIntervalSince(t0)
+    let mT0 = Date()
+    try reopened.migrate()
+    let migrateT = Date().timeIntervalSince(mT0)
+    print(String(format: "[bench] reopen=%.3fs  migrate=%.3fs", reopenT, migrateT))
+
+    defer { try? FileManager.default.removeItem(at: scratchDir); reopened.close() }
+
+    let engine = SearchEngine(database: reopened)
     warmUp(engine); warmUp(engine)
 
     // 2-char queries
@@ -176,7 +199,7 @@ func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResu
     let threeMed = three3.map(\.0).reduce(0, +) / Double(three3.count)
     let threeP95 = three3.map(\.1).reduce(0, +) / Double(three3.count)
 
-    let s = db.computeStats()
+    let s = reopened.computeStats()
     let benchMode: BenchMode = (mode == .compact) ? .compact : .fullpath
     return BenchResult(
         mode: benchMode,
@@ -185,10 +208,12 @@ func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResu
         walBytes: s.walFileBytes,
         fileGramsRows: s.fileGramsRowCount,
         fileBigramsRows: s.fileBigramsRowCount,
-        fileNameGramsRows: (try? db.countRows(in: "file_name_grams")) ?? -1,
-        fileNameBigramsRows: (try? db.countRows(in: "file_name_bigrams")) ?? -1,
-        filePathSegsRows: (try? db.countRows(in: "file_path_segments")) ?? -1,
+        fileNameGramsRows: (try? reopened.countRows(in: "file_name_grams")) ?? -1,
+        fileNameBigramsRows: (try? reopened.countRows(in: "file_name_bigrams")) ?? -1,
+        filePathSegsRows: (try? reopened.countRows(in: "file_path_segments")) ?? -1,
         indexingTimeSec: idxTime,
+        reopenTimeSec: reopenT,
+        migrateTimeSec: migrateT,
         twoCharMedianMs: twoMed,
         twoCharP95Ms: twoP95,
         threePlusCharMedianMs: threeMed,
@@ -205,11 +230,14 @@ func printRow(_ r: BenchResult) {
     let mainStr = DatabaseStats.humanBytes(r.mainBytes)
     let walStr = DatabaseStats.humanBytes(r.walBytes)
     let idx = String(format: "%.2fs", r.indexingTimeSec)
+    let re = String(format: "%.3fs", r.reopenTimeSec)
+    let mg = String(format: "%.3fs", r.migrateTimeSec)
     let tm = String(format: "%.2fms", r.twoCharMedianMs)
     let tp = String(format: "%.2fms", r.twoCharP95Ms)
     let em = String(format: "%.2fms", r.threePlusCharMedianMs)
     let ep = String(format: "%.2fms", r.threePlusCharP95Ms)
-    print("  mode=\(pad(r.mode.rawValue, 9)) main=\(pad(mainStr, 12)) wal=\(pad(walStr, 9)) index=\(pad(idx, 8)) 2-char-med=\(pad(tm, 9)) 2-char-p95=\(pad(tp, 9)) 3+char-med=\(pad(em, 9)) 3+char-p95=\(pad(ep, 9))")
+    print("  mode=\(pad(r.mode.rawValue, 9)) main=\(pad(mainStr, 12)) wal=\(pad(walStr, 9)) index=\(pad(idx, 8)) reopen=\(pad(re, 8)) migrate=\(pad(mg, 8))")
+    print("    2-char-med=\(pad(tm, 9)) 2-char-p95=\(pad(tp, 9)) 3+char-med=\(pad(em, 9)) 3+char-p95=\(pad(ep, 9))")
     print("    grams=\(pad(DatabaseStats.humanCount(r.fileGramsRows), 10)) bigrams=\(pad(DatabaseStats.humanCount(r.fileBigramsRows), 10)) name_grams=\(pad(DatabaseStats.humanCount(r.fileNameGramsRows), 10)) name_bigrams=\(pad(DatabaseStats.humanCount(r.fileNameBigramsRows), 10)) path_segs=\(DatabaseStats.humanCount(r.filePathSegsRows))")
 }
 
