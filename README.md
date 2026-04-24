@@ -34,7 +34,8 @@ macOS 原生本地极速文件搜索器。
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
-- 当前活跃轨道：`everything-footprint`（G1 / G2 / G3 / G4 已 PASS；G5 最终验收中）
+- 当前活跃轨道：`everything-footprint`（G1 / G2 / G3 / G4 round 2 PASS；G5 round 2 落地 500k 实测 + reopen/migrate 计时，当前等待 Codex PROJECT COMPLETE 判定）
+- 500k 实测亮点：compact 1.07 GB vs fullpath 3.46 GB（3.2× 更小），首次索引 44.87s vs 197.62s（4.4× 更快），reopen/migrate 都是 ms 级
 
 ## 快速上手（本地交付）
 

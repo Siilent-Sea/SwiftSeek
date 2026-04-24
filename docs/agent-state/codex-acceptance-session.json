@@ -2,10 +2,10 @@
   "track": "everything-footprint",
   "stage": "G5",
   "session_id": "019dbdf8-b2c9-7c03-b316-dbbf7040d5d9",
-  "last_verdict": "PASS",
+  "last_verdict": "REJECT",
   "last_verdict_round": 2,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "G4 round 2 PASS (maintenance-tab compact backfill button); G5 final roll-up awaiting PROJECT COMPLETE",
+  "last_verdict_reason": "G5 round 2 REJECT: 三份 docs 仍停留在 round 1 口径 (codex_acceptance.md / known_issues.md / README.md)，round 3 已刷齐，等待重审",
   "passed_stages": [
     { "stage": "G1", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
     { "stage": "G2", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
@@ -19,6 +19,6 @@
     { "track": "everything-performance", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-24",
       "previous_session_id": "019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90" }
   ],
-  "commit_at_review": "pending-g5",
-  "notes": "G5 final roll-up; awaits PROJECT COMPLETE verdict."
+  "commit_at_review": "pending-g5-round3",
+  "notes": "G5 round 3: docs swept to round 2 real 500k numbers. Awaits PROJECT COMPLETE verdict."
 }

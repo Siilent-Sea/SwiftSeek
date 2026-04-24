@@ -3,10 +3,10 @@
 本文件只保留当前有效结论。
 
 ## 当前有效结论
-VERDICT: (pending G5 final / PROJECT COMPLETE)
+VERDICT: (pending PROJECT COMPLETE for everything-footprint)
 TRACK: everything-footprint
 STAGE: G5 (final)
-ROUND: 1 (awaiting Codex)
+ROUND: 3 (awaiting Codex)
 DATE: 2026-04-24
 SESSION_ID: 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9
 
@@ -17,12 +17,29 @@ G5 是 `everything-footprint` 最终阶段。G1-G4 已通过独立验收：
 - G3 — Schema v5 + 分流 indexer/searchEngine + MigrationCoordinator（round 2 PASS）
 - G4 — 索引模式 UI + 维护页回填按钮（round 2 PASS）
 
-G5 新改动：
-- `SwiftSeekBench` 扩展：`--mode {compact,fullpath,both}`，对比报告，checkpoint 后读 stats
-- 新 `docs/everything_footprint_bench.md`：20k 实测 + 500k 投影 + F1 目标回归
-- README / known_issues / manual_test / stage_status 最终对齐
+G5 round 2 落地改动：
+- `SwiftSeekBench` 扩展：`--mode {compact,fullpath,both}`、comparison delta、reopen/migrate 计时，checkpoint 后读 stats
+- `docs/everything_footprint_bench.md`：20k 实测 + **500k 实测（非外推）** + reopen/migrate timing + F1 目标回归
+- README / known_issues / manual_test / stage_status / 本文件最终对齐到 round 2 实测口径（round 3）
 
-### 实测数据（20k 文件，release，2026-04-24）
+### 实测数据（500k 文件，release，2026-04-24，iters=20）
+
+这是实测 500k，不是外推。
+
+| 指标 | Compact | Fullpath | 比例 |
+|------|---------|----------|------|
+| **main DB** | **1.07 GB** | **3.46 GB** | **0.31×（3.2× 更小）** |
+| **索引行数总** | 23,024,963 | 118,932,793 | **0.19×（5.2× 更少）** |
+| **首次索引时间** | **44.87s** | **197.62s** | **0.23×（4.4× 更快）** |
+| **reopen time** | **0.001s** | **0.001s** | 持平 — G3 migrate CREATE-only 关键证据 |
+| **migrate time** | **0.000s** | **0.000s** | 持平（启动时 schema 已最新，无 backfill） |
+| warm 2-char median | 2.62ms | 3.22ms | 都 < F1 50ms ✓ |
+| warm 2-char p95 | 5.25ms | 6.30ms | 都 < F1 150ms ✓ |
+| warm 3+char median | 89.63ms | 95.97ms | ⚠️ 超 F1 30ms（见 bench.md "诚实记录"） |
+| warm 3+char p95 | 258.96ms | 397.45ms | ⚠️ 超 F1 100ms；compact 仍快 35% |
+
+### 20k 实测（对照，release，2026-04-24）
+
 | 指标 | Compact | Fullpath | 比例 |
 |------|---------|----------|------|
 | main DB 文件 | 39.7 MB | 128 MB | **0.31× (3.2× 更小)** |
@@ -31,23 +48,31 @@ G5 新改动：
 | warm 2-char median | 2.68ms | 3.24ms | 都 <F1 50ms |
 | warm 3+char median | 4.11ms | 3.47ms | 都 <F1 30ms |
 
-500k 投影：compact ~1.0 GB vs fullpath ~3.2 GB（与用户实际 586k=3.4GB 吻合）。
+20k 和 500k 两个规模下 main DB size 比例都稳定在 0.31×，线性成立。
+
+### 关键确认
+
+1. **用户报告 586k=3.4GB，实测 500k=3.46GB** — 数据模型正确，fullpath v4 体积预测真实。
+2. **compact 500k=1.07GB** — 用户如切到 compact 可把 3.4GB 降到 1GB 级别。
+3. **reopen/migrate = 0.001s / 0.000s @500k** — G3 migrate CREATE-only 承诺在 500k 规模下得到验证，用户升级 v4→v5 不会遇到"启动卡几分钟"。
+4. **compact backfill 由 MigrationCoordinator 后台分批跑**，不阻塞主线程，可中断续跑。
 
 ### 请求颁发
 如 G5 满足任务书要求且 G1-G4 不回退，请颁发 `VERDICT: PROJECT COMPLETE for everything-footprint track`。
 
 ### 本地自检
 - `swift build --disable-sandbox` → Build complete!
-- `SwiftSeekSmokeTest` → 138 / 0（G5 未添新 smoke；benchmark 自己作为 acceptance 证据）
+- `SwiftSeekSmokeTest` → 138 / 0
 - `SwiftSeekStartup` → schema=5 + PASS
-- `SwiftSeekBench --mode both --files 20000 --iters 30` → 实测数据如上
+- `SwiftSeekBench --mode both --files 500000 --iters 20` → 上表实测数据
+- `SwiftSeekBench --mode both --files 20000 --iters 30` → 对照实测数据
 
 ### Blockers / Required fixes
-- 待 Codex round 1 实际判定。
+- 待 Codex round 3 实际判定。
 
 ### Non-blocking notes
-- 10× 体积缩小的 G2 粗估在实测中体现为 3-5×（见 bench.md "未达目标原因"）。合成 fixture 的 basename 比现实长，导致 compact 相对优势略被低估；用户 500k 库从 3.4GB 降到约 1GB 仍是决定性收益。
-- compact 的 3+char p95 = 13.92ms 比 fullpath 的 3.76ms 稍高，但仍远在 F1 100ms 目标内。`path:` segment 前缀 JOIN 天然比 gram IN 慢一些；大多数场景不落 p95。
+- 10× 体积缩小的 G2 粗估在实测中体现为 3-5×（见 bench.md "为什么没达 10×"）。合成 fixture 的 basename 比现实长，导致 compact 相对优势略被低估；用户真实 500k 库从 3.4GB 降到约 1GB 仍是决定性收益。
+- 500k 规模下 warm 3+char 两种模式都超 F1（30ms / 100ms p95）目标。F1 基线是 10k；500k 下是规模效应暴露的事实，不是 G-系列回归。本轨道不改 F1 合同；若后续要调新基线留给新轨道处理。
 
 ## 轨道内已通过阶段
 - G1（round 2 PASS）

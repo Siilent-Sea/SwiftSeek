@@ -5,9 +5,10 @@
 ## 当前活跃轨道相关限制
 
 ### 1. 500k+ 文件下 DB 体积（G1-G5 已解决根治路径）
-- **Compact 模式（默认）**：只对 basename 做 gram + path segment 前缀索引。20k 实测 DB 比 fullpath 小 3.2×，索引行数少 5.5×，首次索引快 4.7×。500k 投影 compact ~1GB vs fullpath ~3.2GB。
+- **Compact 模式（默认）**：只对 basename 做 gram + path segment 前缀索引。500k 实测（release，2026-04-24）main DB **1.07 GB** vs fullpath **3.46 GB**（0.31×，3.2× 更小），索引行数 23.0M vs 118.9M（0.19×，5.2× 更少），首次全量索引 44.87s vs 197.62s（4.4× 更快）。与用户报告的真实 586k=3.4GB 吻合。
 - **Full path substring 模式**：保留 v4 行为，path 中间子串可搜；体积大。
 - 现有 fullpath v4 DB 升级到 v5 默认保留为 fullpath；可在设置 → 常规 → 索引模式切换到 compact，维护 tab 按 "开始 / 继续 compact 回填" 后台回填，期间不阻主。
+- G3 migrate CREATE-only：关闭 populated 500k DB 再重新 open + migrate() 实测 reopen 0.001s / migrate 0.000s，不会"启动时卡几分钟"。
 - VACUUM 仍作为临时压实入口保留（维护 tab），但已不是根治方案 —— 根治靠 compact 模式 + 一次性回填。
 
 ### 2. `file_bigrams + file_grams` 是主要体积来源
