@@ -9,11 +9,10 @@
 - 尚不支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` 等过滤语法
 - E3 阶段专门处理查询语法与过滤能力
 
-### 2. 结果列表还不是高密度 Everything 风格（留给 E2）
-- 当前 `SearchViewController` 仍是单列表单元格视图
-- 名称 / 路径 / mtime / size 虽有部分展示，但不是高密度多列结果视图
-- 目前也没有排序切换或列排序
-- E2 阶段专门处理结果视图与排序 / 显示密度
+### 2. 结果列表 Everything 风格已接入（E2 起）
+- 结果视图已改为 4 列：名称 / 路径 / 修改时间 / 大小
+- 列头可点击切换排序；默认仍为 score 降序
+- 当前尚不提供 pinned column、多选列、右键列菜单等高级视图能力（留给后续非阶段任务再考虑）
 
 ### 3. 热键仍未可配置（留给 E5）
 - 默认全局热键仍是固定的 `⌥Space`
@@ -34,11 +33,16 @@
 
 ## E1 已解决的限制（2026-04-24）
 
-以下三项在 E1 阶段已经落地（本文件同步移除“尚未”状态）：
-
+### E1 已解决
 - **多词 query AND 语义**：`SearchEngine.tokenize` + 逐 token substring AND filter。
 - **相关性细粒度 bonus**：basename (+50) / token boundary (+30) / path segment (+40) / extension (+80) / 多词 all-in-basename (+100)。
 - **GUI 结果上限可配置**：`search_limit` 持久化到 settings 表，范围 [20, 1000]，默认 100；设置页常规 pane 提供配置入口；SearchViewController 每次查询读取，状态栏动态回显“仅显示前 N 条”。
+
+### E2 已解决
+- **多列高密度结果视图**：4 列（名称 / 路径 / 修改时间 / 大小）+ NSTableHeaderView。
+- **排序切换**：列头点击；`SearchSortKey.{score, name, path, mtime, size}` + ascending。默认 `.scoreDescending`。
+- **排序稳定 + 大小写不敏感**：`SearchEngine.sort(_:by:)` 是 pure function，tie-break 用 shorter-path-then-alphabetical，保证可重现与可逆。
+- **键盘流 / 右键 / 拖拽 / QuickLook / 高亮 不回退**：新 cell 类型保留所有原行为。
 
 ## 环境约束
 
