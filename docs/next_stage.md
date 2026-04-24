@@ -1,26 +1,21 @@
-# 下一阶段任务书（everything-alignment 收尾）
+# 下一阶段任务书
 
-## Track
-`everything-alignment`
+## 当前状态
+**无活跃轨道。**
 
-## Stage
-E5 当前刚落地。E1-E4 均已 PASS。本文件是轨道最终收尾前最后一轮提示。
+`everything-alignment` 轨道已于 2026-04-24 由 Codex 独立验收颁发 `VERDICT: PROJECT COMPLETE`。
 
-## 目标
-- 热键配置 + 使用习惯优化 + 文档收尾 = E5 已完成
-- 本轨道如 Codex round 1 通过，可颁发 `PROJECT COMPLETE for everything-alignment track`
+## 历史完成
+- `v1-baseline`：2026-04-23 PROJECT COMPLETE（P0 ~ P6）
+- `everything-alignment`：2026-04-24 PROJECT COMPLETE（E1 ~ E5）
 
-## E5 完成判定（复述自 docs/everything_alignment_taskbook.md）
-1. 热键可配置且持久化 ✅
-2. 热键冲突与无效输入有明确反馈（注册失败弹窗 + 自动回滚）✅
-3. 如果引入 usage-based tie-break，必须可解释且不破坏基础相关性 — 本轮未引入（非必需）
-4. 文档与手测对齐最终行为 ✅
+## 如何启动新轨道
+以用户驱动为前提。启动新轨道时需要在仓库内完成以下登记：
 
-## 如果 Codex 颁发 PROJECT COMPLETE
-- 本文件保留作为 v2+ 新轨道启动点的参考模板
-- `docs/stage_status.md` 的 "当前活跃轨道" 将变更为 "（无活跃轨道，待用户确认新轨道）"
-- `docs/codex_acceptance.md` 将把 `PROJECT COMPLETE` 固定为最终结论
+1. 在 `docs/stage_status.md` 顶部标注新轨道名和当前阶段
+2. 新增 `docs/<track>_taskbook.md` 详细任务书（目标 / 阶段划分 / 验收标准 / 非目标）
+3. 选择合适的 session id 策略：
+   - 直接在 `docs/agent-state/codex-acceptance-session.{txt,json}` 中替换为新 session id
+   - 或另起一份 `codex-acceptance-session-<track>.json` 并在 stage_status 中指向新文件
 
-## 如果 Codex 仍 REJECT
-- 按 required fix 修 + re-verify，直到 PASS
-- 不启动新轨道
+Codex 不会主动开启新轨道。Claude 也不会，除非用户明确发起。
