@@ -838,6 +838,26 @@ chmod a-w /tmp/readonly.sqlite3
    - 搜索窗关闭不影响设置窗口独立生命周期
 8. sqlite 层无新增字段（J1 纯 UI），可用 `./.build/release/SwiftSeekStartup` 核 schema=6 不变。
 
+### 33n. J2 Run Count / 最近打开 可见性
+前置：已经用 J1 刷过 `.app` bundle（带 hide-only close 修复），或直接 `./scripts/build.sh` + 复制 binary。
+
+1. **首次启动** 搜索窗默认宽度应约 1020px（而不是旧的 680px），6 列都可见：名称 / 路径 / 修改时间 / 大小 / **打开次数** / **最近打开**。
+2. **header tooltip**：鼠标悬停"打开次数"列头 2-3 秒，应显示 tooltip："通过 SwiftSeek 成功打开该文件的次数（Run Count）。不包含 Reveal in Finder / Copy Path，不代表 macOS 全局启动次数。"「最近打开」同理。
+3. **Run Count 累加**：搜索任一已索引文件 → 回车打开 3 次（每次回车后窗口收起再 ⌥Space 重开搜索同一 query）。应看到"打开次数"列显示 3（或累加后的当前值）。sqlite3 核对：
+   ```bash
+   sqlite3 ~/Library/Application\ Support/SwiftSeek/swiftseek.sqlite3 \
+     "SELECT f.path, u.open_count, u.last_opened_at FROM file_usage u JOIN files f ON f.id = u.file_id ORDER BY u.last_opened_at DESC LIMIT 5;"
+   ```
+4. **最近打开**：上一步同文件，"最近打开"应显示类似"刚刚"/"1 分钟前"（和"修改时间"格式一致）。
+5. **空值**：从未通过 SwiftSeek 打开过的文件，"打开次数"列显示 `—`，"最近打开"显示 `—`。
+6. **列宽恢复**：手动把"打开次数"列宽拖到 20px 左右（几乎不可见）→ 关窗再开（窄宽应持久化）。右键"打开次数" / "最近打开" / 任一列的 header → 菜单出现"重置列宽" → 点击后列宽应立即恢复默认，窗口过窄时自动拉宽。状态栏显示"✓ 已重置列宽"toast。
+7. **持久化不误伤排序**：点"打开次数"列头按 usage 排序；然后右键 header → 重置列宽 → 排序顺序应不变（J2 只清列宽，不碰 `result_sort_key`）。
+8. **`recent:` / `frequent:`**：
+   - 输入 `recent:` 回车，结果第一行应是刚才累计打开次数最多/最近的文件，"打开次数"列值与显示顺序一致
+   - 输入 `frequent:`，同理
+9. **panel resize 持久化**：手动把搜索面板拖到 1200×500 → 关闭 → ⌥Space 重开 → 尺寸应恢复 1200×500（由 `setFrameAutosaveName` 生效）。
+10. **用户使用旧 .app**：如果用户看不到 Run Count，优先确认 Dock 里的 SwiftSeek.app 是最新构建（`ls -lT SwiftSeek.app/Contents/MacOS/SwiftSeek` 的 mtime）；可能是老 bundle。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

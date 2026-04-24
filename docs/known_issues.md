@@ -26,22 +26,14 @@
 - 不使用 private API。
 - Reveal in Finder / Copy Path 不计入 Run Count。
 
-### 4. Run Count 数据层已存在，但用户可见性待复核
-- 当前代码已有：
-  - Schema v6 `file_usage`
-  - `Database.recordOpen(path:)`
-  - `SearchResult.openCount` / `lastOpenedAt`
-  - `SearchEngine` 的 `LEFT JOIN file_usage`
-  - 结果表“打开次数” / “最近打开”两列
-  - `recent:` / `frequent:` 查询入口
-  - 使用历史开关与清空入口
-- 但用户反馈没看到“启动次数 / Run Count”，因此 J2 必须复核：
-  - 打开动作是否实际写入当前 DB
-  - 结果列是否默认可见
-  - 列宽是否被历史持久化状态压窄
-  - 文案是否足够清楚
-  - 用户运行的二进制是否为最新构建
-- 不能因为 H1-H5 已 `PROJECT COMPLETE` 就忽略用户可见性问题。
+### 4. Run Count 用户可见性已在 J2 落地
+- 根因：搜索窗默认宽度 680px，但 H2 六列默认宽度总和 ~980px，新增的"打开次数 / 最近打开"被挤出视野。
+- J2 修复：
+  - `SearchWindowController` 面板默认宽 680 → 1020，并 `setFrameAutosaveName("SwiftSeekSearchPanel")` 持久化用户调整。
+  - 结果表 header 右键菜单新增"重置列宽"：调 `Database.resetResultColumnWidths()` 清所有 6 个 `result_col_width_*` 键并立即把现有列宽恢复程序默认；若窗口比默认总宽更窄还会自动拉宽。
+  - "打开次数" header tooltip："通过 SwiftSeek 成功打开该文件的次数（Run Count）。不包含 Reveal in Finder / Copy Path，不代表 macOS 全局启动次数。"
+  - "最近打开" header tooltip 说明只来自 SwiftSeek 内部 `.open` 历史。
+- 数据链路 H1-H5 未改：`file_usage` / `Database.recordOpen(path:)` / `SearchResult.openCount/lastOpenedAt` / `LEFT JOIN file_usage` / `recent:` / `frequent:` / 隐私开关都与之前一致。
 
 ### 5. Everything-like 查询语法仍不完整
 - 已支持：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:`。

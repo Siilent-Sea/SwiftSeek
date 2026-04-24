@@ -6,8 +6,14 @@ final class SearchWindowController: NSWindowController {
 
     init(database: Database) {
         self.viewController = SearchViewController(database: database)
+        // J2: panel default width bumped 680 -> 1020. With H2's 6
+        // columns (名称 260 + 路径 320 + 修改时间 120 + 大小 80 +
+        // 打开次数 80 + 最近打开 120 = 980px), the previous 680px
+        // default cropped the last two new columns out of sight —
+        // which is why users reported "no Run Count visible" even
+        // after H1-H5 landed. 1020 gives ~40px of breathing room.
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 1020, height: 420),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -22,6 +28,10 @@ final class SearchWindowController: NSWindowController {
         panel.title = "SwiftSeek"
         panel.contentViewController = viewController
         panel.center()
+        // J2: persist user resize across launches. Uses a
+        // namespaced autosave key so it doesn't collide with
+        // other NSWindows.
+        panel.setFrameAutosaveName("SwiftSeekSearchPanel")
         super.init(window: panel)
         panel.delegate = self
     }

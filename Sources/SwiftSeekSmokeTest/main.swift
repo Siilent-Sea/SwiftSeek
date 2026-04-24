@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3721,6 +3721,71 @@ reporter.check("H4 DatabaseStats.fileUsageRowCount reflects current state") {
     let postStats = db.computeStats()
     try reporter.require(postStats.fileUsageRowCount == 0,
                          "after clear fileUsageRowCount should be 0, got \(postStats.fileUsageRowCount)")
+}
+
+// MARK: - J2 result column width reset + usage visibility
+
+reporter.check("J2 resetResultColumnWidths clears all 6 persisted widths") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Seed all 6 width keys.
+    let keys = [
+        SettingsKey.resultColumnWidthName,
+        SettingsKey.resultColumnWidthPath,
+        SettingsKey.resultColumnWidthMtime,
+        SettingsKey.resultColumnWidthSize,
+        SettingsKey.resultColumnWidthOpenCount,
+        SettingsKey.resultColumnWidthLastOpened,
+    ]
+    for k in keys {
+        try db.setResultColumnWidth(key: k, width: 33)
+    }
+    for k in keys {
+        let v = try db.getResultColumnWidth(key: k)
+        try reporter.require(v == 33, "precondition: \(k) should be 33 before reset, got \(String(describing: v))")
+    }
+    let removed = try db.resetResultColumnWidths()
+    try reporter.require(removed == 6, "expected 6 keys removed, got \(removed)")
+    for k in keys {
+        let v = try db.getResultColumnWidth(key: k)
+        try reporter.require(v == nil,
+                             "\(k) should return nil after reset, got \(String(describing: v))")
+    }
+}
+
+reporter.check("J2 resetResultColumnWidths is idempotent when nothing was persisted") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Fresh DB: no width keys present.
+    let removed = try db.resetResultColumnWidths()
+    try reporter.require(removed == 0, "fresh DB reset should remove 0 keys, got \(removed)")
+    // Calling again is still a no-op.
+    let removedAgain = try db.resetResultColumnWidths()
+    try reporter.require(removedAgain == 0, "second reset should still remove 0, got \(removedAgain)")
+}
+
+reporter.check("J2 resetResultColumnWidths does not touch sort-order keys") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let sortOrder = SearchSortOrder(key: .openCount, ascending: false)
+    try db.setResultSortOrder(sortOrder)
+    try db.setResultColumnWidth(key: SettingsKey.resultColumnWidthName, width: 99)
+    _ = try db.resetResultColumnWidths()
+    let sortBack = try db.getResultSortOrder()
+    try reporter.require(sortBack == sortOrder,
+                         "sort order should survive column width reset: got \(sortBack), expected \(sortOrder)")
 }
 
 // MARK: - J1 settings window lifecycle (hide-only close pattern)

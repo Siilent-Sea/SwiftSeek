@@ -129,10 +129,21 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         // mapped through sortDescriptorsDidChange.
         addColumn(id: Self.col_openCount, title: "打开次数", minWidth: 60,
                   width: persistedWidth(for: SettingsKey.resultColumnWidthOpenCount) ?? 80,
-                  sortKey: "openCount")
+                  sortKey: "openCount",
+                  headerToolTip: "通过 SwiftSeek 成功打开该文件的次数（Run Count）。不包含 Reveal in Finder / Copy Path，不代表 macOS 全局启动次数。")
         addColumn(id: Self.col_lastOpened, title: "最近打开", minWidth: 90,
                   width: persistedWidth(for: SettingsKey.resultColumnWidthLastOpened) ?? 120,
-                  sortKey: "lastOpenedAt")
+                  sortKey: "lastOpenedAt",
+                  headerToolTip: "最近一次通过 SwiftSeek 成功打开该文件的时间。仅 SwiftSeek 内部 .open 历史，不读取系统最近项目。")
+
+        // J2: give the header a right-click menu so users can
+        // recover from a persisted column-width state that has
+        // cropped "打开次数" / "最近打开" off-screen. Reset target
+        // is this controller; live-refresh the widths after DB
+        // reset without requiring a restart.
+        if let header = tableView.headerView {
+            header.menu = buildHeaderContextMenu()
+        }
 
         // F3: listen for resize notifications on this specific table view.
         // The notification payload userInfo has `NSTableColumn` so we can
@@ -248,14 +259,71 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
                            title: String,
                            minWidth: CGFloat,
                            width: CGFloat,
-                           sortKey: String) {
+                           sortKey: String,
+                           headerToolTip: String? = nil) {
         let col = NSTableColumn(identifier: id)
         col.title = title
         col.minWidth = minWidth
         col.width = width
         col.resizingMask = .userResizingMask
         col.sortDescriptorPrototype = NSSortDescriptor(key: sortKey, ascending: true)
+        if let tt = headerToolTip {
+            col.headerToolTip = tt
+        }
         tableView.addTableColumn(col)
+    }
+
+    /// J2: default widths for each column. Kept as a single
+    /// source of truth so the "重置列宽" header menu can re-apply
+    /// them live without re-instantiating the table view.
+    private static let defaultColumnWidths: [(NSUserInterfaceItemIdentifier, CGFloat)] = [
+        (col_name, 260),
+        (col_path, 320),
+        (col_mtime, 120),
+        (col_size, 80),
+        (col_openCount, 80),
+        (col_lastOpened, 120),
+    ]
+
+    private func buildHeaderContextMenu() -> NSMenu {
+        let m = NSMenu()
+        let item = NSMenuItem(title: "重置列宽",
+                              action: #selector(resetColumnWidths),
+                              keyEquivalent: "")
+        item.target = self
+        item.toolTip = "清除持久化的结果表列宽，恢复程序默认值。用于恢复“打开次数 / 最近打开”等被历史宽度压掉的列。"
+        m.addItem(item)
+        return m
+    }
+
+    @objc private func resetColumnWidths() {
+        // Clear persisted widths in DB.
+        do {
+            _ = try database.resetResultColumnWidths()
+        } catch {
+            NSLog("SwiftSeek: resetResultColumnWidths failed: \(error)")
+            return
+        }
+        // Apply defaults to the live NSTableColumn instances — no
+        // restart required. Look up each column by identifier so
+        // the order in defaultColumnWidths doesn't need to match
+        // the visible column order.
+        for (id, width) in Self.defaultColumnWidths {
+            if let col = tableView.tableColumn(withIdentifier: id) {
+                col.width = width
+            }
+        }
+        // If the panel itself is too narrow to show everything at
+        // defaults, widen it too so the reset is actually visible.
+        let defaultTotal = Self.defaultColumnWidths.reduce(into: 0) { $0 += $1.1 }
+        if let win = view.window, win.frame.width < defaultTotal + 40 {
+            var f = win.frame
+            let newWidth = defaultTotal + 40
+            f.origin.x -= (newWidth - f.width) / 2 // keep centered
+            f.size.width = newWidth
+            win.setFrame(f, display: true, animate: true)
+        }
+        showToast("✓ 已重置列宽")
     }
 
     /// F3: pull a persisted column width from DB, nil on miss / malformed.

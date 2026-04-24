@@ -218,6 +218,38 @@ public extension Database {
         try setSetting(key, value: String(format: "%.0f", width))
     }
 
+    /// J2: clear all persisted result-column widths so the next
+    /// `SearchViewController` launch falls back to the programmed
+    /// defaults. Invoked from the result table's header context
+    /// menu ("重置列宽"). Returns the number of rows removed so
+    /// callers can show a sensible status message.
+    ///
+    /// This does NOT touch the sort-order keys — the user's
+    /// chosen sort is orthogonal to column widths.
+    @discardableResult
+    func resetResultColumnWidths() throws -> Int {
+        let keys = [
+            SettingsKey.resultColumnWidthName,
+            SettingsKey.resultColumnWidthPath,
+            SettingsKey.resultColumnWidthMtime,
+            SettingsKey.resultColumnWidthSize,
+            SettingsKey.resultColumnWidthOpenCount,
+            SettingsKey.resultColumnWidthLastOpened,
+        ]
+        var removed = 0
+        for k in keys {
+            // setSetting stores an empty value rather than a real
+            // DELETE, but getResultColumnWidth already treats
+            // non-parseable strings as nil so round-tripping is
+            // equivalent to "never set". Use a direct DELETE
+            // anyway to keep the settings table tidy.
+            if try getSetting(k) != nil { removed += 1 }
+            try exec("DELETE FROM settings WHERE key = '\(k)';")
+            invalidateSettingsCache(key: k)
+        }
+        return removed
+    }
+
     /// Read persisted hotkey (Carbon keyCode + modifier mask). Returns
     /// the default preset if missing or malformed so first launches /
     /// corrupt settings rows never leave the app without a working
