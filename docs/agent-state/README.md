@@ -10,7 +10,7 @@
 
 ## 当前轨道
 - 当前活跃轨道：`everything-usage`
-- 当前阶段：`H4`
+- 当前阶段：`H5`
 - 要求：继续使用当前 `everything-usage` 验收 session，并在阶段推进时同步更新 `.txt` / `.json`
 - 禁止：混用已归档 `everything-footprint` session
 

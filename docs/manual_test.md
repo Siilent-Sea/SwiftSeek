@@ -804,6 +804,22 @@ chmod a-w /tmp/readonly.sqlite3
    - `file_usage` 为空时 `清空使用历史…` 按钮 disabled（无意义）
 6. CLI 核对：`./.build/release/SwiftSeekDBStats` 输出里有 `file_usage : N` 一行
 
+### 33l. H5 usage benchmark
+前置：release 构建已存在（`./scripts/build.sh` 或等价）。
+
+1. 基本自检：`./.build/release/SwiftSeekBench --mode compact --files 2000 --iters 5 --usage-rows 500` 应在 1 秒内完成且输出包含：
+   - `H5 usage_rows=500`
+   - `recent:-med=...`
+   - `frequent:-med=...`
+   - `recordOpen-med=...`
+2. 100k 回归：`./.build/release/SwiftSeekBench --mode compact --files 100000 --iters 20 --usage-rows 10000 --record-open-ops 500`（约 1 分钟）。结果应与 `docs/everything_usage_bench.md` 的 100k 表同量级：
+   - 3+char (w/usage) median 与空 usage 持平（JOIN 开销 <1ms）
+   - `recent:` / `frequent:` 都是 sub-10ms 中位数
+   - `recordOpen` sub-ms
+3. 500k 全量回归：`--files 500000 --usage-rows 100000`（约 4-5 分钟）。数值量级参考 `docs/everything_usage_bench.md` 的 500k 表。
+4. 回归兼容：不传 `--usage-rows` 时 bench 输出与 G5 格式完全相同（不打印 H5 段），确认不破坏既有自动化脚本。
+5. 文档对齐：bench 结果明显偏离 `docs/everything_usage_bench.md` 时，应以新数据更新文档而非忽略差异。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

@@ -14,6 +14,10 @@
 
 import Foundation
 import SwiftSeekCore
+// H5 usage benchmark needs raw sqlite3 to grab file_ids in a single
+// prepared pass (there's no list-all helper on Database and we don't
+// want to ship one just for bench scaffolding).
+import CSQLite
 
 setlinebuf(stdout)
 
@@ -24,6 +28,17 @@ struct BenchArgs {
     var iterations: Int = 50
     var enforceTargets: Bool = false
     var mode: BenchMode = .compact
+    /// H5: number of `file_usage` rows to pre-populate before
+    /// measuring. 0 = skip the usage benchmark entirely (backward
+    /// compatible with G5 mode). Non-zero enables:
+    ///   * `recent:` / `frequent:` query latency
+    ///   * recordOpen write latency
+    ///   * usage-populated normal-search JOIN cost
+    var usageRows: Int = 0
+    /// H5: number of recordOpen ops to sample for the write-path
+    /// latency. Default tied to iterations so small --iters runs
+    /// don't spend forever. Only used when --usage-rows > 0.
+    var recordOpenOps: Int = 500
 }
 
 func parseArgs(_ argv: [String]) -> BenchArgs {
@@ -46,15 +61,30 @@ func parseArgs(_ argv: [String]) -> BenchArgs {
             i += 1
             guard i < argv.count, let m = BenchMode(rawValue: argv[i]) else { exit(2) }
             args.mode = m
+        case "--usage-rows":
+            i += 1
+            guard i < argv.count, let n = Int(argv[i]), n >= 0 else { exit(2) }
+            args.usageRows = n
+        case "--record-open-ops":
+            i += 1
+            guard i < argv.count, let n = Int(argv[i]), n > 0 else { exit(2) }
+            args.recordOpenOps = n
         case "-h", "--help":
             print("""
-            SwiftSeekBench — F1 perf probe + G5 footprint comparison
+            SwiftSeekBench — F1 perf probe + G5 footprint + H5 usage benchmark
             usage:
-              swift run SwiftSeekBench [--files N] [--iters N] [--enforce-targets] [--mode compact|fullpath|both]
+              swift run SwiftSeekBench [--files N] [--iters N] [--enforce-targets]
+                                       [--mode compact|fullpath|both]
+                                       [--usage-rows N] [--record-open-ops N]
 
               --mode compact    (default) index in compact mode, measure
               --mode fullpath   index in fullpath mode, measure
               --mode both       index once in each mode, print comparison
+              --usage-rows N    H5: pre-populate N rows in file_usage and
+                                measure recent: / frequent: / recordOpen
+                                (0 = skip, backwards compatible with G5)
+              --record-open-ops N  H5: number of recordOpen ops sampled
+                                   for write-path latency (default 500).
             """)
             exit(0)
         default:
@@ -97,6 +127,18 @@ struct BenchResult {
     let twoCharP95Ms: Double
     let threePlusCharMedianMs: Double
     let threePlusCharP95Ms: Double
+    /// H5 usage benchmark results. All -1 / 0 when `--usage-rows == 0`
+    /// (the G5-compatible path; bench result still valid but usage
+    /// fields are not populated).
+    let usageRowCount: Int64
+    let normalSearchWithUsageMedianMs: Double  // same queries as 3+ char
+    let normalSearchWithUsageP95Ms: Double
+    let recentMedianMs: Double
+    let recentP95Ms: Double
+    let frequentMedianMs: Double
+    let frequentP95Ms: Double
+    let recordOpenMedianMs: Double
+    let recordOpenP95Ms: Double
 }
 
 func buildFixture(mode: IndexMode, fileCount: Int) throws -> (Database, URL, Double) {
@@ -158,7 +200,11 @@ func timedSearch(_ q: String, iterations: Int, engine: SearchEngine) -> (median:
     return (median, p95)
 }
 
-func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResult {
+func runOneMode(mode: IndexMode,
+                fileCount: Int,
+                iters: Int,
+                usageRows: Int,
+                recordOpenOps: Int) throws -> BenchResult {
     print("[bench] building \(fileCount) files in \(mode.rawValue) mode…")
     let (db, scratchDir, idxTime) = try buildFixture(mode: mode, fileCount: fileCount)
     print(String(format: "[bench] indexed in %.2fs", idxTime))
@@ -199,6 +245,102 @@ func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResu
     let threeMed = three3.map(\.0).reduce(0, +) / Double(three3.count)
     let threeP95 = three3.map(\.1).reduce(0, +) / Double(three3.count)
 
+    // --- H5 usage benchmark -----------------------------------------
+    var usageCount: Int64 = 0
+    var normalWithUsageMed: Double = -1
+    var normalWithUsageP95: Double = -1
+    var recentMed: Double = -1
+    var recentP95: Double = -1
+    var frequentMed: Double = -1
+    var frequentP95: Double = -1
+    var recordOpenMed: Double = -1
+    var recordOpenP95: Double = -1
+
+    if usageRows > 0 {
+        print("[bench] pre-populating \(usageRows) file_usage rows…")
+        // Grab `usageRows` real file_ids from the files table so foreign
+        // keys are happy (file_usage.file_id REFERENCES files(id)).
+        // Using the first N ids gives a deterministic subset.
+        var ids: [Int64] = []
+        ids.reserveCapacity(usageRows)
+        do {
+            var stmt: OpaquePointer?
+            let sql = "SELECT id FROM files ORDER BY id LIMIT ?;"
+            guard let h = reopened.rawHandle else { throw NSError(domain: "bench", code: -1) }
+            _ = sqlite3_prepare_v2(h, sql, -1, &stmt, nil)
+            defer { sqlite3_finalize(stmt) }
+            _ = sqlite3_bind_int64(stmt, 1, Int64(usageRows))
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                ids.append(sqlite3_column_int64(stmt, 0))
+            }
+        }
+        // Batch insert — single transaction so the 100k pre-populate
+        // doesn't cost one fsync per row.
+        let preT0 = Date()
+        try reopened.exec("BEGIN IMMEDIATE;")
+        do {
+            // Stagger open_count / last_opened_at across ids so
+            // recent: and frequent: have meaningfully different orders.
+            var idx: Int64 = 0
+            for fid in ids {
+                // open_count: 1..20 cyclically
+                let oc = (idx % 20) + 1
+                // last_opened_at: monotonically increasing, packed into
+                // a 3-day window so real timestamps are realistic.
+                let ts = 1_700_000_000 + idx
+                try reopened.exec("""
+                INSERT INTO file_usage(file_id, open_count, last_opened_at, updated_at)
+                VALUES (\(fid), \(oc), \(ts), \(ts));
+                """)
+                idx += 1
+            }
+            try reopened.exec("COMMIT;")
+        } catch {
+            try? reopened.exec("ROLLBACK;")
+            throw error
+        }
+        print(String(format: "[bench] file_usage pre-populate took %.2fs", Date().timeIntervalSince(preT0)))
+        usageCount = (try? reopened.countRows(in: "file_usage")) ?? -1
+
+        // (1) Normal search under populated usage — remeasure 3+char to
+        // see if the LEFT JOIN + tie-break costs anything significant.
+        warmUp(engine); warmUp(engine)
+        var nwu: [(Double, Double)] = []
+        for q in ["alpha", "beta", "docs"] {
+            nwu.append(timedSearch(q, iterations: iters, engine: engine))
+        }
+        normalWithUsageMed = nwu.map(\.0).reduce(0, +) / Double(nwu.count)
+        normalWithUsageP95 = nwu.map(\.1).reduce(0, +) / Double(nwu.count)
+
+        // (2) recent: — pure usage-mode query; SQL hits file_usage JOIN files.
+        let recentSample = timedSearch("recent:", iterations: iters, engine: engine)
+        recentMed = recentSample.median
+        recentP95 = recentSample.p95
+
+        // (3) frequent:
+        let frequentSample = timedSearch("frequent:", iterations: iters, engine: engine)
+        frequentMed = frequentSample.median
+        frequentP95 = frequentSample.p95
+
+        // (4) recordOpen write latency. Keep it honest: we sample
+        // against existing file_ids (they already have a usage row so
+        // each op is an UPSERT increment, which is the realistic hot
+        // path after the first open). Rotate through the id list so
+        // SQLite cache behavior is representative.
+        var roSamples: [Double] = []
+        roSamples.reserveCapacity(recordOpenOps)
+        let idsCount = ids.count
+        for i in 0..<recordOpenOps {
+            let fid = ids[i % idsCount]
+            let t0 = Date()
+            _ = try reopened.recordOpen(fileId: fid, now: 1_700_100_000 + Int64(i))
+            roSamples.append(Date().timeIntervalSince(t0) * 1000)
+        }
+        roSamples.sort()
+        recordOpenMed = roSamples[roSamples.count / 2]
+        recordOpenP95 = roSamples[min(roSamples.count - 1, Int(Double(roSamples.count) * 0.95))]
+    }
+
     let s = reopened.computeStats()
     let benchMode: BenchMode = (mode == .compact) ? .compact : .fullpath
     return BenchResult(
@@ -217,7 +359,16 @@ func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResu
         twoCharMedianMs: twoMed,
         twoCharP95Ms: twoP95,
         threePlusCharMedianMs: threeMed,
-        threePlusCharP95Ms: threeP95
+        threePlusCharP95Ms: threeP95,
+        usageRowCount: usageCount,
+        normalSearchWithUsageMedianMs: normalWithUsageMed,
+        normalSearchWithUsageP95Ms: normalWithUsageP95,
+        recentMedianMs: recentMed,
+        recentP95Ms: recentP95,
+        frequentMedianMs: frequentMed,
+        frequentP95Ms: frequentP95,
+        recordOpenMedianMs: recordOpenMed,
+        recordOpenP95Ms: recordOpenP95
     )
 }
 
@@ -239,6 +390,20 @@ func printRow(_ r: BenchResult) {
     print("  mode=\(pad(r.mode.rawValue, 9)) main=\(pad(mainStr, 12)) wal=\(pad(walStr, 9)) index=\(pad(idx, 8)) reopen=\(pad(re, 8)) migrate=\(pad(mg, 8))")
     print("    2-char-med=\(pad(tm, 9)) 2-char-p95=\(pad(tp, 9)) 3+char-med=\(pad(em, 9)) 3+char-p95=\(pad(ep, 9))")
     print("    grams=\(pad(DatabaseStats.humanCount(r.fileGramsRows), 10)) bigrams=\(pad(DatabaseStats.humanCount(r.fileBigramsRows), 10)) name_grams=\(pad(DatabaseStats.humanCount(r.fileNameGramsRows), 10)) name_bigrams=\(pad(DatabaseStats.humanCount(r.fileNameBigramsRows), 10)) path_segs=\(DatabaseStats.humanCount(r.filePathSegsRows))")
+    if r.usageRowCount > 0 {
+        let usage = DatabaseStats.humanCount(r.usageRowCount)
+        let nm = String(format: "%.2fms", r.normalSearchWithUsageMedianMs)
+        let np = String(format: "%.2fms", r.normalSearchWithUsageP95Ms)
+        let rm = String(format: "%.2fms", r.recentMedianMs)
+        let rp = String(format: "%.2fms", r.recentP95Ms)
+        let fm = String(format: "%.2fms", r.frequentMedianMs)
+        let fp = String(format: "%.2fms", r.frequentP95Ms)
+        let om = String(format: "%.3fms", r.recordOpenMedianMs)
+        let op = String(format: "%.3fms", r.recordOpenP95Ms)
+        print("    H5 usage_rows=\(pad(usage, 10)) 3+char(w/usage)-med=\(pad(nm, 9)) p95=\(pad(np, 9))")
+        print("       recent:-med=\(pad(rm, 9)) p95=\(pad(rp, 9)) frequent:-med=\(pad(fm, 9)) p95=\(pad(fp, 9))")
+        print("       recordOpen-med=\(pad(om, 9)) p95=\(pad(op, 9))")
+    }
 }
 
 // --- Run ---------------------------------------------------------------
@@ -249,18 +414,26 @@ switch args.mode {
 case .compact:
     results.append(try runOneMode(mode: .compact,
                                   fileCount: args.fileCount,
-                                  iters: args.iterations))
+                                  iters: args.iterations,
+                                  usageRows: args.usageRows,
+                                  recordOpenOps: args.recordOpenOps))
 case .fullpath:
     results.append(try runOneMode(mode: .fullpath,
                                   fileCount: args.fileCount,
-                                  iters: args.iterations))
+                                  iters: args.iterations,
+                                  usageRows: args.usageRows,
+                                  recordOpenOps: args.recordOpenOps))
 case .both:
     results.append(try runOneMode(mode: .compact,
                                   fileCount: args.fileCount,
-                                  iters: args.iterations))
+                                  iters: args.iterations,
+                                  usageRows: args.usageRows,
+                                  recordOpenOps: args.recordOpenOps))
     results.append(try runOneMode(mode: .fullpath,
                                   fileCount: args.fileCount,
-                                  iters: args.iterations))
+                                  iters: args.iterations,
+                                  usageRows: args.usageRows,
+                                  recordOpenOps: args.recordOpenOps))
 }
 
 print("—")

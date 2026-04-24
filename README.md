@@ -35,8 +35,9 @@ SwiftSeek 当前尚未记录“通过 SwiftSeek 打开”的次数，也没有 R
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`
-- 当前活跃轨道：`everything-usage`
-- 当前阶段：`H1` - Usage 数据模型与动作记录
+- 当前活跃轨道：`everything-usage`（H1-H4 round 2 PASS；H5 benchmark 已落盘，等待 Codex 最终 PROJECT COMPLETE）
+- H5 实测亮点（500k compact + 100k file_usage）：3+char 加 usage JOIN 中位数 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs —— usage 路径不破坏主路径体验
+- H5 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
 
 ## 快速上手（本地交付）
 

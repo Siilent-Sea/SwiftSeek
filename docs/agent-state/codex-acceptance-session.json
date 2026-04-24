@@ -1,14 +1,14 @@
 {
   "track": "everything-usage",
-  "stage": "H4",
+  "stage": "H5",
   "session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e",
   "updated_at": "2026-04-24",
-  "purpose": "Current active track acceptance state after H3 PASS. Continue everything-usage in the same Codex acceptance session and move to H4; do not reuse archived everything-footprint session.",
+  "purpose": "Current active track acceptance state after H4 PASS. Continue everything-usage in the same Codex acceptance session and move to H5; do not reuse archived everything-footprint session.",
   "last_verdict": "PASS",
-  "last_verdict_round": 1,
+  "last_verdict_round": 2,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "H3 passed on commit 28ab4c9: explicit recent:/frequent: modes, usageCandidates routing, filter/plain-token composition, normal-query isolation, smoke 156/156, and H3 documentation are all in place.",
-  "passed_stages": ["H1", "H2", "H3"],
+  "last_verdict_reason": "H4 passed on commit fa801af after removing the stale contradictory bullets from docs/known_issues.md; usage history toggle, clear entry, file_usage stats, smoke 161/161, and H4 documentation are now aligned.",
+  "passed_stages": ["H1", "H2", "H3", "H4"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -30,6 +30,6 @@
       "previous_session_id": "019dbdf8-b2c9-7c03-b316-dbbf7040d5d9"
     }
   ],
-  "commit_at_review": "28ab4c9ddffb4ae7c57b95d65491c4db2e608253",
-  "notes": "Active session for everything-usage track. H1, H2, and H3 have passed; next target stage is H4. .txt file mirrors this session id."
+  "commit_at_review": "fa801afe4135d8bafaa785ee0b0c16a379b631f3",
+  "notes": "Active session for everything-usage track. H1-H4 have passed; next target stage is H5. .txt file mirrors this session id."
 }

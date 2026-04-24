@@ -4,10 +4,11 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-usage`
-- 当前阶段：`H4`
+- 当前阶段：`H5`
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint`
 - 当前轨道任务书：`docs/everything_usage_taskbook.md`
 - 当前差距清单：`docs/everything_usage_gap.md`
+- H5 实测报告：`docs/everything_usage_bench.md`
 
 ## 已归档轨道
 
@@ -42,39 +43,37 @@
 - `Sources/SwiftSeekCore/SearchEngine.swift` 已新增 `UsageMode`、`ParsedQuery.usageMode`、`usageCandidates(mode:, limit:)`，显式支持 `recent:` / `frequent:` 查询。
 - `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 + H2 + H3 共 18 条 usage 相关 smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `156/156` 通过。
 
-## 当前阶段：`H4` - 使用历史管理与隐私控制
+## 当前阶段：`H5` - benchmark 与轨道收口
 
 ### 当前阶段目标
-让 usage history 变成可控、可清理、可解释的隐私数据，而不是只能累加不能管理的内部状态。
+对 `everything-usage` 做最终性能与体验收口，证明 usage join、recordOpen、recent/frequent 与 H4 的隐私控制不会破坏大库体验，并给出可复现 benchmark 证据。
 
 ### 当前阶段必须做
-- 设置页增加“记录使用历史”开关与“清空使用历史”入口。
-- 开关持久化到 settings。
-- 关闭记录后 `.open` 不再写入 usage。
-- 清空后 `file_usage` 为空，结果列 / 排序 / recent/frequent 立即反映。
-- DB stats 暴露 usage 表行数或体积信息。
+- 给出 100k / 500k 规模下 usage 轨道关键路径 benchmark。
+- 覆盖普通搜索 + usage join、`recent:` / `frequent:`、`recordOpen` 写入耗时。
+- benchmark 方法、fixture、命令、环境前提可复现，不写空泛结论。
+- 更新 README / known_issues / manual_test / usage 轨道文档，使 Codex 可据此判断 `PROJECT COMPLETE`。
+- 验证 H1-H4 已通过能力在 benchmark 轮没有回退。
 
 ### 当前阶段禁止事项
-- 不做 usage benchmark。
-- 不做复杂隐私面板或大范围 UI 重写。
-- 不读取 macOS 全局启动次数或系统最近项目。
-- 不使用 private API。
-- 不扫描系统隐私数据。
-- 不上传、不同步、不做遥测。
+- 不新增系统级 usage 导入、其他 App 历史、private API、系统隐私扫描。
+- 不借 benchmark 扩 scope 到全文搜索、AI 语义搜索或大规模 UI 改造。
+- 不改写 H1-H4 已通过的语义合同，除非是 benchmark 暴露出的真实 blocker 修复。
 
 ### 当前阶段完成判定标准
-1. usage history 开关持久化成功。
-2. 关闭后 `.open` 不再写入 usage。
-3. 清空后 `file_usage` 为空，结果列 / 排序 / recent/frequent 立即反映。
-4. DB stats 能展示 usage 表信息。
-5. 文档明确关闭/清空与隐私边界。
+1. benchmark 覆盖 usage 轨道核心路径，且数据可复现。
+2. benchmark 结果足以判断 usage 功能未把搜索体验带崩。
+3. `swift build --disable-sandbox` 与 `swift run --disable-sandbox SwiftSeekSmokeTest` 继续通过。
+4. README / known_issues / manual_test / usage 轨道文档同步到可交付状态。
+5. 当前轨道已无阻塞级缺口，Codex 可以据此判断是否 `PROJECT COMPLETE`。
 
 ## 当前最新 Codex 结论
 - `everything-usage / H1` 已于 2026-04-24 在提交 `4e48f45` 通过验收。
 - `everything-usage / H2` 已于 2026-04-24 在提交 `b05a216` 通过验收。
 - `everything-usage / H3` 已于 2026-04-24 在提交 `28ab4c9` 通过验收。
-- 当前待实现阶段切换为 `H4`。
-- H3 通过边界：仅包含 `recent:` / `frequent:` 显式入口、usage-mode 路由、filter 组合、普通 query 不回退、smoke 与文档收口；不包含 history 开关/清空、usage benchmark。
+- `everything-usage / H4` 已于 2026-04-24 在提交 `fa801af` 通过验收。
+- 当前待实现阶段切换为 `H5`。
+- H4 通过边界：包含 usage history 开关、清空入口、`recordOpen` gated 行为、`file_usage` stats 暴露、维护页隐私说明，以及 smoke `161/161`；不包含 benchmark 与轨道最终收口。
 
 ## 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`
