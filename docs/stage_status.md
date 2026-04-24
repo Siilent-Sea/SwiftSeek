@@ -1,9 +1,9 @@
 # SwiftSeek Track Status
 
 ## 轨道总览
-- 当前活跃轨道：`everything-performance`
-- 当前阶段：`F5`（最终收尾 / 等待 Codex PROJECT COMPLETE 判定）
-- 轨道内已通过：F1（round 1 PASS）、F2（round 2 PASS）、F3（round 2 PASS）、F4（round 2 PASS），均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
+- 当前活跃轨道：**（无活跃轨道）** — `everything-performance` 已完成
+- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
+- `everything-performance` 轨道内：F1 / F2 / F3 / F4 PASS + F5 PROJECT COMPLETE（均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90）
 - 已归档轨道：`v1-baseline`（P0~P6 / PROJECT COMPLETE 2026-04-23）
 - 已归档轨道：`everything-alignment`（E1~E5 / PROJECT COMPLETE 2026-04-24）
 
