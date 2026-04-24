@@ -735,14 +735,18 @@ public final class SearchEngine {
     }
 
     /// G3: candidate rows by `path:<token>` segment-prefix match
-    /// against the compact `file_path_segments` table. Used when the
-    /// query has only path: filters (or when path: is more selective
-    /// than plain tokens in compact mode).
+    /// against the compact `file_path_segments` table. Emits rows
+    /// whose *any* segment matches *any* of the tokens; the per-token
+    /// AND contract is finished by the row-level post-filter in
+    /// `matches()` (which re-checks each token independently via
+    /// `Gram.pathSegments`). This avoids the "different tokens need
+    /// different segments" trap that a naive
+    /// `HAVING COUNT(DISTINCT segment) >= tokenCount` would fall into:
+    /// G2 contract explicitly allows one segment to satisfy multiple
+    /// tokens (e.g. `path:doc path:docs` both satisfied by segment
+    /// "docs").
     private func pathSegmentCandidates(pathTokens: [String], limit: Int) throws -> [Row] {
         guard !pathTokens.isEmpty else { return [] }
-        // AND every path token: each must match some row's segment as a
-        // prefix. SQL-side: `GROUP BY file_id HAVING COUNT(DISTINCT segment)`
-        // counts matched path tokens per file.
         let cases = pathTokens.map { _ in "(ps.segment = ? OR ps.segment LIKE ?)" }
             .joined(separator: " OR ")
         let sql = """
@@ -751,7 +755,6 @@ public final class SearchEngine {
         JOIN files f ON f.id = ps.file_id
         WHERE \(cases)
         GROUP BY ps.file_id
-        HAVING COUNT(DISTINCT ps.segment) >= ?
         LIMIT ?;
         """
         return try executeQuery(sql) { stmt, transient in
@@ -762,8 +765,6 @@ public final class SearchEngine {
                 _ = sqlite3_bind_text(stmt, idx, "\(t)%", -1, transient)
                 idx += 1
             }
-            _ = sqlite3_bind_int64(stmt, idx, Int64(pathTokens.count))
-            idx += 1
             _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
         }
     }

@@ -3052,6 +3052,69 @@ reporter.check("G3 MigrationCoordinator: incremental backfill + resume after par
                          "compact search after backfill missed file-7.txt")
 }
 
+reporter.check("G3 search compact: multiple path: tokens may satisfy the same segment (AND over tokens, not segments)") {
+    // Round-2 regression: earlier HAVING COUNT(DISTINCT segment)
+    // required different segments, so `path:doc path:docs` returned
+    // zero on a file whose only path segment was "docs". G2 contract
+    // (proposal §5.1 "each token must match some segment, multiple
+    // tokens can share a segment") demands both tokens be satisfied
+    // by the single segment "docs".
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("docs"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("docs/a.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("path:doc path:docs")
+    try reporter.require(hits.contains(where: { $0.name == "a.txt" }),
+                         "both path tokens should be satisfied by segment 'docs'; got \(hits.map(\.path))")
+}
+
+reporter.check("G3 MigrationCoordinator: concurrent call returns false (state flip atomic with idle check)") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    // Enough files to keep the backfill busy long enough for the
+    // second call to race it, mirroring P5 concurrent rebuild test.
+    for i in 0..<500 {
+        try "".write(to: root.appendingPathComponent("file-with-a-reasonably-long-name-\(i).txt"),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    try db.setIndexMode(.compact)
+    let coord = MigrationCoordinator(database: db)
+    coord.batchSize = 50
+    let first = coord.backfillCompact()
+    try reporter.require(first, "first backfill did not start")
+    // Second call must be rejected even when fired immediately, before
+    // the worker queue actually picked up the closure.
+    let second = coord.backfillCompact()
+    try reporter.require(!second,
+                         "concurrent second backfill should return false")
+    // Let it drain so we don't leak a running coordinator.
+    let deadline = Date().addingTimeInterval(20)
+    while coord.isRunning && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    try reporter.require(!coord.isRunning,
+                         "coordinator did not return to idle within 20s")
+}
+
 reporter.check("G3 MigrationCoordinator: last_file_id persisted to migration_progress") {
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }

@@ -85,11 +85,19 @@ public final class MigrationCoordinator: @unchecked Sendable {
     public func backfillCompact(resume: Bool = true,
                                 onProgress: @escaping (Progress) -> Void = { _ in },
                                 onFinish: @escaping (Summary) -> Void = { _ in }) -> Bool {
+        // G3 round 2: tighten the concurrent-call contract. Flip state
+        // to .running inside the same critical section as the idle
+        // check so a second caller arriving before the worker async
+        // fires cannot also see idle and start a second walker.
+        let startedAt = Date()
         stateLock.lock()
-        if case .running = _state { stateLock.unlock(); return false }
+        if case .running = _state {
+            stateLock.unlock()
+            return false
+        }
+        _state = .running(started: startedAt, processed: 0, total: 0)
         stateLock.unlock()
 
-        let startedAt = Date()
         queue.async { [weak self] in
             guard let self else { return }
             var summary = Summary(durationSeconds: 0)
@@ -103,7 +111,8 @@ public final class MigrationCoordinator: @unchecked Sendable {
                 let total = try self.database.scalarInt("SELECT COUNT(*) FROM files;") ?? 0
                 summary.total = total
 
-                // Update state → running.
+                // Refresh state with now-known total; already .running
+                // thanks to the critical section above.
                 self.setState(.running(started: startedAt,
                                        processed: 0,
                                        total: total))
