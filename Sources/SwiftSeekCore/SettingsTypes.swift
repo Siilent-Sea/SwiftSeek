@@ -41,7 +41,7 @@ public enum SettingsKey {
     // F3 result view layout state. Persisting the sort + column widths
     // lets the window come back the way the user left it across
     // restarts — basic "remember my preferences" ergonomics.
-    public static let resultSortKey = "result_sort_key"          // SearchSortKey.rawValue (score/name/path/mtime/size)
+    public static let resultSortKey = "result_sort_key"          // SearchSortKey.rawValue (score/name/path/mtime/size/openCount/lastOpenedAt)
     public static let resultSortAscending = "result_sort_asc"    // "1" / "0"
     public static let resultColumnWidthName  = "result_col_width_name"
     public static let resultColumnWidthPath  = "result_col_width_path"

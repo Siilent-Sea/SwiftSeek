@@ -1,14 +1,14 @@
 {
   "track": "everything-usage",
-  "stage": "H2",
+  "stage": "H3",
   "session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e",
   "updated_at": "2026-04-24",
-  "purpose": "Current active track acceptance state after H1 PASS. Create a new Codex acceptance session for everything-usage and continue with H2; do not reuse archived everything-footprint session.",
+  "purpose": "Current active track acceptance state after H2 PASS. Continue everything-usage in the same Codex acceptance session and move to H3; do not reuse archived everything-footprint session.",
   "last_verdict": "PASS",
   "last_verdict_round": 1,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "H1 passed on commit 4e48f45: schema v6 file_usage, .open success recording, failure/path-miss semantics, cascade cleanup, smoke 144/144, and H1 documentation are all in place.",
-  "passed_stages": ["H1"],
+  "last_verdict_reason": "H2 passed on commit b05a216: SearchResult usage fields, LEFT JOIN file_usage across search SQL, score-only usage tie-break, result columns plus sort/width persistence, smoke 150/150, and H2 documentation are all in place.",
+  "passed_stages": ["H1", "H2"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -30,6 +30,6 @@
       "previous_session_id": "019dbdf8-b2c9-7c03-b316-dbbf7040d5d9"
     }
   ],
-  "commit_at_review": "4e48f45e37eb3489fb4bb20a94994221e1d16c14",
-  "notes": "Active session for everything-usage track (H1 PASS round 1 on commit 4e48f45). Next target stage is H2. .txt file mirrors this session id."
+  "commit_at_review": "b05a216e0b9e2075e30319963bfc5e18ad0053e4",
+  "notes": "Active session for everything-usage track. H1 and H2 have passed; next target stage is H3. .txt file mirrors this session id."
 }

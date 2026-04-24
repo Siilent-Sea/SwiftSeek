@@ -4,7 +4,7 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-usage`
-- 当前阶段：`H2`
+- 当前阶段：`H3`
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint`
 - 当前轨道任务书：`docs/everything_usage_taskbook.md`
 - 当前差距清单：`docs/everything_usage_gap.md`
@@ -36,45 +36,44 @@
 - `Sources/SwiftSeekCore/UsageTypes.swift` 已提供 `UsageRecord`、`lookupFileId(path:)`、`recordOpen(path:)`、`recordOpen(fileId:)`、`getUsageByFileId`、`getUsageByPath`。
 - `Sources/SwiftSeek/UI/ResultActionRunner.swift` 的 `.open` 返回 `NSWorkspace.shared.open(url)` 的 Bool。
 - `Sources/SwiftSeek/UI/SearchViewController.swift` 的 `openSelected()` 已在 open 成功后记录 usage，失败不加计数。
-- `Sources/SwiftSeekCore/SearchEngine.swift` 的 `SearchResult` 仍只有 `path`、`name`、`isDir`、`size`、`mtime`、`score`；usage 尚未接入结果和排序。
-- 当前结果表仍只有 `name` / `path` / `mtime` / `size` 四列，没有 Run Count / 最近打开列。
-- `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 六条 usage smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `144/144` 通过。
+- `Sources/SwiftSeekCore/SearchEngine.swift` 的 `SearchResult` 已新增 `openCount` / `lastOpenedAt`，所有搜索 SQL 分支统一 `LEFT JOIN file_usage`，`.score` 相等时按 usage 做 tie-break，且新增 `.openCount` / `.lastOpenedAt` 排序键。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` 结果表已新增“打开次数”“最近打开”两列，并接好列头排序与列宽持久化。
+- `Sources/SwiftSeekCore/SettingsTypes.swift` 已新增 `result_col_width_open_count` / `result_col_width_last_opened`。
+- `Sources/SwiftSeekSmokeTest/main.swift` 现已包含 H1 + H2 共 12 条 usage 相关 smoke，`swift run --disable-sandbox SwiftSeekSmokeTest` 本轮实测 `150/150` 通过。
 
-## 当前阶段：`H2` - Usage-based ranking 与结果列
+## 当前阶段：`H3` - 最近打开 / 常用项体验
 
 ### 当前阶段目标
-让常用项在同等文本相关性下更稳定靠前，并把 Run Count / 最近打开展示到结果表中，但不能破坏基础文本相关性。
+补齐 `recent:` / `frequent:` 或等价入口，让用户能直接回到最近或高频目标，同时保持普通搜索语义稳定不被污染。
 
 ### 当前阶段必须做
-- `SearchResult` 增加 `open_count` 与 `last_opened_at` 字段。
-- `SearchEngine` 查询路径 join usage 数据。
-- ranking tie-break 引入 usage，但只在同等文本相关性下生效。
-- 结果视图增加打开次数与最近打开列。
-- 结果表排序支持 usage / last opened。
-- 排序与列宽持久化接入现有 settings。
+- 提供 `recent:` 或等价最近打开入口。
+- 提供 `frequent:` 或等价常用项入口。
+- recent 按 `lastOpenedAt DESC` 返回，frequent 按 `openCount DESC` 返回。
+- 普通 query 不被 recent/frequent 模式污染。
+- 若实现空查询展示，行为必须可解释、可验证。
 
 ### 当前阶段禁止事项
-- 不做最近打开 / 常用项入口。
 - 不做设置页“关闭记录 / 清空历史”。
 - 不做 usage benchmark。
+- 不做复杂仪表盘或大范围 UI 重写。
 - 不读取 macOS 全局启动次数或系统最近项目。
 - 不使用 private API。
 - 不扫描系统隐私数据。
 - 不上传、不同步、不做遥测。
 
 ### 当前阶段完成判定标准
-1. 搜索结果包含 `open_count` 和 `last_opened_at`。
-2. 同 score 结果中高 usage 项靠前。
-3. 不同 score 结果中高相关项仍优先。
-4. 结果表展示打开次数和最近打开。
-5. 用户可按 usage / last opened 排序。
-6. 现有 name / path / mtime / size 排序不回退。
-7. 文档明确 Run Count / 最近打开只来自 SwiftSeek 内部行为。
+1. `recent:` 或等价入口能返回最近打开项。
+2. `frequent:` 或等价入口能返回高频项。
+3. 普通搜索不受 recent/frequent 模式污染。
+4. 若有空查询展示，行为是可解释和可验证的。
+5. 文档明确 recent/frequent 只来自 SwiftSeek 内部行为，不承诺 macOS 全局历史。
 
 ## 当前最新 Codex 结论
 - `everything-usage / H1` 已于 2026-04-24 在提交 `4e48f45` 通过验收。
-- 当前待实现阶段切换为 `H2`。
-- H1 通过边界：仅包含 usage 数据模型、`.open` 成功记录、失败不计数、path-miss 日志、级联清理、smoke 与文档收口；不包含 ranking、结果列、recent/frequent、设置页或 benchmark。
+- `everything-usage / H2` 已于 2026-04-24 在提交 `b05a216` 通过验收。
+- 当前待实现阶段切换为 `H3`。
+- H2 通过边界：仅包含 usage join、score tie-break、`openCount/lastOpenedAt` 排序键、结果列、列宽/排序持久化、smoke 与文档收口；不包含 recent/frequent、history 开关/清空、usage benchmark。
 
 ## 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`

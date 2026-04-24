@@ -121,11 +121,12 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         addColumn(id: Self.col_size,   title: "大小", minWidth: 70,
                   width: persistedWidth(for: SettingsKey.resultColumnWidthSize) ?? 80,
                   sortKey: "size")
-        // H2: Run Count / 最近打开. Prototype descriptor is ascending;
-        // the header-click mapping below inverts it on first click for
-        // these columns so "highest usage / most recent first" is the
-        // natural default (matches how users expect to sort Finder's
-        // "Last Opened" or Everything's "Run Count").
+        // H2: Run Count / 最近打开. Prototype descriptor follows
+        // AppKit default (ascending=true), same as the other columns.
+        // Users can click the header twice for descending — kept
+        // symmetric with name/path/mtime/size so there's no special
+        // per-column surprise. Persisted via the same F3 sort keys,
+        // mapped through sortDescriptorsDidChange.
         addColumn(id: Self.col_openCount, title: "打开次数", minWidth: 60,
                   width: persistedWidth(for: SettingsKey.resultColumnWidthOpenCount) ?? 80,
                   sortKey: "openCount")

@@ -5,32 +5,32 @@
 ## 当前有效结论
 **VERDICT: PASS**
 TRACK: everything-usage
-STAGE: H1
+STAGE: H2
 ROUND: 1
 DATE: 2026-04-24
-SESSION_ID: pending-new-track-session
+SESSION_ID: 019dbe5f-9680-7872-9eac-cc41e5f0f40e
 
 ### Summary
-`everything-usage / H1` 已通过。提交 `4e48f45` 将 schema 提升到 v6，并新增 `file_usage(file_id, open_count, last_opened_at, updated_at)`；`.open` 成功后才记录 SwiftSeek 内部打开次数，失败不计数；path 不在 DB 时会 `NSLog`，不会 silent fail；删除 `files` 行后 usage 记录随外键级联清理。
+`everything-usage / H2` 已通过。提交 `b05a216` 将 usage 数据真正接到搜索结果、score tie-break、结果表排序和列宽持久化：`SearchResult` 新增 `openCount` / `lastOpenedAt`，所有搜索 SQL 统一 `LEFT JOIN file_usage`，`.score` 相等时按 `openCount DESC -> lastOpenedAt DESC -> short-path -> alpha` 打破平手，结果表新增“打开次数”“最近打开”两列，排序键与列宽都能走现有 settings 持久化。
 
 本轮实际验收确认：
-- `Schema.currentVersion = 6`，`Migration(target: 6)` 创建 `file_usage`。
-- `Database.recordOpen(path:)` / `recordOpen(fileId:)` 已落地，支持 lookup、upsert、读取 usage。
-- `ResultActionRunner.perform(.open)` 返回 `Bool`，`SearchViewController.openSelected()` 仅在 open 成功后调用 `database.recordOpen(path:)`。
-- `SearchResult` / `SearchEngine.sort` / 结果表列头未提前接入 usage。
-- `swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 实际跑到 `144/144`，H1 六条 smoke 全绿。
+- `SearchResult` 新增 `openCount: Int64` / `lastOpenedAt: Int64`，缺失 usage 行时稳定为 0。
+- `SearchEngine` 所有候选查询路径都已接 `LEFT JOIN file_usage`，没有遗漏某个 SQL 分支只返回旧字段。
+- `SearchEngine.sort` 只在主键 `.score` 且 score 相等时使用 usage tie-break；`.name` / `.path` / `.mtime` / `.size` 保持 F3 旧语义，`.openCount` / `.lastOpenedAt` 也能单独排序。
+- `SearchViewController` 新增“打开次数”“最近打开”列、表头排序映射、列宽持久化键；0 值显示为 `—`。
+- `swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 实际跑到 `150/150`，H2 新增 6 条 smoke 全绿。
 
 ### Blockers / Required fixes
 - None
 
 ### Non-blocking notes
 1. 当前环境默认 `swift build` / `swift run` 会因为模块缓存与 CLT SDK 组合报错；按仓库文档加 `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache` 且带 `--disable-sandbox` 后可通过。
-2. `docs/agent-state/codex-acceptance-session.json` 仍未写入正式 session id，后续 H2 开始前仍需创建并回填。
-3. `reveal` / `copy path` 计数、usage tie-break、recent/frequent、隐私控制仍分别属于 H2-H4，不能混进 H1 已通过范围。
+2. `SearchViewController.swift` 中 H2 注释声称新列表头“首次点击会反转为降序”，但真实实现仍是 AppKit 默认首次升序；当前不影响 H2 任务书要求，只是注释/预期描述不一致，H3 或后续顺手收口即可。
+3. `recent:` / `frequent:` 入口、空查询推荐、history 开关/清空、usage benchmark 仍分别属于 H3-H5，不能混进 H2 已通过范围。
 
 ## 当前轨道阶段
 - 当前活跃轨道：`everything-usage`
-- 当前阶段：`H2`
+- 当前阶段：`H3`
 - 当前任务书：`docs/next_stage.md`
 - 完整阶段计划：`docs/everything_usage_taskbook.md`
 - 差距清单：`docs/everything_usage_gap.md`
