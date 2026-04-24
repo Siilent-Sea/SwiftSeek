@@ -46,11 +46,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// J1: Dock reopen (click Dock icon with no visible windows).
+    /// `hasVisibleWindows == true` → AppKit handles it; we return
+    /// true so the default behaviour kicks in. `false` → we're in
+    /// the state the J1 bug report describes: user closed settings,
+    /// there are no visible windows, and the only way back used to
+    /// be "Dock right-click Quit + relaunch". Show settings as the
+    /// predictable primary entry (search window is opt-in via
+    /// ⌥Space / menu and hides on resign-key, so settings is the
+    /// better "something visible" default).
+    func applicationShouldHandleReopen(_ sender: NSApplication,
+                                       hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows {
+            showSettings(nil)
+        }
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         database?.close()
     }
 
     @objc func showSettings(_ sender: Any?) {
+        // J1: activate BEFORE showWindow. On macOS 14+, calling
+        // `NSApp.activate` after `makeKeyAndOrderFront` from an
+        // inactive process state can leave the new key window
+        // behind the previously-active app's foreground chrome.
+        // Activating first puts the app in the foreground first,
+        // then the window order is honored.
+        NSApp.activate(ignoringOtherApps: true)
         if settingsWindowController == nil {
             guard let db = database, let rc = rebuildCoordinator else { return }
             settingsWindowController = SettingsWindowController(
@@ -59,9 +83,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hotkeyReinstallHandler: { [weak self] in self?.reinstallHotkey() ?? false }
             )
         }
+        // Defensive: if the controller exists but its window was
+        // somehow released (should not happen — we set
+        // isReleasedWhenClosed=false AND keep a NSWindowDelegate
+        // hide-only policy), rebuild the controller.
+        if settingsWindowController?.window == nil {
+            NSLog("SwiftSeek: settings window unexpectedly nil; rebuilding controller")
+            settingsWindowController = nil
+            showSettings(sender)
+            return
+        }
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func toggleSearchWindow(_ sender: Any?) {

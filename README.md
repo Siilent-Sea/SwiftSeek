@@ -2,7 +2,7 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 均已归档。`everything-usage`（H1-H5）于 2026-04-24 `PROJECT COMPLETE`，补齐了通过 SwiftSeek 打开的使用历史、Run Count、最近打开、`recent:` / `frequent:` 入口、usage tie-break 和 usage history 隐私控制。**当前无活跃轨道**，新轨道由用户发起。
+当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 均已归档。`everything-usage`（H1-H5）于 2026-04-24 `PROJECT COMPLETE`，补齐了通过 SwiftSeek 打开的使用历史、Run Count、最近打开、`recent:` / `frequent:` 入口、usage tie-break 和 usage history 隐私控制。当前活跃轨道是 `everything-ux-parity`，聚焦桌面 App 生命周期、Run Count 可见性和 Everything-like UX parity。
 
 ## 当前能力（截至 `everything-usage` 完成）
 - **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
@@ -27,7 +27,7 @@ macOS 原生本地极速文件搜索器。
 - **Usage**（H1-H5）：`file_usage` 表记录 SwiftSeek 内部 `.open` 次数；结果表"打开次数" / "最近打开"两列；同 score tie-break (openCount → lastOpenedAt)；`recent:` / `frequent:` 查询前缀；设置 → 维护 tab 的记录开关 + 清空入口；500k+100k usage bench：3+char(+usage) 94.33ms 中位，`recent:` 89.44ms，`recordOpen` 8μs
 
 ## 当前限制
-Run Count / 最近打开 / `recent:` / `frequent:` / usage tie-break 已在 H1-H5 落地（见 [docs/everything_usage_bench.md](docs/everything_usage_bench.md)），且只记录通过 SwiftSeek 打开的次数 —— macOS 全局启动次数不在承诺范围，不读系统隐私数据。剩余限制仍然集中在：500k 规模下 warm 3+char 超出 F1 旧 10k 基线（规模效应，G5 已记录），启发式相关性模型、查询 DSL（不支持 OR/NOT/括号/引号短语/复杂布尔）等。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
+Run Count / 最近打开 / `recent:` / `frequent:` / usage tie-break 已在 H1-H5 落地（见 [docs/everything_usage_bench.md](docs/everything_usage_bench.md)），且只记录通过 SwiftSeek 打开的次数 —— macOS 全局启动次数不在承诺范围，不读系统隐私数据。当前用户反馈集中在：设置窗口关闭后不可重新打开、Run Count 可见性不足、Dock/Menu Bar 生命周期、查询语法、搜索历史、上下文菜单和首次使用引导。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
 ## 明确不做
 全文内容搜索、OCR、AI 语义搜索、云盘实时一致性、跨平台、Electron / Web UI 替代原生、APFS 原始解析、Finder 插件、App Store 沙盒适配、代码签名 / 公证、macOS 全局启动次数读取、系统隐私数据扫描。
@@ -36,7 +36,7 @@ Run Count / 最近打开 / `recent:` / `frequent:` / usage tie-break 已在 H1-H
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`（H1-H5，2026-04-24 PROJECT COMPLETE）
-- 当前活跃轨道：**无**（新轨道启动由用户发起）
+- 当前活跃轨道：`everything-ux-parity`（J1 起步）
 - everything-usage 500k 实测亮点：3+char 加 100k usage JOIN 中位 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs
 - everything-usage 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
 
@@ -76,10 +76,15 @@ swift run SwiftSeekSearch <query>
 ```
 
 ## Roadmap
-当前下一轨道是 `everything-usage`：
+当前下一轨道是 `everything-ux-parity`：
 
-- 使用历史与 Everything-like 体验差距：[docs/everything_usage_gap.md](docs/everything_usage_gap.md)
-- H1-H5 阶段任务书：[docs/everything_usage_taskbook.md](docs/everything_usage_taskbook.md)
+- UX parity 差距清单：[docs/everything_ux_parity_gap.md](docs/everything_ux_parity_gap.md)
+- J1-J6 阶段任务书：[docs/everything_ux_parity_taskbook.md](docs/everything_ux_parity_taskbook.md)
+
+历史 usage 轨道文档仍保留归档参考：
+- [docs/everything_usage_gap.md](docs/everything_usage_gap.md)
+- [docs/everything_usage_taskbook.md](docs/everything_usage_taskbook.md)
+- [docs/everything_usage_bench.md](docs/everything_usage_bench.md)
 
 历史 footprint 轨道文档仍保留归档参考：
 - [docs/everything_footprint_gap.md](docs/everything_footprint_gap.md)
@@ -113,6 +118,9 @@ docs/
   everything_footprint_bench.md
   everything_usage_gap.md
   everything_usage_taskbook.md
+  everything_usage_bench.md
+  everything_ux_parity_gap.md
+  everything_ux_parity_taskbook.md
   agent-state/
 AGENTS.md / CLAUDE.md
 ```
@@ -120,4 +128,4 @@ AGENTS.md / CLAUDE.md
 ## 协作模式
 - Claude：主开发代理，负责实现、自检。
 - Codex：独立验收代理，负责 REJECT / PASS / 下一阶段任务书。
-- 当前继续推进的是 `everything-usage`，不得因历史轨道 `PROJECT COMPLETE` 而停止。
+- 当前继续推进的是 `everything-ux-parity`，不得因历史轨道 `PROJECT COMPLETE` 而停止。

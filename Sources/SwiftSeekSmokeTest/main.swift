@@ -1,5 +1,8 @@
 import Foundation
 import SwiftSeekCore
+#if canImport(AppKit)
+import AppKit
+#endif
 
 struct SmokeFailure: Error, CustomStringConvertible {
     let message: String
@@ -49,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3719,6 +3722,62 @@ reporter.check("H4 DatabaseStats.fileUsageRowCount reflects current state") {
     try reporter.require(postStats.fileUsageRowCount == 0,
                          "after clear fileUsageRowCount should be 0, got \(postStats.fileUsageRowCount)")
 }
+
+// MARK: - J1 settings window lifecycle (hide-only close pattern)
+
+#if canImport(AppKit)
+/// Stand-in for SettingsWindowController's hide-only behaviour. The
+/// actual controller lives in the SwiftSeek GUI module which the
+/// smoke target does not link against, so we validate the *pattern*
+/// here: an NSWindow whose delegate returns false from
+/// windowShouldClose and sends orderOut. This is the exact pattern
+/// J1 applied to the real settings window.
+final class HideOnlyStub: NSObject, NSWindowDelegate {
+    private(set) var hideCallCount = 0
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        hideCallCount += 1
+        sender.orderOut(nil)
+        return false
+    }
+}
+
+reporter.check("J1 NSWindow hide-only delegate: close action keeps window alive") {
+    let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                       styleMask: [.titled, .closable],
+                       backing: .buffered, defer: false)
+    win.isReleasedWhenClosed = false
+    let stub = HideOnlyStub()
+    win.delegate = stub
+    // Show, then simulate the red-button click.
+    win.makeKeyAndOrderFront(nil)
+    // performClose(_:) respects windowShouldClose return value.
+    win.performClose(nil)
+    try reporter.require(stub.hideCallCount == 1,
+                         "windowShouldClose should have been invoked exactly once, got \(stub.hideCallCount)")
+    // Window must still be allocated and re-showable.
+    try reporter.require(win.delegate === stub,
+                         "delegate retained after performClose")
+    try reporter.require(!win.isVisible,
+                         "window should have been hidden (isVisible=false)")
+    // Re-show: must succeed without allocating a new controller.
+    win.makeKeyAndOrderFront(nil)
+    try reporter.require(win.isVisible,
+                         "window must be re-showable via makeKeyAndOrderFront after hide-only close")
+    // Repeat the close/show loop 10× to match the manual-test
+    // contract (J1 validates "10 次不丢 controller / 不失效").
+    for i in 0..<10 {
+        win.performClose(nil)
+        try reporter.require(!win.isVisible,
+                             "iteration \(i): window should be hidden after close")
+        win.makeKeyAndOrderFront(nil)
+        try reporter.require(win.isVisible,
+                             "iteration \(i): window should be re-showable")
+    }
+    try reporter.require(stub.hideCallCount == 11,
+                         "expected 11 hide calls (1 + 10), got \(stub.hideCallCount)")
+    win.close() // actually release now; isReleasedWhenClosed=false still lets us reuse but test is done
+}
+#endif
 
 reporter.check("H2 non-score sort keys unaffected by usage tie-break (name regression)") {
     // Two SearchResults with same name (impossible in practice but

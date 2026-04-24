@@ -820,6 +820,24 @@ chmod a-w /tmp/readonly.sqlite3
 4. 回归兼容：不传 `--usage-rows` 时 bench 输出与 G5 格式完全相同（不打印 H5 段），确认不破坏既有自动化脚本。
 5. 文档对齐：bench 结果明显偏离 `docs/everything_usage_bench.md` 时，应以新数据更新文档而非忽略差异。
 
+### 33m. J1 设置窗口生命周期 + Dock reopen
+前置：release 或 debug 构建 + `.app` bundle 更新过。
+
+1. 启动 SwiftSeek；设置窗口应自动出现（`applicationDidFinishLaunching` 末尾 `showSettings(nil)`）。
+2. 点设置窗口左上角红色 × 按钮关闭；窗口应消失但 App 仍在（Dock 图标保留，菜单栏图标保留）。
+3. 从菜单栏 SwiftSeek 图标 → "设置…"，应重新打开同一个设置窗口（不是新建，位置/tab 与关闭前一致）。
+4. 再次关闭 → 菜单栏主菜单 `SwiftSeek → 设置…`（⌘,），应重新打开。
+5. 再次关闭 → 关闭搜索窗口（按 ⌥Space 开/关或 ESC 隐藏）→ 现在无可见窗口 → 单击 Dock 图标 → 应重新打开设置窗口（`applicationShouldHandleReopen`）。
+6. 压力：重复 "× 关闭 → 菜单栏'设置…'打开" 10 次，观察：
+   - 不崩溃
+   - 每次都能重开
+   - 菜单入口未失效
+7. 搜索窗回归：
+   - 按 ⌥Space 或主菜单 `SwiftSeek → 搜索…` 呼出搜索窗
+   - ESC 隐藏、失焦隐藏（点其它 App 窗口）都应正常
+   - 搜索窗关闭不影响设置窗口独立生命周期
+8. sqlite 层无新增字段（J1 纯 UI），可用 `./.build/release/SwiftSeekStartup` 核 schema=6 不变。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

@@ -18,10 +18,11 @@ SwiftSeek 已不是“从 P0 开始的新项目”。
 - `everything-alignment`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 - `everything-performance`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 - `everything-footprint`：已完成，并在历史上拿到 `PROJECT COMPLETE`
+- `everything-usage`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 
 ### 当前继续推进的轨道
 - 当前活跃轨道由 `docs/stage_status.md` 决定
-- 如果 `docs/stage_status.md` 写的是 `everything-usage`，你就继续做该轨道
+- 如果 `docs/stage_status.md` 写的是 `everything-ux-parity`，你就继续做该轨道
 - 历史 `PROJECT COMPLETE` 不是当前轨道的停止条件
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，你才允许停
 
@@ -133,8 +134,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 `VERDICT: PROJECT COMPLETE`
 
 注意：
-- 历史 `v1-baseline`、`everything-alignment`、`everything-performance` 与 `everything-footprint` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
-- 如果当前活跃轨道是 `everything-usage`，那就必须等 `everything-usage` 自己拿到新的 `PROJECT COMPLETE`
+- 历史 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint` 与 `everything-usage` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
+- 如果当前活跃轨道是 `everything-ux-parity`，那就必须等 `everything-ux-parity` 自己拿到新的 `PROJECT COMPLETE`
 
 除此之外，以下都不是允许停下的理由：
 - “历史上已经完成过”
@@ -167,6 +168,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 - `docs/everything_footprint_taskbook.md`
 - `docs/everything_usage_gap.md`
 - `docs/everything_usage_taskbook.md`
+- `docs/everything_ux_parity_gap.md`
+- `docs/everything_ux_parity_taskbook.md`
 - `docs/agent-state/README.md`
 
 ---

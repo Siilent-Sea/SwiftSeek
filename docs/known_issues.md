@@ -1,74 +1,104 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前用户真实会感知到的限制。历史轨道已经完成的能力不重复包装成新成果；当前重点是 `everything-usage` 暴露的使用历史、打开次数和 Everything-like 体验差距。
+本文档记录当前用户真实会感知到的限制。`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 都已归档；当前活跃轨道是 `everything-ux-parity`，重点是桌面 App 行为、Run Count 可见性和 Everything-like UX parity。
 
 ## 当前活跃轨道相关限制
 
-### 1. 不能读取 macOS 全局启动次数
-- SwiftSeek 不应承诺读取系统级 Run Count、全局 App 启动次数或其他工具的打开历史。
-- macOS 没有适合作为普通 App 稳定读取这类数据的公开、低风险接口。
-- 后续 `Run Count` 语义必须限定为：**通过 SwiftSeek 打开的次数**。
-- 不使用 private API，不扫描系统隐私数据。
+### 1. 设置窗口关闭后可重新打开（J1 已解决）
+- 用户报告：设置窗口点左上角关闭后再次无法打开，只能 Dock 右键退出重启。
+- J1 修复：
+  - `SettingsWindowController` conform `NSWindowDelegate`，在 init 末尾 `window.delegate = self`。
+  - `windowShouldClose(_:)` 只 `orderOut` 并返回 `false` —— 窗口从不进入 "closed" 状态，下一次 `makeKeyAndOrderFront` 是确定性的重排序到前。
+  - 保留 `isReleasedWhenClosed = false`。
+- 验证：菜单栏"设置…"、主菜单 `SwiftSeek → 设置…` 和 Dock reopen 均能重新打开；smoke 覆盖 10 次关闭/打开循环。
 
-### 2. SwiftSeek 内部 open count 已在 H1 落地
-- Schema v6 新增 `file_usage` 表，字段：`file_id`（PK，`ON DELETE CASCADE` 关联 `files.id`）/ `open_count` / `last_opened_at` / `updated_at`。
-- `ResultActionRunner.perform(.open)` 返回 Bool（`NSWorkspace.shared.open(url)` 结果）。
-- `SearchViewController.openSelected()` 成功后调 `Database.recordOpen(path:)`，UPSERT `open_count+=1` + 两个时间戳。
-- 打开失败或目标路径不在 DB → 不累加；未索引 path 会 `NSLog` 诊断，不 silent fail。
-- 文件从 `files` 删除后 usage 记录随外键级联清理（`PRAGMA foreign_keys=ON`）。
-- **Run Count 语义**：仅表示通过 SwiftSeek 触发 `.open` 的次数。**不代表 macOS 全局启动次数**；不读 system 最近项目、不用 private API。
-- H1 只做数据模型 + 动作记录。ranking tie-break / 结果列 / 最近打开入口 / 隐私开关留给 H2-H4。
+### 2. Dock / Menu Bar / 主菜单生命周期已成熟（J1 已解决）
+- `AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)` 在无可见窗口时调 `showSettings`，覆盖 Dock 点击。
+- `AppDelegate.showSettings(_:)`：`NSApp.activate(ignoringOtherApps:)` 提前调用；若 `settingsWindowController?.window == nil` 防御性重建。
+- 菜单栏 `NSStatusItem` 的"设置…" + 主菜单 `SwiftSeek → 设置…` 均挂 `showSettings` selector。
+- `applicationShouldTerminateAfterLastWindowClosed` 保持 `false` 确保关窗不退 App。
 
-### 3. Usage tie-break 已在 H2 落地
-- `SearchResult` 新增 `openCount: Int64` / `lastOpenedAt: Int64`，所有 `SearchEngine.search()` 走 `LEFT JOIN file_usage` 自动带出。缺失 usage 行时 COALESCE 为 0。
-- `SearchSortKey` 新增 `.openCount` / `.lastOpenedAt`；`sort(by:)` 在主键是 `.score` 且 score 相等时，先按 `openCount DESC`、再按 `lastOpenedAt DESC` 做 tie-break，最后落回原有 short-path + alpha。
-- **不同 score 之间不做 usage tie-break** —— 高相关 0 usage 仍然压过低相关 999 usage，避免"usage 洗掉文本相关性"。
-- `name` / `path` / `mtime` / `size` 这几个排序键不加 usage tie-break，保持 F3 既有语义。
+### 3. Run Count 统计范围仅限 SwiftSeek 内部 open
+- `Run Count` / `打开次数` 只表示通过 SwiftSeek 成功触发 `.open` 的次数。
+- 不读取 macOS 全局启动次数。
+- 不读取系统最近项目。
+- 不扫描系统隐私数据。
+- 不使用 private API。
+- Reveal in Finder / Copy Path 不计入 Run Count。
 
-### 4. 结果视图已在 H2 补上 Run Count / 最近打开
-- 结果表新增两列：`打开次数`（右对齐，0 显示 `—`）/ `最近打开`（相对时间，同 mtime 格式，0 显示 `—`）。
-- 列头可排序；点 `打开次数` 或 `最近打开` 将排序键切到 `openCount` / `lastOpenedAt`。
-- 列宽通过 `result_col_width_open_count` / `result_col_width_last_opened` 落盘，跨重启保留。
-- 排序键 round-trip 同样走 F3 的 `result_sort_key` / `result_sort_asc`。
+### 4. Run Count 数据层已存在，但用户可见性待复核
+- 当前代码已有：
+  - Schema v6 `file_usage`
+  - `Database.recordOpen(path:)`
+  - `SearchResult.openCount` / `lastOpenedAt`
+  - `SearchEngine` 的 `LEFT JOIN file_usage`
+  - 结果表“打开次数” / “最近打开”两列
+  - `recent:` / `frequent:` 查询入口
+  - 使用历史开关与清空入口
+- 但用户反馈没看到“启动次数 / Run Count”，因此 J2 必须复核：
+  - 打开动作是否实际写入当前 DB
+  - 结果列是否默认可见
+  - 列宽是否被历史持久化状态压窄
+  - 文案是否足够清楚
+  - 用户运行的二进制是否为最新构建
+- 不能因为 H1-H5 已 `PROJECT COMPLETE` 就忽略用户可见性问题。
 
-### 5. 最近 / 常用入口已在 H3 落地
-- 查询 `recent:`（空 value 的裸 token）→ 返回 `file_usage INNER JOIN files` 按 `last_opened_at DESC, open_count DESC` 排序的结果；只含 SwiftSeek 内部 `.open` 过的文件。
-- 查询 `frequent:` → 同上，按 `open_count DESC, last_opened_at DESC`。
-- 两种模式可叠加其它 filter：`recent: ext:md` / `frequent: path:docs`。plain token 也参与：`recent: todo` = 最近打开且 name 包含 todo。
-- 互斥：同一 query 中首个 `recent:` 或 `frequent:` 赢，后续同类 token 被忽略（typo 容错）。
-- `recent:foo`（带 value）不是 mode 开关；落回 plain token 字面量。
-- 空查询当前不自动展示最近/常用（明确选择，不做空查询仪表盘）。
-- **语义边界不变**：recent/frequent 只来自 SwiftSeek 内部 `.open` 历史，不代表 macOS 系统最近项目或全局历史。
+### 5. Everything-like 查询语法仍不完整
+- 已支持：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:`。
+- 仍不支持：
+  - `*` wildcard
+  - `?` wildcard
+  - quoted phrase，例如 `"foo bar"`
+  - OR，例如 `foo|bar`
+  - NOT，例如 `!foo` 或 `-foo`
+  - 括号表达式
+  - regex
+- J3 只处理 wildcard / quote / OR / NOT；括号和 regex 默认不纳入。
 
-### 6. 使用历史隐私控制已在 H4 落地
-- `SettingsKey.usageHistoryEnabled` 默认 "1"（记录）。设置 → 维护 tab → "使用历史" 段的复选框绑定它。
-- 关闭后 `Database.recordOpen(...)` 直接返回 false + `NSLog` 诊断（同 H1 path-miss 路径），不 silent fail。H2 tie-break / H3 recent:/frequent: 对同一 DB 立即反映为"没有新 usage 数据"。
-- `Database.clearFileUsage()` 清空 `file_usage` 表；返回移除行数。维护 tab "清空使用历史…" 按钮二次确认后调用。
-- 清空不会改开关：如果想同时关闭后续记录，用户需另勾复选框。
-- `DatabaseStats.fileUsageRowCount` 字段 + CLI `SwiftSeekDBStats` / Settings → 维护 tab stats 区都会显示 file_usage 行数。per-table fallback 也已加 `file_usage`。
-- 隐私边界重申：usage 只保存本地 SwiftSeek DB；不上传、不同步、不遥测；关闭 → 停止新增；清空 → 移除已有；Run Count 永远只表示通过 SwiftSeek 打开的次数。
+### 6. 搜索历史 / Saved Filters 仍缺失
+- 当前没有最近查询历史。
+- 当前没有 Saved Filters / 收藏查询。
+- 当前没有快速过滤器入口。
+- 这会让高频用户反复输入相同 `ext:` / `path:` / `root:` 组合。
+- J4 处理这些能力，并且必须保持本地、不上传、不遥测。
+
+### 7. 上下文菜单动作不足
+- 当前结果右键菜单只有：
+  - Open
+  - Reveal in Finder
+  - Copy Path
+  - Move to Trash
+- 仍缺：
+  - Open With...
+  - Copy Name
+  - Copy Full Path 的更明确文案
+  - Copy Parent Folder
+  - Copy Multiple Paths（如果支持多选）
+  - Rename（如成本可控）
+- J5 处理这些文件操作增强；破坏性操作必须确认。
+
+### 8. 首次使用 / Full Disk Access / Launch 行为还不完整
+- 当前设置窗口有 roots 为空时的引导条，但还没有完整首次使用流程。
+- Full Disk Access、不可访问 root、compact/fullpath 模式、Run Count 语义和 usage history 隐私边界需要更明确的用户引导。
+- Launch at Login 如果要做，必须考虑当前 SwiftPM / app bundle / code signing 状态；不能假装未签名命令行产物已经具备完整登录项体验。
 
 ## 已归档轨道后的保留限制
 
-### DB footprint（G1-G5 已解决主路径）
-- Compact 模式（默认）已将 500k 实测 main DB 从 fullpath 3.46 GB 降到 1.07 GB。
+### DB footprint
+- Compact 模式已将 500k 实测 main DB 从 fullpath 3.46 GB 降到 1.07 GB。
 - Full path substring 模式仍可选，但体积更大。
-- VACUUM / checkpoint 仍是维护入口，不是替代 compact 的根治方案。
-- 500k 下 warm 3+char 会超出 F1 在 10k 规模时设定的旧目标，这是已记录的规模效应事实，不是 usage 轨道范围。
+- VACUUM / checkpoint 是维护入口，不是替代 compact 的根治方案。
+- 500k 下 warm 3+char 会超出 F1 在 10k 规模时设定的旧目标，这是已记录的规模效应事实。
 
 ### 搜索相关性
 - 当前已有 plain token AND、basename / token boundary / path segment / extension bonus。
-- H2 已补上 usage-based tie-break：同 score 下按 openCount DESC → lastOpenedAt DESC 排序。
-- 但它仍是启发式相关性，不是成熟 Everything ranking 模型；进一步的 learning-to-rank / 统计模型不在本轨道范围。
-
-### 查询 DSL
-- 已支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:`。
-- 不支持 OR / NOT / 括号 / 引号短语 / 复杂布尔组合。
+- 当前已有 usage-based tie-break：同 score 下按 openCount DESC -> lastOpenedAt DESC 排序。
+- 它仍是启发式相关性，不是成熟 Everything ranking 模型；learning-to-rank / 统计模型不在当前 UX parity 主线范围。
 
 ### RootHealth
 - 已有 ready / indexing / paused / offline / unavailable。
 - 设置页 roots 列表和搜索 0 结果空态会暴露部分状态。
-- RootHealth 与 usage 无直接关系，本轨道不扩 root 状态模型。
+- UX parity 只会在 J6 补权限 / 首次使用引导，不重新打开 RootHealth 数据模型。
 
 ## 环境约束
 
@@ -103,6 +133,7 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 - App Store 沙盒适配
 - macOS 全局启动次数读取
 - 系统隐私数据扫描
+- private API
 
 ## 运行时补充说明
 

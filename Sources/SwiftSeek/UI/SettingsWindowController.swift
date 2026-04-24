@@ -91,6 +91,17 @@ final class SettingsWindowController: NSWindowController {
         window.contentViewController = host
         super.init(window: window)
         self.bannerHeightConstraint = bh
+        // J1: own the window's delegate so clicking the red ×
+        // (close button) hides the window rather than closing it.
+        // Even though `isReleasedWhenClosed = false` keeps the
+        // controller alive, a *closed* NSWindow has ambiguous
+        // behaviour when re-shown via `showWindow(_:)` on some
+        // macOS versions (users hit exactly that bug: "点 × 关闭
+        // 后无法重新打开"). Hide-only semantics (`orderOut` +
+        // return false) guarantees the window never enters the
+        // "closed" state, so the next `makeKeyAndOrderFront` is
+        // a predictable re-show.
+        window.delegate = self
     }
 
     override func showWindow(_ sender: Any?) {
@@ -126,6 +137,27 @@ final class SettingsWindowController: NSWindowController {
         item.label = label
         item.identifier = identifier
         return item
+    }
+}
+
+// MARK: - J1 window lifecycle
+
+extension SettingsWindowController: NSWindowDelegate {
+    /// J1: hide-only close. Returning `false` tells AppKit NOT to
+    /// send `close()` to the window; instead we `orderOut` so the
+    /// window disappears but stays fully allocated & configured.
+    /// Next `showWindow(_:)` from the menu / status bar is then a
+    /// plain re-ordering to front.
+    ///
+    /// This is the documented pattern for "singleton preferences
+    /// window" (Apple sample code: PrefsPro, NSHostingController
+    /// docs). Without it, a closed-but-not-released NSWindow can
+    /// on some macOS versions reach a state where the next
+    /// `makeKeyAndOrderFront` returns silently without displaying
+    /// — the exact J1 user-reproduced bug.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
     }
 }
 

@@ -1,13 +1,13 @@
 {
-  "track": null,
-  "stage": null,
+  "track": "everything-ux-parity",
+  "stage": "J1",
   "session_id": null,
-  "updated_at": "2026-04-24",
-  "purpose": "No active track. everything-usage completed on 2026-04-24 (H1-H5 PROJECT COMPLETE in session 019dbe5f-9680-7872-9eac-cc41e5f0f40e). Future tracks must use a new Codex acceptance session and must not reuse any archived session id.",
-  "last_verdict": "PROJECT COMPLETE",
-  "last_verdict_round": 2,
-  "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "everything-usage H5 round 2 PROJECT COMPLETE on commit 7847dd3: usage benchmark, smoke 161/161, and H1-H5 documentation aligned.",
+  "updated_at": "2026-04-25",
+  "purpose": "Current active track acceptance state. A new Codex acceptance session must be created for everything-ux-parity J1; do not reuse archived everything-usage or earlier track sessions.",
+  "last_verdict": null,
+  "last_verdict_round": null,
+  "last_verdict_date": null,
+  "last_verdict_reason": null,
   "passed_stages": [],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
@@ -36,6 +36,5 @@
       "previous_session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e"
     }
   ],
-  "commit_at_review": "7847dd3",
-  "notes": "No active track. New track to be initiated by owner."
+  "notes": "codex-acceptance-session.txt is intentionally absent until a real everything-ux-parity acceptance session id exists."
 }
