@@ -34,8 +34,7 @@ macOS 原生本地极速文件搜索器。
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
-- 当前活跃轨道：`everything-footprint`
-- 当前阶段：`G1` - DB 体积观测与维护入口
+- 当前活跃轨道：`everything-footprint`（G1 / G2 / G3 / G4 已 PASS；G5 最终验收中）
 
 ## 快速上手（本地交付）
 
@@ -59,7 +58,8 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 - `SwiftSeekSearch` - CLI 搜索入口
 - `SwiftSeekStartup` - 非 GUI 启动检查
 - `SwiftSeekSmokeTest` - 冒烟测试
-- `SwiftSeekBench` - 搜索热路径 perf probe
+- `SwiftSeekBench` - 搜索热路径 perf probe + compact vs fullpath 对比（G5）
+- `SwiftSeekDBStats` - DB 体积观测 + checkpoint/optimize/VACUUM 维护 CLI（G1）
 
 ## 构建与验证
 

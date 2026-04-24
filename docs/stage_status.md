@@ -4,8 +4,8 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-footprint`
-- 当前阶段：`G4`（索引模式 UI + 切换引导；等待 Codex 验收）
-- 轨道内已通过：G1（round 2 PASS），G2（round 2 PASS），G3（round 2 PASS），均 2026-04-24，session 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9
+- 当前阶段：`G5`（最终 benchmark + 收口；等待 Codex PROJECT COMPLETE 判定）
+- 轨道内已通过：G1 / G2 / G3 / G4（均 2026-04-24，session 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9）
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`
 - 当前轨道任务书：`docs/everything_footprint_taskbook.md`
 - 当前差距清单：`docs/everything_footprint_gap.md`

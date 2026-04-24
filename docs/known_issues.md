@@ -4,44 +4,36 @@
 
 ## 当前活跃轨道相关限制
 
-### 1. 500k+ 文件下 DB 可显著膨胀
-- 当前 schema v4 同时维护 `file_grams` 和 `file_bigrams`。
-- 两张表都按 `(file_id, gram)` 存储，文件数上来后行数会随每个文件的 basename 和 full path 长度增长。
-- 用户真实使用中已反馈主 DB 可膨胀到数 GB。
-- 这不是单纯 VACUUM 能根治的问题，核心在当前索引策略本身体积成本偏高。
+### 1. 500k+ 文件下 DB 体积（G1-G5 已解决根治路径）
+- **Compact 模式（默认）**：只对 basename 做 gram + path segment 前缀索引。20k 实测 DB 比 fullpath 小 3.2×，索引行数少 5.5×，首次索引快 4.7×。500k 投影 compact ~1GB vs fullpath ~3.2GB。
+- **Full path substring 模式**：保留 v4 行为，path 中间子串可搜；体积大。
+- 现有 fullpath v4 DB 升级到 v5 默认保留为 fullpath；可在设置 → 常规 → 索引模式切换到 compact，维护 tab 按 "开始 / 继续 compact 回填" 后台回填，期间不阻主。
+- VACUUM 仍作为临时压实入口保留（维护 tab），但已不是根治方案 —— 根治靠 compact 模式 + 一次性回填。
 
 ### 2. `file_bigrams + file_grams` 是主要体积来源
 - `Gram.indexGrams(nameLower:pathLower:)` 与 `Gram.indexBigrams(nameLower:pathLower:)` 都把完整路径纳入滑窗。
 - full path 往往比文件名长得多，深目录和长路径会产生大量 gram 行。
 - `PRIMARY KEY(file_id, gram)` 只能去掉同一个文件内重复 gram，不能减少跨文件共同路径前缀带来的行数规模。
 
-### 3. v4 migration 在大库上有巨型事务风险
-- `Database.migrate()` 对 pending migrations 使用单个 `BEGIN IMMEDIATE` / `COMMIT`。
-- v4 `backfillFileBigrams()` 在迁移路径中执行。
-- backfill 会先 `SELECT id, name_lower, path_lower FROM files` 并把所有行装进 Swift 数组，然后写入 `file_bigrams`。
-- 对大库，这可能导致 WAL 暴涨、启动迁移耗时很长、失败回滚成本高。
+### 3. v5 migration 已避开巨型事务（G3 已解决）
+- `Database.migrate()` v4→v5 分支 CREATE-only + seed `settings.index_mode`，不跑 backfill
+- compact backfill 由 `MigrationCoordinator` 后台分批执行（默认 5000 行/批，每批独立事务 + WAL PASSIVE checkpoint），可中断续跑（`migration_progress.compact_backfill_last_file_id`）
+- v2→v4 迁移仍有旧的 backfill（`file_grams` / `file_bigrams`），但那是 v3→v4 跃迁，G3 没动；新库一般直接命中 v5。
 
-### 4. 当前缺少 DB footprint 观测
-- App 内没有清楚展示：
-  - DB 总大小
-  - WAL 大小
-  - `file_grams` 行数
-  - `file_bigrams` 行数
-  - 每文件平均 gram 数
-  - 各 root 贡献的索引规模
-- `SwiftSeekBench` 目前主要测 warm search timing，不测 DB size 和 table size。
-- `SwiftSeekIndex` 目前只输出 roots/files 行数。
+### 4. DB footprint 观测（G1 已解决）
+- CLI `SwiftSeekDBStats`：main/wal/shm 大小、page 信息、六张表行数、平均 grams per file、dbstat per-table 明细（支持时）/ row-count fallback
+- Settings → 维护 tab：DB 体积 block 同上 + 刷新 / WAL checkpoint / Optimize / VACUUM 按钮（VACUUM 二次确认）
+- `SwiftSeekBench --mode both`：compact vs fullpath 对比报告
 
-### 5. 当前缺少 App 内维护入口
-- 当前代码没有产品化的 checkpoint / optimize / VACUUM 入口。
-- 用户只能手工用 sqlite3 处理 WAL 和压实。
-- VACUUM / checkpoint 可临时压实或回收 WAL，但不是根治 full-path gram 膨胀的方案。
-- VACUUM 还需要额外临时空间，并可能耗时较长，不能无提示自动执行。
+### 5. App 内维护入口（G1 / G4 已解决）
+- 设置 → 维护 tab 提供 WAL checkpoint / Optimize / VACUUM（二次确认 + 风险说明）/ 开始或继续 compact 回填
+- CLI `SwiftSeekDBStats --run {checkpoint,optimize,vacuum}` 等价命令行入口
+- 所有维护走后台队列，GUI 不阻塞
 
-### 6. 当前索引策略不可配置
-- 默认总是把完整路径纳入 bigram/trigram。
-- 用户无法选择“紧凑模式 / 完整路径子串模式”。
-- 对 500k+ 文件长期使用，更合理的方向是引入 compact index：默认降低路径滑窗成本，把 full-path substring 作为高级可选模式。
+### 6. 索引策略可配置（G3 / G4 已解决）
+- 设置 → 常规 → 索引模式下拉：Compact（推荐）/ Full path substring（高级）
+- 每个新 DB 默认 compact；v4 升级默认 fullpath（保留用户现有搜索能力）
+- 切换有二次确认 + 引导回填 / 重建
 
 ## 仍然存在但已非当前主线的问题
 

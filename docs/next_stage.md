@@ -1,45 +1,24 @@
-# 下一阶段任务书（过渡 G2 → G3）
+# 下一阶段任务书
 
-## Track
-`everything-footprint`
+## 当前状态
+**G5 最终收尾中，等待 Codex PROJECT COMPLETE 判定。**
 
-## Stage
-G2 当前刚落地（纯设计文档，等待 Codex 验收）。本文件是 G2 → G3 的过渡骨架。
+G1-G4 均已 PASS：
+- G1 round 2 PASS（DB 体积观测 + 维护入口）
+- G2 round 2 PASS（Schema v5 proposal 冻结合同）
+- G3 round 2 PASS（Schema v5 + compact indexer + MigrationCoordinator）
+- G4 round 2 PASS（索引模式 UI + 维护页回填按钮）
 
-## G3 目标（预告）
-按 `docs/everything_footprint_v5_proposal.md` 真实实现 compact index schema v5 + 分批 backfill，**不在启动主线程做大事务**。
+## 如 Codex 颁发 PROJECT COMPLETE
+- `everything-footprint` 进入归档状态（与 v1-baseline / everything-alignment / everything-performance 同级）
+- 本文件变为"无活跃轨道"
+- 新轨道启动由用户发起
 
-### 必须做
-- Schema v5：`file_name_grams` / `file_name_bigrams` / `file_path_segments` / `migration_progress`
-- `Database.migrate()` v4→v5 只 CREATE，不 backfill
-- `settings.index_mode`：新 DB 默认 `compact`，v4 升级默认 `fullpath`（保留现有能力）
-- `MigrationCoordinator` 分批回填（每批 ~5000 行，每批独立事务 + checkpoint）
-- `migration_progress` 可恢复断点 / 支持失败后继续
-- Indexer 根据 `index_mode` 写对应表
-- SearchEngine candidates 按 mode 分流
-- 单元测试覆盖：fresh DB v5 / v4 升级不做大事务 / 分批 backfill 可中断续跑 / mode 切换行为
+## 如 Codex REJECT
+- 按 required fix 修复后重验
+- 不进入新轨道
 
-### 明确不做
-- 不做 UI 切换（G4）
-- 不删除 v4 `file_grams` / `file_bigrams`
-- 不强制一次性重建
-- 不要求用户手工 sqlite3 修库
-
-### 关键文件
-- `Sources/SwiftSeekCore/Schema.swift`
-- `Sources/SwiftSeekCore/Database.swift`
-- `Sources/SwiftSeekCore/Gram.swift`
-- `Sources/SwiftSeekCore/Indexer.swift`
-- `Sources/SwiftSeekCore/SearchEngine.swift`
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-- 新 `Sources/SwiftSeekCore/MigrationCoordinator.swift`
-- `Sources/SwiftSeekSmokeTest/main.swift`
-- `docs/architecture.md`
-- `docs/manual_test.md`
-
----
-
-## 过渡期说明
-G2 round 1 验收完成后本文件需刷新：
-1. 若 G2 PASS，正文展开为完整 G3 任务书
-2. 若 G2 REJECT，维持 G2 状态按 Codex required fix 修后重验
+## 历史归档完成
+- `v1-baseline`（P0-P6）：2026-04-23
+- `everything-alignment`（E1-E5）：2026-04-24
+- `everything-performance`（F1-F5）：2026-04-24

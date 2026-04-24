@@ -1,28 +1,29 @@
-// F1 perf probe. Stands up an in-memory-ish fixture DB with ~10k files,
-// runs warm 2-char and 3+-char queries through SearchEngine, and prints
-// median / p95 timings. Output is human-readable and stable enough for a
-// smoke test to parse if it wants to.
+// F1 + G5 perf probe.
 //
-// Usage:
-//   swift run SwiftSeekBench               # default: 10_000 files, 50 warm iters
+// F1 usage (search hot path):
+//   swift run SwiftSeekBench                         # 10k files, 50 iters, current default mode
 //   swift run SwiftSeekBench --files 20000 --iters 100
 //
-// Intentionally not a ship binary (driven manually / from CI). Output goes
-// to stdout; exit code is 0 on success, 2 on arg parse failure, 1 if any
-// timing exceeds the documented F1 target band.
+// G5 usage (compact vs fullpath footprint + timing comparison):
+//   swift run SwiftSeekBench --mode both --files 50000    # build both, compare
+//   swift run SwiftSeekBench --mode compact --files 500000
+//
+// Output is human-readable; exit 0 on success, 2 on bad args, 1 if a
+// warm-search sample exceeds the documented F1 target and
+// --enforce-targets was passed.
 
 import Foundation
 import SwiftSeekCore
 
-// stderr is unbuffered by default; stdout is line-buffered when connected
-// to a terminal but fully buffered when redirected. Force line buffering on
-// stdout so benchmark lines stream rather than accumulate.
 setlinebuf(stdout)
+
+enum BenchMode: String { case compact, fullpath, both }
 
 struct BenchArgs {
     var fileCount: Int = 10_000
     var iterations: Int = 50
-    var enforceTargets: Bool = false  // opt-in: fail on timing regression
+    var enforceTargets: Bool = false
+    var mode: BenchMode = .compact
 }
 
 func parseArgs(_ argv: [String]) -> BenchArgs {
@@ -41,11 +42,19 @@ func parseArgs(_ argv: [String]) -> BenchArgs {
             args.iterations = n
         case "--enforce-targets":
             args.enforceTargets = true
+        case "--mode":
+            i += 1
+            guard i < argv.count, let m = BenchMode(rawValue: argv[i]) else { exit(2) }
+            args.mode = m
         case "-h", "--help":
             print("""
-            SwiftSeekBench — F1 perf probe
+            SwiftSeekBench — F1 perf probe + G5 footprint comparison
             usage:
-              swift run SwiftSeekBench [--files N] [--iters N] [--enforce-targets]
+              swift run SwiftSeekBench [--files N] [--iters N] [--enforce-targets] [--mode compact|fullpath|both]
+
+              --mode compact    (default) index in compact mode, measure
+              --mode fullpath   index in fullpath mode, measure
+              --mode both       index once in each mode, print comparison
             """)
             exit(0)
         default:
@@ -59,15 +68,6 @@ func parseArgs(_ argv: [String]) -> BenchArgs {
 
 let args = parseArgs(CommandLine.arguments)
 
-// Build a fixture DB on a scratch path. Deleted at exit.
-let scratchDir = FileManager.default.temporaryDirectory
-    .appendingPathComponent("swiftseek-bench-\(UUID().uuidString)")
-try? FileManager.default.createDirectory(at: scratchDir,
-                                         withIntermediateDirectories: true)
-defer { try? FileManager.default.removeItem(at: scratchDir) }
-
-// Populate a synthetic file tree: deterministic names, some overlap so
-// 2-char queries return realistic candidate counts.
 let words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta",
              "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "pi",
              "rho", "sigma", "tau", "phi", "chi", "psi", "omega",
@@ -75,54 +75,75 @@ let words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta",
              "source", "build", "output", "sample", "example", "tmp"]
 let exts = ["txt", "md", "swift", "h", "c", "json", "yaml", "log"]
 
-let dbURL = scratchDir.appendingPathComponent("bench.sqlite3")
-let db = try Database.open(at: dbURL)
-try db.migrate()
-
-// Register a single root so the engine's root filter lets everything through.
-_ = try db.registerRoot(path: scratchDir.path)
-
-print("[bench] building \(args.fileCount) synthetic files in \(scratchDir.path)")
-let buildStart = Date()
-var rows: [FileRow] = []
-rows.reserveCapacity(args.fileCount)
-for i in 0..<args.fileCount {
-    let w1 = words[i % words.count]
-    let w2 = words[(i / words.count) % words.count]
-    let ext = exts[i % exts.count]
-    let name = "\(w1)-\(w2)-\(i).\(ext)"
-    let parent = "\(scratchDir.path)/\(w1)/\(w2)"
-    let path = "\(parent)/\(name)"
-    rows.append(FileRow(
-        path: path,
-        pathLower: path.lowercased(),
-        name: name,
-        nameLower: name.lowercased(),
-        isDir: false,
-        size: Int64(100 + i),
-        mtime: Int64(1_700_000_000 + i)
-    ))
+struct BenchResult {
+    let mode: BenchMode
+    let fileCount: Int
+    let mainBytes: Int64
+    let walBytes: Int64
+    let fileGramsRows: Int64
+    let fileBigramsRows: Int64
+    let fileNameGramsRows: Int64
+    let fileNameBigramsRows: Int64
+    let filePathSegsRows: Int64
+    let indexingTimeSec: Double
+    let twoCharMedianMs: Double
+    let twoCharP95Ms: Double
+    let threePlusCharMedianMs: Double
+    let threePlusCharP95Ms: Double
 }
-try db.insertFiles(rows)
-let buildElapsed = Date().timeIntervalSince(buildStart)
-print(String(format: "[bench] built + indexed in %.2fs", buildElapsed))
 
-// Warm the hot path and the caches.
-let engine = SearchEngine(database: db)
+func buildFixture(mode: IndexMode, fileCount: Int) throws -> (Database, URL, Double) {
+    let scratchDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("swiftseek-bench-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: scratchDir,
+                                            withIntermediateDirectories: true)
+    let dbURL = scratchDir.appendingPathComponent("bench.sqlite3")
+    let db = try Database.open(at: dbURL)
+    try db.migrate()
+    try db.setIndexMode(mode)
+    _ = try db.registerRoot(path: scratchDir.path)
 
-func warmUp() {
+    var rows: [FileRow] = []
+    rows.reserveCapacity(fileCount)
+    for i in 0..<fileCount {
+        let w1 = words[i % words.count]
+        let w2 = words[(i / words.count) % words.count]
+        let ext = exts[i % exts.count]
+        let name = "\(w1)-\(w2)-\(i).\(ext)"
+        let parent = "\(scratchDir.path)/\(w1)/\(w2)"
+        let path = "\(parent)/\(name)"
+        rows.append(FileRow(
+            path: path,
+            pathLower: path.lowercased(),
+            name: name,
+            nameLower: name.lowercased(),
+            isDir: false,
+            size: Int64(100 + i),
+            mtime: Int64(1_700_000_000 + i)
+        ))
+    }
+    let start = Date()
+    try db.insertFiles(rows)
+    let indexElapsed = Date().timeIntervalSince(start)
+    // Checkpoint so the main DB file shows actual footprint instead of
+    // WAL-holds-everything. This doubles as the CLI maintenance path.
+    _ = db.runMaintenance(.checkpoint)
+    return (db, scratchDir, indexElapsed)
+}
+
+func warmUp(_ engine: SearchEngine) {
     for q in ["al", "be", "alp", "beta"] {
         _ = try? engine.search(q)
     }
 }
 
-func timedSearch(_ q: String, iterations: Int) -> (median: Double, p95: Double) {
+func timedSearch(_ q: String, iterations: Int, engine: SearchEngine) -> (median: Double, p95: Double) {
     var samples: [Double] = []
     samples.reserveCapacity(iterations)
     for _ in 0..<iterations {
         let t0 = Date()
         _ = try? engine.search(q)
-        samples.append(Date().timeIntervalSince(t0) * 1000) // ms
+        samples.append(Date().timeIntervalSince(t0) * 1000)
     }
     samples.sort()
     let median = samples[samples.count / 2]
@@ -130,62 +151,133 @@ func timedSearch(_ q: String, iterations: Int) -> (median: Double, p95: Double) 
     return (median, p95)
 }
 
-print("[bench] warming up…")
-warmUp()
-// Second warm to let the prepared-statement cache populate.
-warmUp()
+func runOneMode(mode: IndexMode, fileCount: Int, iters: Int) throws -> BenchResult {
+    print("[bench] building \(fileCount) files in \(mode.rawValue) mode…")
+    let (db, scratchDir, idxTime) = try buildFixture(mode: mode, fileCount: fileCount)
+    defer { try? FileManager.default.removeItem(at: scratchDir); db.close() }
+    print(String(format: "[bench] indexed in %.2fs", idxTime))
 
-struct Sample {
-    let label: String
-    let query: String
-    let median: Double
-    let p95: Double
-    /// Documented target ceilings for the hot path. See
-    /// docs/everything_performance_taskbook.md §F1 "验收标准".
-    let medianTargetMs: Double
-    let p95TargetMs: Double
+    let engine = SearchEngine(database: db)
+    warmUp(engine); warmUp(engine)
+
+    // 2-char queries
+    var two2: [(Double, Double)] = []
+    for q in ["al", "be", "do"] {
+        two2.append(timedSearch(q, iterations: iters, engine: engine))
+    }
+    let twoMed = two2.map(\.0).reduce(0, +) / Double(two2.count)
+    let twoP95 = two2.map(\.1).reduce(0, +) / Double(two2.count)
+
+    // 3+ char queries
+    var three3: [(Double, Double)] = []
+    for q in ["alpha", "beta", "docs"] {
+        three3.append(timedSearch(q, iterations: iters, engine: engine))
+    }
+    let threeMed = three3.map(\.0).reduce(0, +) / Double(three3.count)
+    let threeP95 = three3.map(\.1).reduce(0, +) / Double(three3.count)
+
+    let s = db.computeStats()
+    let benchMode: BenchMode = (mode == .compact) ? .compact : .fullpath
+    return BenchResult(
+        mode: benchMode,
+        fileCount: fileCount,
+        mainBytes: s.mainFileBytes,
+        walBytes: s.walFileBytes,
+        fileGramsRows: s.fileGramsRowCount,
+        fileBigramsRows: s.fileBigramsRowCount,
+        fileNameGramsRows: (try? db.countRows(in: "file_name_grams")) ?? -1,
+        fileNameBigramsRows: (try? db.countRows(in: "file_name_bigrams")) ?? -1,
+        filePathSegsRows: (try? db.countRows(in: "file_path_segments")) ?? -1,
+        indexingTimeSec: idxTime,
+        twoCharMedianMs: twoMed,
+        twoCharP95Ms: twoP95,
+        threePlusCharMedianMs: threeMed,
+        threePlusCharP95Ms: threeP95
+    )
 }
 
-var failed = 0
-var samples: [Sample] = []
-
-// 2-char cases
-for q in ["al", "be", "do"] {
-    let (med, p95) = timedSearch(q, iterations: args.iterations)
-    samples.append(Sample(label: "warm 2-char", query: q,
-                          median: med, p95: p95,
-                          medianTargetMs: 50, p95TargetMs: 150))
-}
-// 3+ char cases (trigram path)
-for q in ["alpha", "beta", "docs", "alpha beta"] {
-    let (med, p95) = timedSearch(q, iterations: args.iterations)
-    samples.append(Sample(label: "warm 3+char", query: q,
-                          median: med, p95: p95,
-                          medianTargetMs: 30, p95TargetMs: 100))
+func pad(_ s: String, _ w: Int) -> String {
+    if s.count >= w { return s }
+    return s + String(repeating: " ", count: w - s.count)
 }
 
-print("[bench] results (\(args.iterations) iters/query, \(args.fileCount) files):")
-func pad(_ s: String, _ width: Int) -> String {
-    if s.count >= width { return s }
-    return s + String(repeating: " ", count: width - s.count)
-}
-print("\(pad("label", 14)) \(pad("query", 14)) \(pad("med-ms", 10)) \(pad("p95-ms", 10))  target")
-for s in samples {
-    let medStr = String(format: "%.2f", s.median)
-    let p95Str = String(format: "%.2f", s.p95)
-    let ok = s.median <= s.medianTargetMs && s.p95 <= s.p95TargetMs
-    let mark = ok ? "ok" : "SLOW"
-    let target = "med<=\(Int(s.medianTargetMs)) p95<=\(Int(s.p95TargetMs))"
-    print("\(pad(s.label, 14)) \(pad(s.query, 14)) \(pad(medStr, 10)) \(pad(p95Str, 10))  \(target)  [\(mark)]")
-    if !ok { failed += 1 }
+func printRow(_ r: BenchResult) {
+    let mainStr = DatabaseStats.humanBytes(r.mainBytes)
+    let walStr = DatabaseStats.humanBytes(r.walBytes)
+    let idx = String(format: "%.2fs", r.indexingTimeSec)
+    let tm = String(format: "%.2fms", r.twoCharMedianMs)
+    let tp = String(format: "%.2fms", r.twoCharP95Ms)
+    let em = String(format: "%.2fms", r.threePlusCharMedianMs)
+    let ep = String(format: "%.2fms", r.threePlusCharP95Ms)
+    print("  mode=\(pad(r.mode.rawValue, 9)) main=\(pad(mainStr, 12)) wal=\(pad(walStr, 9)) index=\(pad(idx, 8)) 2-char-med=\(pad(tm, 9)) 2-char-p95=\(pad(tp, 9)) 3+char-med=\(pad(em, 9)) 3+char-p95=\(pad(ep, 9))")
+    print("    grams=\(pad(DatabaseStats.humanCount(r.fileGramsRows), 10)) bigrams=\(pad(DatabaseStats.humanCount(r.fileBigramsRows), 10)) name_grams=\(pad(DatabaseStats.humanCount(r.fileNameGramsRows), 10)) name_bigrams=\(pad(DatabaseStats.humanCount(r.fileNameBigramsRows), 10)) path_segs=\(DatabaseStats.humanCount(r.filePathSegsRows))")
 }
 
-// Cache observability.
-print("[bench] SearchEngine stmt cache: hits=\(engine.stmtCacheHits) misses=\(engine.stmtCacheMisses)")
-print("[bench] Database roots cache: hits=\(db.rootsCacheHits) misses=\(db.rootsCacheMisses)")
+// --- Run ---------------------------------------------------------------
+print("[bench] files=\(args.fileCount)  iters/query=\(args.iterations)  mode=\(args.mode.rawValue)")
 
-if args.enforceTargets && failed > 0 {
-    FileHandle.standardError.write(Data("[bench] \(failed) sample(s) missed target\n".utf8))
-    exit(1)
+var results: [BenchResult] = []
+switch args.mode {
+case .compact:
+    results.append(try runOneMode(mode: .compact,
+                                  fileCount: args.fileCount,
+                                  iters: args.iterations))
+case .fullpath:
+    results.append(try runOneMode(mode: .fullpath,
+                                  fileCount: args.fileCount,
+                                  iters: args.iterations))
+case .both:
+    results.append(try runOneMode(mode: .compact,
+                                  fileCount: args.fileCount,
+                                  iters: args.iterations))
+    results.append(try runOneMode(mode: .fullpath,
+                                  fileCount: args.fileCount,
+                                  iters: args.iterations))
+}
+
+print("—")
+print("[bench] results:")
+for r in results { printRow(r) }
+
+// Comparison block for --mode both
+if results.count == 2 {
+    let compact = results.first { $0.mode == .compact }!
+    let fullpath = results.first { $0.mode == .fullpath }!
+    print("—")
+    print("[bench] compact vs fullpath delta (compact / fullpath):")
+    print(String(format: "  main    %@ / %@  =  %.2fx",
+                 DatabaseStats.humanBytes(compact.mainBytes),
+                 DatabaseStats.humanBytes(fullpath.mainBytes),
+                 Double(compact.mainBytes) / max(Double(fullpath.mainBytes), 1)))
+    print(String(format: "  grams+bigrams vs name+name_bigrams+segs:"))
+    let fullpathGram = fullpath.fileGramsRows + fullpath.fileBigramsRows
+    let compactGram = compact.fileNameGramsRows + compact.fileNameBigramsRows + compact.filePathSegsRows
+    print(String(format: "    fullpath: grams+bigrams = %@",
+                 DatabaseStats.humanCount(fullpathGram)))
+    print(String(format: "    compact:  name_grams+name_bigrams+path_segs = %@  (%.2fx)",
+                 DatabaseStats.humanCount(compactGram),
+                 Double(compactGram) / max(Double(fullpathGram), 1)))
+    print(String(format: "  index time: compact=%.2fs  fullpath=%.2fs  (%.2fx)",
+                 compact.indexingTimeSec, fullpath.indexingTimeSec,
+                 compact.indexingTimeSec / max(fullpath.indexingTimeSec, 0.001)))
+    print(String(format: "  2-char median: compact=%.2fms  fullpath=%.2fms",
+                 compact.twoCharMedianMs, fullpath.twoCharMedianMs))
+    print(String(format: "  3+char median: compact=%.2fms  fullpath=%.2fms",
+                 compact.threePlusCharMedianMs, fullpath.threePlusCharMedianMs))
+}
+
+// --- Target enforcement (F1 contract still holds for both modes) ---
+if args.enforceTargets {
+    var bad = 0
+    for r in results {
+        if r.twoCharMedianMs > 50  { bad += 1; print("[bench] SLOW: \(r.mode.rawValue) 2-char median \(r.twoCharMedianMs) > 50ms") }
+        if r.twoCharP95Ms    > 150 { bad += 1; print("[bench] SLOW: \(r.mode.rawValue) 2-char p95 \(r.twoCharP95Ms) > 150ms") }
+        if r.threePlusCharMedianMs > 30 { bad += 1; print("[bench] SLOW: \(r.mode.rawValue) 3+char median \(r.threePlusCharMedianMs) > 30ms") }
+        if r.threePlusCharP95Ms    > 100 { bad += 1; print("[bench] SLOW: \(r.mode.rawValue) 3+char p95 \(r.threePlusCharP95Ms) > 100ms") }
+    }
+    if bad > 0 {
+        FileHandle.standardError.write(Data("[bench] \(bad) target miss(es)\n".utf8))
+        exit(1)
+    }
 }
 exit(0)
