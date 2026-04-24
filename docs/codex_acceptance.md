@@ -3,45 +3,51 @@
 本文件只保留当前有效结论。
 
 ## 当前有效结论
-**VERDICT: REJECT**
+VERDICT: REJECT (docs-only blockers; functional G1 accepted)
 TRACK: everything-footprint
 STAGE: G1
-ROUND: 0
+ROUND: 1
 DATE: 2026-04-24
-SESSION_ID: pending-new-track-session
+SESSION_ID: 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9
+COMMIT_AT_REVIEW: HEAD before round 2 doc sync
 
 ### Summary
-用户基于真实使用反馈发起新轨道 `everything-footprint`。历史 `v1-baseline`、`everything-alignment`、`everything-performance` 均已归档，其中 `everything-performance` 已拿到 `PROJECT COMPLETE`，但该结论只覆盖搜索性能和 Everything-like 落地，不覆盖 500k+ 文件规模下 DB footprint、迁移和维护体验。
+G1 功能面已落地（commit `G1: DB footprint stats + maintenance entries`）并在 2026-04-24 由 Codex round 1 验收。Codex 确认功能全部到位：CLI、Core API、Settings UI、smoke 126/0、startup PASS、VACUUM 风险横幅 + exit 1 都正常。
 
-当前代码审计确认：
-- schema v4 同时存在 `file_grams` 与 `file_bigrams`。
-- trigram / bigram 都来自 `nameLower + pathLower`，完整路径滑窗会显著放大大库行数。
-- v2/v4 migration backfill 在 `Database.migrate()` 的单个事务内执行，且先全量读取 `files` 行到内存。
-- App 内没有 DB size / WAL size / table stats / avg grams per file / root attribution 的清晰展示。
-- App 内没有 checkpoint / optimize / VACUUM 的安全维护入口。
+但 round 1 仍给 REJECT，原因不在代码，在 4 份状态文档仍保留旧口径：
+1. `docs/agent-state/codex-acceptance-session.{txt,json}` 还停留在 `everything-performance / F5`
+2. `docs/codex_acceptance.md` 仍写 `VERDICT: REJECT / ROUND: 0` + "G1 尚未实现"（立项时的占位状态）
+3. `docs/stage_status.md` 第 92 行左右仍写 "G1 尚未实现"
+4. `docs/manual_test.md` 顶部 note 还指向 `everything-performance`
 
-### Blockers / Required fixes
-1. G1 尚未实现 DB stats 能力。
-2. G1 尚未实现 CLI / bench DB stats 入口。
-3. G1 尚未实现设置 / 维护页简版 stats。
-4. G1 尚未实现 checkpoint / optimize / VACUUM 安全入口与 VACUUM 风险确认。
-5. G1 尚未补充相关测试和手测记录。
+Round 2 将 4 份文档同步到 HEAD 真实状态。
+
+### Blockers (round 1)
+1. agent-state 指向已归档轨道 session — 违反本仓 AGENTS 会话规则。
+2. codex_acceptance.md / stage_status.md 仍写"G1 尚未实现"。
+3. manual_test.md 顶部 note 指向旧轨道。
+
+### Required fixes (round 1)
+1. 用本次新轨道 session id 覆盖 `docs/agent-state/codex-acceptance-session.{txt,json}`（track=everything-footprint / stage=G1 / session=019dbdf8-b2c9-7c03-b316-dbbf7040d5d9）。 ✓
+2. 更新 `docs/codex_acceptance.md` 与 `docs/stage_status.md` 反映 round 1 真实验收。 ✓
+3. `docs/manual_test.md` header note 切到 `everything-footprint`。 ✓
 
 ### Non-blocking notes
-1. 本轮只完成新轨道立项、差距文档、任务书和状态切换。
-2. 不应把 VACUUM / checkpoint 当作根治方案；根治方向应在 G2-G4 通过 compact index 设计和实现推进。
+1. Codex round 1 实际对上了任务书 G1 的 7 条验收标准（CLI stats / 维护入口 / fallback / VACUUM 二次确认 / build + smoke）。
+2. GUI 维护页这轮是代码审查 + manual_test 清单，不是实际点按截图；headless 验收环境下可接受。
+3. CLI VACUUM 风险横幅文字可考虑补一句"只能临时压实，不能根治"以进一步和 GUI 对齐（非 blocker）。
 
-## 当前轨道阶段
-- 当前活跃轨道：`everything-footprint`
-- 当前阶段：`G1`
-- 当前任务书：`docs/next_stage.md`
-- 完整阶段计划：`docs/everything_footprint_taskbook.md`
-- 差距清单：`docs/everything_footprint_gap.md`
+### Evidence (Codex round 1 实际操作)
+- 实际运行命令：`swift build --disable-sandbox`、`swift run --disable-sandbox SwiftSeekSmokeTest`、`swift run --disable-sandbox SwiftSeekStartup --db /tmp/...`、`swift run --disable-sandbox SwiftSeekDBStats --db /tmp/...`、`.build/debug/SwiftSeekDBStats --db /tmp/... --run vacuum`
+- 实际观察：Build complete! / 126 pass 0 fail / schema=4 + PASS / 完整 stats 输出 / vacuum 无 --yes 打印风险横幅并 exit 1
+
+## 轨道内已通过阶段
+（尚无 — G1 round 2 后再结算）
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23
 - `everything-alignment`：E1-E5 / PROJECT COMPLETE 2026-04-24
 - `everything-performance`：F1-F5 / PROJECT COMPLETE 2026-04-24
 
-## 轨道切换说明
-`everything-footprint` 必须使用新的 Codex 验收 session。不得混用已归档 `everything-performance` 的 session id。
+## 当前阶段任务书
+见 `docs/next_stage.md` + `docs/everything_footprint_taskbook.md` G1 段（第 13-71 行）。

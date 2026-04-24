@@ -90,10 +90,12 @@
 6. `swift build` 与相关 smoke / 新增测试通过。
 
 ## 当前最新 Codex 结论
-- `everything-footprint / G1` 尚未实现。
-- 本轮文档审计只完成新轨道立项与任务书落盘，不代表 G1 已完成。
+- `everything-footprint / G1 / REJECT`（round 1，2026-04-24，session 019dbdf8-b2c9-7c03-b316-dbbf7040d5d9）
+- REJECT 原因：G1 功能面 Codex 确认已落地（CLI / Core / UI / smoke 126/0 / startup PASS 全部对上），但 4 份状态文档仍停留在 round-0 立项占位（agent-state 指向旧轨道、codex_acceptance 写"G1 尚未实现"、stage_status 本段写"G1 尚未实现"、manual_test 顶 note 还指向 everything-performance）。
+- Round 2 将这 4 份文档刷新到 HEAD 真实状态后重验。
 
 ## 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`
-- 新轨道必须使用新的 Codex 验收 session。
-- 不得继续混用已归档 `everything-performance` 的 session。
+- 当前 session id：`019dbdf8-b2c9-7c03-b316-dbbf7040d5d9`（round 1 建立）
+- 恢复策略：`codex exec resume <session_id>`
+- 不得再混用已归档 `everything-performance` 的 session。

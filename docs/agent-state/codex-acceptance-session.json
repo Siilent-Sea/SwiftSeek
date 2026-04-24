@@ -1,18 +1,12 @@
 {
-  "track": "everything-performance",
-  "stage": "F5",
-  "session_id": "019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90",
-  "last_verdict": "PROJECT_COMPLETE",
-  "last_verdict_round": 2,
+  "track": "everything-footprint",
+  "stage": "G1",
+  "session_id": "019dbdf8-b2c9-7c03-b316-dbbf7040d5d9",
+  "last_verdict": "REJECT",
+  "last_verdict_round": 1,
   "last_verdict_date": "2026-04-24",
-  "last_verdict_reason": "Codex F5 round 2: PROJECT COMPLETE for everything-performance track (F1-F4 all PASS, F5 doc sync clean, build/smoke/startup green)",
-  "passed_stages": [
-    { "stage": "F1", "verdict": "PASS", "round": 1, "date": "2026-04-24" },
-    { "stage": "F2", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "F3", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "F4", "verdict": "PASS", "round": 2, "date": "2026-04-24" },
-    { "stage": "F5", "verdict": "PROJECT_COMPLETE", "round": 2, "date": "2026-04-24" }
-  ],
+  "last_verdict_reason": "functional G1 complete but state docs (agent-state / codex_acceptance / stage_status / manual_test header) still showed pre-G1 / previous-track text; round 2 syncs them",
+  "passed_stages": [],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     { "track": "everything-alignment", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-24",
@@ -20,6 +14,6 @@
     { "track": "everything-performance", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-24",
       "previous_session_id": "019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90" }
   ],
-  "commit_at_review": "145d11f",
-  "notes": "Track closed. Session id retained for historical reference; new tracks should start their own session ids in a fresh file or replace this entry."
+  "commit_at_review": "pending-g1-r2",
+  "notes": "Fresh session for everything-footprint track. round 1 REJECT was purely doc-sync; round 2 commit fixes codex_acceptance + stage_status + manual_test + this state file."
 }

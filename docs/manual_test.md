@@ -1,8 +1,9 @@
-# SwiftSeek 手工测试（baseline + archived alignment features）
+# SwiftSeek 手工测试（baseline + 所有归档轨道）
 
 > Note:
-> 这份文档主要覆盖已落地功能的手工验证。
-> 当前活跃轨道 `everything-performance` 的性能验证与 benchmark 要求，应以 `docs/everything_performance_taskbook.md` 为准。
+> 这份文档覆盖 P0-P6、E1-E5、F1-F5 已落地能力的手工验证。
+> 当前活跃轨道是 `everything-footprint`，阶段 G1 起的 DB 体积 / 维护要求以 `docs/everything_footprint_taskbook.md` 为准；G1 手测见 §33f。
+> 历史性能轨道 benchmark 仍可参考 `docs/everything_performance_taskbook.md`（已归档）。
 
 前置：macOS 13+，Swift 6.x 可用。
 
