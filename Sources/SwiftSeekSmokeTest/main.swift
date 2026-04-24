@@ -3961,6 +3961,44 @@ reporter.check("J3 search: wildcard + filter + usage mode compose") {
                          "expected only beta.txt via recent+wildcard+ext: \(hits.map(\.path))")
 }
 
+reporter.check("J3 round 2: pure-OR finds matches past bounded-scan window") {
+    // Regression for Codex J3 round 1 REJECT: `alpha|beta` was
+    // falling through to filterOnlyCandidates() which only
+    // scanned the first `candidatePool` rows of `files`. Build a
+    // fixture > candidatePool with the only OR-hit placed well
+    // past that window and confirm the fix retrieves it.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    // Default Options.limit=100, candidateMultiplier=4 -> pool=400.
+    // Create 600 files; place the target at index 550 (well past 400).
+    let total = 600
+    let targetIdx = 550
+    for i in 0..<total {
+        let name = (i == targetIdx) ? "beta_target_unique.md" : "filler_\(i).txt"
+        try "".write(to: root.appendingPathComponent(name),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    // Pure-OR with one alt nonexistent, the other pointing at the
+    // far-end target. Without J3 round 2 fix this would miss.
+    let hits = try engine.search("nonexistentxyz|beta_target_unique")
+    let names = hits.map(\.name)
+    try reporter.require(names.contains("beta_target_unique.md"),
+                         "pure-OR must find row at index \(targetIdx) past bounded window; got first 5 = \(names.prefix(5))")
+    // Also confirm negative alt alone doesn't yield false positives.
+    let emptyHits = try engine.search("nonexistentxyz|alsonothere")
+    try reporter.require(emptyHits.isEmpty,
+                         "OR with no matches anywhere must return []; got \(emptyHits.count)")
+}
+
 reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     let (db, engine, dbDir, root, _) = try makeJ3EngineFixture()
     defer { db.close(); cleanup(dbDir); cleanup(root) }

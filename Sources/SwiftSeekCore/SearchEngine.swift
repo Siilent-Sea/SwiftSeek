@@ -593,12 +593,20 @@ public final class SearchEngine {
                                   pathTokens: parsed.filters.pathTokens,
                                   mode: mode,
                                   limit: candidatePool)
+        } else if !parsed.orGroups.isEmpty {
+            // J3 round 2: pure-OR query. Per-alt gram retrieval + row
+            // union beats the bounded-scan fallback because an alt
+            // whose match lies past the first `candidatePool` rows
+            // of `files` would be silently missed otherwise.
+            rows = try orUnionCandidates(orGroups: parsed.orGroups,
+                                         mode: mode,
+                                         limit: candidatePool)
         } else {
             // E3 filter-only query: no plain tokens to gram-match against.
-            // J3: also the fallback for pure OR / pure NOT / pure-wildcard
-            // queries where we have no reliable anchor — filterOnly's
-            // bounded scan is the safe fallback so the user doesn't end
-            // up scanning the whole table.
+            // Also the safe fallback for pure NOT / pure-wildcard queries
+            // where no anchor exists at all. For NOT-only the bounded
+            // scan is acceptable (user asked "everything except X");
+            // for `*` / `?` alone it's the only sensible bound.
             rows = try filterOnlyCandidates(filters: parsed.filters,
                                             mode: mode,
                                             limit: candidatePool)
@@ -1114,6 +1122,44 @@ public final class SearchEngine {
             idx += 1
             _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
         }
+    }
+
+    /// J3 round 2: union candidate retrieval for pure-OR queries.
+    /// Each alt is treated as an isolated single-token AND query; we
+    /// run gram retrieval per alt and union the row sets (dedup by
+    /// path). This matters for real-world libraries where the match
+    /// for one OR alt can lie past any bounded LIMIT — the pre-fix
+    /// implementation fell back to `filterOnlyCandidates` which only
+    /// scanned the first `candidatePool` rows of `files`.
+    ///
+    /// Pure-wildcard alts (e.g. `*` / `?`) contribute no anchor and
+    /// are skipped here; the post-filter in `search()` still applies
+    /// the wildcard semantic via `tokenMatchesWildcard`, so a query
+    /// like `*|foo` reduces to "at least one alt matches", and `foo`
+    /// drives the retrieval.
+    private func orUnionCandidates(orGroups: [[String]],
+                                   mode: IndexMode,
+                                   limit: Int) throws -> [Row] {
+        var seen = Set<String>()
+        var out: [Row] = []
+        out.reserveCapacity(min(limit, 512))
+        for group in orGroups {
+            for alt in group {
+                let anchor = SearchEngine.wildcardAnchor(alt)
+                if anchor.isEmpty { continue }
+                let perAltRows = try candidates(tokens: [anchor],
+                                                pathTokens: [],
+                                                mode: mode,
+                                                limit: limit)
+                for row in perAltRows {
+                    if seen.insert(row.path).inserted {
+                        out.append(row)
+                        if out.count >= limit { return out }
+                    }
+                }
+            }
+        }
+        return out
     }
 
     /// G3: candidate rows by `path:<token>` segment-prefix match

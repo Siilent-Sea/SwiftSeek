@@ -4,10 +4,10 @@
   "session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df",
   "updated_at": "2026-04-25",
   "purpose": "Current active track acceptance state for everything-ux-parity. A new Codex acceptance session must be created for this track; do not reuse archived everything-usage or earlier track sessions.",
-  "last_verdict": "PASS",
+  "last_verdict": "REJECT",
   "last_verdict_round": 1,
   "last_verdict_date": "2026-04-25",
-  "last_verdict_reason": "J2 accepted on commit 69a7098: search panel widened, result header gained tooltips and reset-width recovery, J2 smoke passed, and manual visibility steps were documented.",
+  "last_verdict_reason": "J3 rejected on commit c12db20: pure OR queries are parsed but not fed into anchor-based candidate retrieval, so alpha|beta-style searches fall back to bounded scan and can miss matches in larger datasets.",
   "passed_stages": ["J1", "J2"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
@@ -36,5 +36,5 @@
       "previous_session_id": "019dbe5f-9680-7872-9eac-cc41e5f0f40e"
     }
   ],
-  "notes": "Active session for everything-ux-parity track (J1 PASS on 14c94ab, J2 PASS on 69a7098). Next target stage is J3. .txt file mirrors this session id."
+  "notes": "Active session for everything-ux-parity track (J1 PASS on 14c94ab, J2 PASS on 69a7098, J3 round 1 REJECT on c12db20). Current target remains J3. .txt file mirrors this session id."
 }

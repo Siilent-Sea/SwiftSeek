@@ -36,11 +36,12 @@
 - 数据链路 H1-H5 未改：`file_usage` / `Database.recordOpen(path:)` / `SearchResult.openCount/lastOpenedAt` / `LEFT JOIN file_usage` / `recent:` / `frequent:` / 隐私开关都与之前一致。
 
 ### 5. Everything-like 查询语法已在 J3 扩展
-- 已支持（J3 落地）：
+- 已实现（J3 round 2 收口）：
   - `*` / `?` wildcard（可在 plain 与 OR 中使用；phrase 内不识别）
   - quoted phrase `"foo bar"`（空格字面，不切分）
   - OR `foo|bar`（≥2 非空替换，替换中不能含 filter key）
   - NOT `!foo` / `-foo` / `!"foo bar"`（否定 plain 或 phrase）
+- **纯 OR 完整检索**（J3 round 2 修复）：`alpha|beta` 每个 alt 单独走 gram 检索 + union（`orUnionCandidates`），不再落回 `filterOnlyCandidates` 的 bounded scan；大库尾部命中不会漏掉。
 - 兼容既有：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:` 仍工作；J3 负向 token 不与 filter key 合并（`!ext:md` 会回落为字面 substring，不按 "排除 ext" 处理）。
 - 容错：
   - 未闭合 `"` → 自动补闭合
@@ -48,7 +49,7 @@
   - 空 `""` → 忽略
   - 只含 `*` 等纯 wildcard → 回落到 bounded scan，不崩
 - 仍不支持：括号表达式、regex、全文内容搜索（J3 明确不做）。
-- GUI 与 CLI 对同一 query 结果一致（`SwiftSeekSearch` / 主搜索窗走同一 `SearchEngine.search`）。
+- GUI 与 CLI 共用 `SearchEngine.search`，语义一致。
 
 ### 6. 搜索历史 / Saved Filters 仍缺失
 - 当前没有最近查询历史。
