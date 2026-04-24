@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -4070,6 +4070,40 @@ reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     _ = try engine.search("!!foo")
     // Empty OR + filter combo.
     _ = try engine.search("alpha|| ext:md")
+}
+
+// MARK: - J5 path helpers (context menu primitives)
+
+reporter.check("J5 PathHelpers.fileName: last component of typical path") {
+    try reporter.require(PathHelpers.fileName(of: "/foo/bar/baz.txt") == "baz.txt",
+                         "/foo/bar/baz.txt -> baz.txt")
+    try reporter.require(PathHelpers.fileName(of: "/foo/bar/") == "bar",
+                         "trailing slash stripped first: /foo/bar/ -> bar")
+    try reporter.require(PathHelpers.fileName(of: "/") == "/",
+                         "root unchanged: / -> /")
+    try reporter.require(PathHelpers.fileName(of: "") == "",
+                         "empty -> empty")
+    try reporter.require(PathHelpers.fileName(of: "lone.md") == "lone.md",
+                         "relative with no slash: lone.md -> lone.md")
+    try reporter.require(PathHelpers.fileName(of: "中文文件.pdf") == "中文文件.pdf",
+                         "unicode filename preserved")
+}
+
+reporter.check("J5 PathHelpers.parentFolder: deletingLastPathComponent") {
+    try reporter.require(PathHelpers.parentFolder(of: "/foo/bar/baz.txt") == "/foo/bar",
+                         "/foo/bar/baz.txt -> /foo/bar")
+    try reporter.require(PathHelpers.parentFolder(of: "/foo/bar/") == "/foo",
+                         "trailing slash stripped then parent: /foo/bar/ -> /foo")
+    try reporter.require(PathHelpers.parentFolder(of: "/baz.txt") == "/",
+                         "/baz.txt -> /")
+    try reporter.require(PathHelpers.parentFolder(of: "") == "",
+                         "empty -> empty")
+    // NSString.deletingLastPathComponent on a relative file like
+    // "foo.md" returns "" — which we intentionally surface so the
+    // GUI can warn rather than silently copy "".
+    let rel = PathHelpers.parentFolder(of: "foo.md")
+    try reporter.require(rel == "" || rel == ".",
+                         "relative no-slash path parent: got `\(rel)`; empty or . acceptable")
 }
 
 // MARK: - J4 search history + saved filters

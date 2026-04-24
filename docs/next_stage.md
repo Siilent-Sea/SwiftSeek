@@ -1,79 +1,85 @@
-# 下一阶段任务书：J4
+# 下一阶段任务书：J5
 
 当前活跃轨道：`everything-ux-parity`
-当前阶段：`J4`
-阶段名称：搜索历史、Saved Filters 与快速过滤器
+当前阶段：`J5`
+阶段名称：上下文菜单与文件操作增强
 
 ## 交给 Claude 的任务
 
-你现在只做 J4。目标是提升高频使用体验，让用户能复用最近查询和常用过滤器，而不是每次重新输入复杂表达式。
+你现在只做 J5。目标是让结果右键菜单更接近成熟文件搜索器，减少用户跳回 Finder 的次数。
 
-J4 不做上下文菜单，不做首次使用流程，不做云同步，不做遥测，不读取系统搜索历史。
+J5 不做首次使用流程，不做云同步，不做遥测，不做系统搜索历史读取，不做完整文件管理器。
 
 ## 必须先审计的代码路径
 
-- `Sources/SwiftSeekCore/Schema.swift`
-- `Sources/SwiftSeekCore/Database.swift`
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
 - `Sources/SwiftSeek/UI/SearchViewController.swift`
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift`
+- `Sources/SwiftSeekCore/ResultAction.swift`
 - `Sources/SwiftSeekSmokeTest/main.swift`
+- `docs/manual_test.md`
+- `docs/known_issues.md`
 
 重点确认：
-- 最近查询历史如何落盘
-- 重复查询如何去重并更新时间
-- Saved Filters / 收藏查询如何新增、列出、删除
-- 搜索窗里如何暴露最近查询 / Saved Filters / 快速过滤器入口
-- 隐私边界文案如何写清楚
-- 是否会影响普通输入搜索的热路径体验
+- 现有右键菜单和按钮动作分别有哪些
+- 哪些操作已经有 runner / enum 语义，哪些还没有
+- clipboard 相关逻辑是否已可复用
+- usage / Run Count 统计当前只在哪条路径上增加
+- 失败反馈和破坏性确认是否已有统一模式
 
 ## 必须做
 
-1. 为普通查询增加最近历史记录。
-2. 历史记录必须去重并更新时间，而不是无限追加。
-3. 支持清空历史，并让 UI 立即反映。
-4. 支持保存当前查询为 Saved Filter。
-5. 支持删除 Saved Filter。
-6. 提供最近查询 / Saved Filters / 快速过滤器入口，但不能干扰正常 typing 搜索。
-7. 文档明确所有历史只保存在本地，不上传、不同步、不遥测。
-8. 更新 `docs/manual_test.md`，补 J4 手测步骤。
-9. 给 `Sources/SwiftSeekSmokeTest/main.swift` 补 query history insert / dedupe / clear、saved filter add / remove / list smoke。
-10. 更新 `docs/known_issues.md`，把 J4 已解决和剩余限制写清楚。
+1. 扩展结果右键菜单，至少覆盖：
+   - Open
+   - Open With...
+   - Reveal in Finder
+   - Copy Name
+   - Copy Full Path
+   - Copy Parent Folder
+   - Move to Trash
+2. 所有破坏性操作必须确认。
+3. 操作失败必须有可见反馈。
+4. `Open With...` 必须使用公开 AppKit API，不能走 private API。
+5. Copy Name / Full Path / Parent Folder 必须写入正确剪贴板内容。
+6. usage 统计只对 Open 生效；Reveal / Copy / Trash 都不能增加 Run Count。
+7. 如果决定做 Rename，必须把索引更新和 UI 状态恢复收口；如果这轮不做 Rename，必须在文档明确推迟原因。
+8. 更新 `docs/manual_test.md`，补 J5 手测步骤。
+9. 给 `Sources/SwiftSeekSmokeTest/main.swift` 补可自动化的纯字符串/路径动作 smoke，例如 file name / parent folder 提取。
+10. 更新 `docs/known_issues.md`，把 J5 已解决和剩余限制写清楚。
 
 ## 明确不做
 
-- 不做 J5：上下文菜单动作扩展。
 - 不做 J6：首次使用完整向导、Launch at Login、签名 / 公证。
+- 不做完整文件管理器。
+- 不做权限绕过。
+- 不做批量重命名器。
+- 不把 Reveal / Copy 计入 Run Count。
 - 不做云同步。
 - 不做遥测。
 - 不读取系统搜索历史。
-- 不把搜索历史和 file usage 混成同一张表。
 
 ## 验收标准
 
-1. 普通查询执行后写入最近查询历史。
-2. 重复查询去重并更新时间。
-3. 可以清空历史，清空后 UI 立即反映。
-4. 可以保存当前查询为 Saved Filter。
-5. 可以删除 Saved Filter。
-6. 入口不会干扰普通 typing 搜索性能。
-7. 文档明确隐私边界。
-8. `swift build --disable-sandbox` 通过。
-9. `swift run --disable-sandbox SwiftSeekSmokeTest` 通过。
-10. `docs/manual_test.md` 有明确 J4 GUI 手测步骤。
+1. 右键菜单包含新增动作且目标正确。
+2. Copy Name / Full Path / Parent Folder 写入剪贴板内容准确。
+3. Open With 使用公开 AppKit API。
+4. Rename 成功后索引和 UI 状态可恢复；若不做 Rename，文档明确推迟原因。
+5. Move to Trash 有确认和失败反馈。
+6. 只有 Open 增加 Run Count。
+7. `swift build --disable-sandbox` 通过。
+8. `swift run --disable-sandbox SwiftSeekSmokeTest` 通过。
+9. `docs/manual_test.md` 有明确 J5 GUI 手测步骤。
 
 ## 必须补的手测
 
 ```text
-1. 执行几条普通查询，确认最近查询入口出现并按时间排序。
-2. 重复执行同一查询，确认去重且时间刷新。
-3. 清空历史，确认 UI 立即为空。
-4. 保存当前查询为 Saved Filter，确认可再次选用。
-5. 删除 Saved Filter，确认 UI 立即反映。
-6. 验证快速过滤器插入不会卡顿，也不会打断正常 typing。
-7. 对照文档确认历史只保存在本地，不上传、不同步、不遥测。
+1. 右键结果项，确认新增菜单项都出现且目标正确。
+2. 分别执行 Copy Name / Copy Full Path / Copy Parent Folder，检查剪贴板内容。
+3. 执行 Open With...，确认走系统公开面板或公开 API。
+4. 执行 Move to Trash，确认有二次确认；成功后结果和索引状态合理更新。
+5. 制造一个失败场景，确认用户能看到失败反馈。
+6. 对照 Run Count：Open 后增加；Reveal / Copy / Trash 不增加。
 ```
 
 ## 验收后文档
 
-J4 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 J5 任务书；如果 REJECT，按 blocker 修复。
+J5 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 J6 任务书；如果 REJECT，按 blocker 修复。

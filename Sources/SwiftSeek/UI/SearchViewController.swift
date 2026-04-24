@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Quartz
 import SwiftSeekCore
+import UniformTypeIdentifiers
 
 /// NSViewController that owns the search input, the results table, and the
 /// action bar. All side effects (open/reveal/copy) go through
@@ -501,10 +502,29 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     private func buildRowContextMenu() -> NSMenu {
         let m = NSMenu()
         m.addItem(withTitle: "打开", action: #selector(openSelected), keyEquivalent: "")
-        m.addItem(withTitle: "在 Finder 中显示", action: #selector(revealSelected), keyEquivalent: "")
-        m.addItem(withTitle: "复制路径", action: #selector(copyPathSelected), keyEquivalent: "")
+        m.addItem(withTitle: "使用其他应用打开…",
+                  action: #selector(openWithSelected),
+                  keyEquivalent: "")
+        m.addItem(withTitle: "在 Finder 中显示",
+                  action: #selector(revealSelected),
+                  keyEquivalent: "")
         m.addItem(NSMenuItem.separator())
-        m.addItem(withTitle: "移到废纸篓", action: #selector(trashSelected), keyEquivalent: "")
+        // J5: three explicit copy actions so users don't have to
+        // guess what "复制" will actually paste. Renamed the old
+        // "复制路径" to "复制完整路径" for symmetry.
+        m.addItem(withTitle: "复制名称",
+                  action: #selector(copyNameSelected),
+                  keyEquivalent: "")
+        m.addItem(withTitle: "复制完整路径",
+                  action: #selector(copyPathSelected),
+                  keyEquivalent: "")
+        m.addItem(withTitle: "复制所在文件夹路径",
+                  action: #selector(copyParentFolderSelected),
+                  keyEquivalent: "")
+        m.addItem(NSMenuItem.separator())
+        m.addItem(withTitle: "移到废纸篓",
+                  action: #selector(trashSelected),
+                  keyEquivalent: "")
         for item in m.items { item.target = self }
         return m
     }
@@ -763,12 +783,87 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     @objc func copyPathSelected() {
         if let target = selectedTarget() {
             ResultActionRunner.perform(.copyPath, target: target)
-            showToast("✓ 已复制")
+            showToast("✓ 已复制完整路径")
+        }
+    }
+
+    /// J5: copy just the file name (last path component). Does NOT
+    /// increment Run Count — Copy actions are read-only intent.
+    @objc func copyNameSelected() {
+        guard let target = selectedTarget() else { return }
+        let name = PathHelpers.fileName(of: target.path)
+        if name.isEmpty {
+            showToast("复制名称失败：路径无可识别的文件名")
+            return
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(name, forType: .string)
+        showToast("✓ 已复制名称")
+    }
+
+    /// J5: copy the parent directory path (everything except the
+    /// final component). Useful for `cd "$(pbpaste)"` workflows.
+    /// Does NOT increment Run Count.
+    @objc func copyParentFolderSelected() {
+        guard let target = selectedTarget() else { return }
+        let parent = PathHelpers.parentFolder(of: target.path)
+        if parent.isEmpty {
+            showToast("复制文件夹失败：路径无父目录")
+            return
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(parent, forType: .string)
+        showToast("✓ 已复制所在文件夹路径")
+    }
+
+    /// J5: present NSOpenPanel for the user to pick an application,
+    /// then hand the target to it via NSWorkspace public API. Does
+    /// NOT count as Run Count (we only record .open via the default
+    /// handler, matching H1's contract).
+    @objc func openWithSelected() {
+        guard let target = selectedTarget() else { return }
+        let panel = NSOpenPanel()
+        panel.title = "选择应用"
+        panel.message = "选择要用来打开的应用"
+        panel.prompt = "打开"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        let appsURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.directoryURL = appsURL
+        panel.allowedContentTypes = [.application]
+        let fileURL = URL(fileURLWithPath: target.path)
+        guard panel.runModal() == .OK, let appURL = panel.url else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([fileURL],
+                                withApplicationAt: appURL,
+                                configuration: config) { [weak self] _, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.showToast("打开失败：\(error.localizedDescription)")
+                } else {
+                    self?.showToast("✓ 已通过 \(appURL.lastPathComponent) 打开")
+                }
+            }
         }
     }
 
     @objc func trashSelected() {
         guard let target = selectedTarget() else { return }
+        // J5: destructive operation — always confirm first. The
+        // NSAlert describes exactly what's about to happen so a
+        // stray keyboard shortcut can't accidentally delete the
+        // user's currently-selected row.
+        let name = PathHelpers.fileName(of: target.path)
+        let alert = NSAlert()
+        alert.messageText = "移到废纸篓？"
+        alert.informativeText = "将把 “\(name)” 移到废纸篓。\n\n完整路径：\n\(target.path)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "移到废纸篓")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
         let url = URL(fileURLWithPath: target.path)
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)

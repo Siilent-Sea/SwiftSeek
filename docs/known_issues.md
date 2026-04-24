@@ -64,20 +64,17 @@
 - **Saved Filters 管理**：设置 → 维护 tab 有下拉列表 + "新建 Saved Filter…"（双栏对话框：name + query）+ "删除所选…"（二次确认）。
 - **本地边界**：所有数据保存在 SwiftSeek 的 SQLite DB；不上传、不同步、不遥测、不读取系统级搜索历史。
 
-### 7. 上下文菜单动作不足
-- 当前结果右键菜单只有：
-  - Open
-  - Reveal in Finder
-  - Copy Path
-  - Move to Trash
-- 仍缺：
-  - Open With...
-  - Copy Name
-  - Copy Full Path 的更明确文案
-  - Copy Parent Folder
-  - Copy Multiple Paths（如果支持多选）
-  - Rename（如成本可控）
-- J5 处理这些文件操作增强；破坏性操作必须确认。
+### 7. 上下文菜单已在 J5 扩展
+- 结果右键菜单当前包含：
+  - 打开（`.open`，仅此项累加 Run Count / H1 recordOpen）
+  - 使用其他应用打开…（NSOpenPanel 选择 app，调 `NSWorkspace.open(_:withApplicationAt:configuration:completionHandler:)` 公开 API；**不**计入 Run Count）
+  - 在 Finder 中显示（`revealInFinder`；不计入 Run Count）
+  - 复制名称（`PathHelpers.fileName(of:)`；不计入 Run Count）
+  - 复制完整路径（原"复制路径"，更明确文案；不计入 Run Count）
+  - 复制所在文件夹路径（`PathHelpers.parentFolder(of:)`；不计入 Run Count）
+  - 移到废纸篓（**二次确认**弹窗；成功/失败 toast 明确反馈；不计入 Run Count）
+- 纯字符串 helper 放在 `Sources/SwiftSeekCore/PathHelpers.swift`，smoke 覆盖 7 个场景（中文、trailing slash、root、相对路径、空串等）。
+- **推迟**：Rename 未在 J5 做。成本考虑：需要先 `FileManager.moveItem` + 同步更新 `files`/`file_grams`/`file_bigrams`/`file_name_*`/`file_path_segments`/`file_usage`（file_id 不变，但 path/name 变），以及与 FSEvents / IncrementalWatcher 的竞争规避。J6 或后续轨道可考虑。
 
 ### 8. 首次使用 / Full Disk Access / Launch 行为还不完整
 - 当前设置窗口有 roots 为空时的引导条，但还没有完整首次使用流程。

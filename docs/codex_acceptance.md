@@ -4,30 +4,30 @@
 
 ## 当前有效状态
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J4`
-- 当前阶段验收结论：`J3 PASS`
+- 当前阶段：`J5`
+- 当前阶段验收结论：`J4 PASS`
 - 当前正式验收 session：`019dc07b-55f0-7712-9d7f-74441d7c81df`
 - 日期：2026-04-25
 
 ### 当前审计结论
-`695b1ae` 已满足 J3 的自动化与文档要求，可以放行到 J4。
+`98a1561` 已满足 J4 的自动化与文档要求，可以放行到 J5。
 
 本轮实际确认：
-- `orUnionCandidates()` 现在会在遇到纯 wildcard alt 时拉起一次 bounded scan union，补齐 `*|foo` / `*|?` 这类无 anchor alt 的覆盖面。
-- `Sources/SwiftSeekSmokeTest/main.swift` 新增 round 3 smoke，明确验证 `*|foo` 不再退化成只返回 foo 命中，`*|?` 也不再返回空集。
-- J3 round 1 的纯 OR bounded-window 回归 smoke、J3 round 3 的 wildcard-in-OR smoke、以及既有 wildcard / phrase / NOT / 容错 smoke 全部通过。
-- `Sources/` 本轮只改了 `SearchEngine.swift` 与 `SwiftSeekSmokeTest/main.swift`，没有碰 J1/J2 行为，也没有改 H2 usage tie-break。
-- build 与 smoke 实跑通过：`swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 为 `186/186`。
+- Schema 已升到 v7，新增 `query_history(query PK, last_used_at, use_count)` 和 `saved_filters(name PK, query, created_at, updated_at)`，与 `file_usage` 明确分离。
+- `QueryHistoryTypes.swift` 已补齐 privacy toggle、query UPSERT、recent list、clear、saved filter save/remove/list，行为边界和 J4 任务书一致。
+- 搜索窗底部动作栏已新增“最近/收藏”入口；设置窗口维护页已新增“搜索历史与 Saved Filters”区块，含开关、清空、列表、新建、删除。
+- 查询记录锚定在 `.open` 成功后的 committed intent，而不是每次输入；这与本轮文档和隐私边界说明一致。
+- build 与 smoke 实跑通过：`swift build --disable-sandbox` 成功，`swift run --disable-sandbox SwiftSeekSmokeTest` 为 `194/194`。
 
 ## 当前验收要求
-J3 已 `PASS`。进入 J4 后，必须补齐搜索历史、Saved Filters 与快速过滤器，但不能把搜索历史和 file usage 混成同一张表，也不能引入云同步或遥测。
+J4 已 `PASS`。进入 J5 后，必须补齐结果右键菜单与文件操作增强，让用户减少跳回 Finder 的次数，但不能把 Reveal / Copy 计入 Run Count，也不能越界做完整文件管理器。
 
-J4 验收时必须检查：
-- 普通查询执行后写入最近查询历史。
-- 重复查询去重并更新时间。
-- 可以清空历史，清空后 UI 立即反映。
-- 可以保存当前查询为 Saved Filter，并支持删除。
-- 入口不干扰普通 typing 搜索性能，文档明确隐私边界。
+J5 验收时必须检查：
+- 右键菜单包含约定动作，目标正确。
+- Copy Name / Full Path / Parent Folder 写入剪贴板内容准确。
+- Open With 使用公开 AppKit API。
+- Move to Trash 有确认与失败反馈。
+- 只有 Open 增加 Run Count。
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23

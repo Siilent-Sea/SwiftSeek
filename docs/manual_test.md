@@ -893,6 +893,33 @@ chmod a-w /tmp/readonly.sqlite3
 11. **同名覆盖**：新建同名 Saved Filter → 下拉仍只一条（name PK，UPSERT）；点看 query 已更新为新值。
 12. **本地隐私**：DB 位置 `~/Library/Application Support/SwiftSeek/swiftseek.sqlite3`，两表与隐私开关全部在本地。`grep` 项目源没有任何上传 / 网络调用。
 
+### 33q. J5 上下文菜单增强
+前置：J5 `.app` bundle 已刷；结果列表有至少一个索引命中。
+
+1. **菜单层次**：在结果行右键，菜单应按顺序：
+   - 打开
+   - 使用其他应用打开…
+   - 在 Finder 中显示
+   - —
+   - 复制名称
+   - 复制完整路径
+   - 复制所在文件夹路径
+   - —
+   - 移到废纸篓
+2. **打开** → 同原行为，成功累加 `file_usage.open_count`。
+3. **使用其他应用打开…** → 弹 NSOpenPanel（起始目录 `/Applications`，只允许 `.app`）。选 TextEdit（或别的）→ 文件应由该应用打开。`file_usage.open_count` **不变**。Console 无报错。
+4. **在 Finder 中显示** → Finder 弹窗选中该文件；`file_usage.open_count` 不变。
+5. **复制名称** → 剪贴板应等于文件基本名（含扩展名）。用 `pbpaste` 核对。
+6. **复制完整路径** → 剪贴板等于 `SearchResult.path` 全路径。
+7. **复制所在文件夹路径** → 剪贴板等于 parent 目录（去掉最后一段）。例如 `/Users/x/foo/bar.md` → `/Users/x/foo`。
+8. **移到废纸篓**：
+   - 二次确认弹窗，显示"移到废纸篓？"+ 文件名 + 完整路径
+   - 点"取消" → 无动作
+   - 点"移到废纸篓" → 文件消失到废纸篓，状态栏显示"✓ 已移到废纸篓"
+   - 文件不存在时（先 rm）应 toast 失败原因
+9. **Run Count 隔离回归**：连续触发 Reveal / 复制 × 各类 / Open With / 移到废纸篓（前 3 个对非破坏性）；`file_usage.open_count` 应**只**因第 2 步的"打开"累加。sqlite3 核。
+10. **快捷键回归**：⌘⏎ Reveal、⌘⇧C 复制路径等原有快捷键仍正常（主菜单 / 按钮 selector 不变）。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

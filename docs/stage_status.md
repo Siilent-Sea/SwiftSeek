@@ -4,40 +4,41 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J4`
+- 当前阶段：`J5`
 - 当前轨道目标：补齐 SwiftSeek 作为长期使用 macOS 桌面工具时仍欠缺的窗口生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单、首次使用与权限引导体验，让实际使用更接近 Everything-like 工具，而不是只停留在搜索性能和数据层能力。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage`
 
-## 当前阶段：J4
+## 当前阶段：J5
 
 ### 阶段目标
-提升高频使用体验，让用户能复用最近查询和常用过滤器，而不是每次重新输入复杂表达式。
+让结果右键菜单更接近成熟文件搜索器，减少用户跳回 Finder 的次数。
 
 ### 当前代码审计依据
-- 当前搜索语法、Run Count 可见性和窗口生命周期已收口，剩余主要缺口转向“重复查询如何复用”。
-- 当前还没有最近查询历史、Saved Filters / 收藏查询，用户仍要反复输入 `ext:` / `path:` / `root:` 组合。
-- J4 必须把“搜索历史”和“file usage”明确分离，不能重用 `file_usage` 语义。
-- J4 需要同时考虑数据持久化、搜索窗入口和隐私边界说明。
+- 当前窗口生命周期、Run Count 可见性、查询表达和查询复用都已收口，剩余主要缺口转向“文件操作是否足够顺手”。
+- 当前结果交互仍偏基础：用户常要跳回 Finder 才能做 Copy Name / Copy Parent Folder / Open With / Trash 等操作。
+- J5 必须保证 usage 统计只对 Open 生效，Reveal / Copy / Trash 都不能污染 Run Count。
+- 若做多选，必须明确 keyboard selection 与 table selection 的一致性；不能只堆菜单项不收口行为。
 
 ### 当前阶段禁止事项
-- 不做上下文菜单动作扩展，留给 J5。
 - 不做首次使用向导、Launch at Login 或签名 / 公证方案，留给 J6。
+- 不做完整文件管理器。
+- 不做权限绕过。
+- 不做批量重命名器。
 - 不做云同步。
 - 不做遥测。
 - 不读取系统搜索历史。
-- 不把搜索历史和 file usage 混成同一张表。
+- 不把 Reveal / Copy 计入 Run Count。
 
 ### 当前阶段完成判定标准
-J4 只有同时满足以下条件才可验收通过：
-1. 普通查询执行后写入最近查询历史。
-2. 重复查询去重并更新时间。
-3. 可以清空历史，清空后 UI 立即反映。
-4. 可以保存当前查询为 Saved Filter。
-5. 可以删除 Saved Filter。
-6. 入口不会干扰普通 typing 搜索性能。
-7. 文档明确隐私边界。
-8. `docs/manual_test.md` 或等价手测文档补齐 J4 GUI 验证步骤；能自动化的 history / saved-filter 逻辑补 smoke。
-9. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
+J5 只有同时满足以下条件才可验收通过：
+1. 右键菜单包含新增动作且目标正确。
+2. Copy Name / Full Path / Parent Folder 写入剪贴板内容准确。
+3. Open With 使用公开 AppKit API。
+4. Rename 成功后索引和 UI 状态可恢复；若不做 Rename，必须明确写出推迟原因。
+5. Move to Trash 有确认和失败反馈。
+6. 只有 Open 增加 Run Count。
+7. `docs/manual_test.md` 或等价手测文档补齐 J5 GUI 验证步骤；能自动化的字符串动作补 smoke。
+8. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
 
 ## 已归档轨道
 
