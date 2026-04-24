@@ -4,46 +4,40 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J1`
+- 当前阶段：`J2`
 - 当前轨道目标：补齐 SwiftSeek 作为长期使用 macOS 桌面工具时仍欠缺的窗口生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单、首次使用与权限引导体验，让实际使用更接近 Everything-like 工具，而不是只停留在搜索性能和数据层能力。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage`
 
-## 当前阶段：J1
+## 当前阶段：J2
 
 ### 阶段目标
-修复用户当前复现的高优先级 UX bug：设置窗口点左上角关闭后，必须能从菜单栏图标、主菜单和 Dock 行为重新打开或重新唤起可操作窗口。
-
-J1 还要把 SwiftSeek 的基础 App 生命周期补到可信状态：
-- 关闭所有窗口后 App 不退出
-- 设置窗口关闭不应导致 controller / window 进入不可恢复状态
-- Dock 点击在无可见窗口时能重新唤起搜索或设置入口
-- 主菜单和菜单栏的“设置…”入口必须稳定可用
+解决用户“没看到启动次数 / Run Count”的实际体验问题。J2 不是证明 usage 数据库字段存在，而是证明用户在当前 GUI 里能看见、理解并恢复相关列。
 
 ### 当前代码审计依据
-- `AppDelegate.showSettings(_:)` 只在 `settingsWindowController == nil` 时创建 controller，之后调用 `showWindow` / `makeKeyAndOrderFront`。
-- `SettingsWindowController` 创建的 `NSWindow` 已设置 `window.isReleasedWhenClosed = false`，但没有 `windowShouldClose` / delegate hide-only 策略。
-- `AppDelegate` 当前没有实现 `applicationShouldHandleReopen(_:hasVisibleWindows:)`。
-- `SearchWindowController` 的 search panel 也设置了 `isReleasedWhenClosed = false`，但只在 resign key 时隐藏；Dock reopen 与设置窗口重开不在这里闭环。
-- 主菜单和菜单栏都有“设置…”入口，但用户已经复现关闭后不可重新打开，说明需要以真实 GUI 手测为准，而不是仅凭静态代码放过。
+- `Schema` v6、`Database.recordOpen(path:)`、`SearchEngine LEFT JOIN file_usage`、`SearchResult.openCount/lastOpenedAt` 与结果表两列都已存在，这是 H1-H5 的既有基础。
+- 用户仍反馈“没看到启动次数”，说明问题可能落在列默认可见性、列宽持久化、文案、旧构建或 GUI 呈现层，而不是纯数据层。
+- `SearchViewController` 目前持久化结果列宽；J2 必须确认这不会让“打开次数 / 最近打开”列在真实使用中等于不可见。
+- `recent:` / `frequent:` 已存在，因此 J2 验收必须检查“结果列显示”和“查询入口”对同一 usage 数据是否一致。
 
 ### 当前阶段禁止事项
-- 不做 Run Count UI 改版，留给 J2。
 - 不做 wildcard / quote / OR / NOT 查询语法，留给 J3。
 - 不做搜索历史、Saved Filters 或快速过滤器，留给 J4。
 - 不做上下文菜单动作扩展，留给 J5。
 - 不做首次使用向导、Launch at Login 或签名 / 公证方案，留给 J6。
-- 不重写整个 UI，不把设置窗口 bug 扩大成大规模架构重构。
+- 不读取 macOS 全局启动次数，不扫描系统隐私数据，不使用 private API。
+- 不把 usage tie-break 改成压过文本相关性的主排序。
 
 ### 当前阶段完成判定标准
-J1 只有同时满足以下条件才可验收通过：
-1. 设置窗口点左上角关闭后，可从菜单栏图标“设置…”再次打开。
-2. 设置窗口点左上角关闭后，可从主菜单 `SwiftSeek -> 设置…` 再次打开。
-3. 无可见窗口时点击 Dock 图标，能重新唤起一个可操作窗口或明确的搜索 / 设置入口。
-4. 设置窗口关闭 / 打开循环 10 次，不崩溃、不丢 controller、不出现菜单入口失效。
-5. 搜索窗口的呼出 / 隐藏行为没有回归。
-6. 不引入 `Sources/` 以外无关改动，也不提前实现 J2-J6。
-7. `docs/manual_test.md` 或等价手测文档补齐 J1 GUI 验证步骤；能自动化的生命周期逻辑补 smoke / headless 测试，不能自动化的明确写手测。
-8. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
+J2 只有同时满足以下条件才可验收通过：
+1. 通过 SwiftSeek 打开某文件 3 次后，搜索该文件可见“打开次数”为 3。
+2. “最近打开”时间随成功 `.open` 更新。
+3. fresh DB / 从未打开文件显示清晰空值，如 `—`。
+4. 默认列宽下“打开次数 / 最近打开”无需横向滚动或极端拉宽即可看见。
+5. 历史列宽异常时有恢复默认列宽的路径。
+6. 文档和 UI 都明确 Run Count 不是 macOS 全局启动次数。
+7. `recent:` / `frequent:` 结果与显示列一致。
+8. `docs/manual_test.md` 或等价手测文档补齐 J2 GUI 验证步骤；能自动化的列配置 / usage 可见性逻辑补 smoke，不能自动化的明确写手测。
+9. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
 
 ## 已归档轨道
 

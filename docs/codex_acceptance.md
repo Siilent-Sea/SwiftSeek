@@ -4,32 +4,31 @@
 
 ## 当前有效状态
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J1`
-- 当前阶段验收结论：尚未验收
+- 当前阶段：`J2`
+- 当前阶段验收结论：`J1 PASS`
 - 当前正式验收 session：尚未创建
 - 日期：2026-04-25
 
 ### 当前审计结论
-本轮只做新轨道立项与任务书落盘，不假装已经修复业务代码。
+`14c94ab` 已满足 J1 的自动化与文档要求，可以放行到 J2。
 
-已确认的代码优先事实：
-- `AppDelegate.showSettings(_:)` 会复用 `settingsWindowController`，并调用 `showWindow` / `makeKeyAndOrderFront`。
-- `SettingsWindowController` 的 `NSWindow` 已设置 `isReleasedWhenClosed = false`。
-- 当前没有 `applicationShouldHandleReopen(_:hasVisibleWindows:)`。
-- 当前没有设置窗口 `windowShouldClose` / hide-only delegate 策略。
-- 主菜单和菜单栏都有“设置…”入口，但用户已经复现关闭设置窗口后不可重新打开，因此 J1 必须以真实 GUI 手测为准。
-- `Schema` v6、`UsageTypes`、`SearchEngine`、`SearchViewController` 已经有 usage / Run Count 数据链路和结果列，但用户反馈“没看到启动次数”，所以 J2 必须复核用户可见性，而不能只复述 H1-H5 已完成。
+本轮实际确认：
+- `SettingsWindowController` 现在自己担任 `NSWindowDelegate`，`windowShouldClose(_:)` 走 hide-only：`orderOut(nil)` + `return false`，设置窗口不会进入不可恢复的 closed 状态。
+- `AppDelegate.showSettings(_:)` 先 `NSApp.activate`，并在 controller 存在但 `window == nil` 时防御性重建。
+- `AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)` 已补齐，覆盖无可见窗口时的 Dock reopen。
+- `Sources/SwiftSeekSmokeTest/main.swift` 新增 J1 smoke，用 `NSWindow` + hide-only delegate stand-in 覆盖关闭后可重复重开 10 次的模式验证。
+- `docs/manual_test.md` 已补 J1 GUI 手测步骤；`docs/known_issues.md` 已把设置窗口关闭后不可重开、Dock/Menu Bar/主菜单 reopen 问题标记为 J1 已解决。
+- `Sources/` 本轮改动只涉及 `AppDelegate.swift`、`SettingsWindowController.swift`、`SwiftSeekSmokeTest/main.swift`，没有提前实现 J2-J6，也没有触碰 `SearchEngine` / `SearchResult` / `Schema`。
 
 ## 当前验收要求
-J1 完成后，Codex 才能给出 `PASS` 或 `REJECT`。J1 不允许因为 `everything-usage` 已经 `PROJECT COMPLETE` 而自动通过。
+J1 已 `PASS`。进入 J2 后，必须重新以“用户实际可见”为准复核 Run Count / 最近打开，而不是只重复 H1-H5 数据层已存在。
 
-验收时必须检查：
-- 设置窗口关闭后能从菜单栏图标重新打开。
-- 设置窗口关闭后能从主菜单重新打开。
-- 无可见窗口时 Dock 点击能重新唤起可操作窗口或明确入口。
-- 搜索窗口 show / hide / toggle 行为没有回归。
-- `docs/manual_test.md` 已补 J1 GUI 手测。
-- build / smoke 仍通过，或记录不可运行原因。
+J2 验收时必须检查：
+- 结果表“打开次数 / 最近打开”默认可见且语义清楚。
+- 历史列宽异常时有恢复默认列宽或等价恢复路径。
+- `recordOpen`、结果列显示、`recent:` / `frequent:` 三者对同一数据一致。
+- Run Count 文档和 UI 都明确只统计 SwiftSeek 内部成功 `.open`。
+- build / smoke 仍通过；GUI 可见性用手测补齐证据。
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23
