@@ -858,6 +858,25 @@ chmod a-w /tmp/readonly.sqlite3
 9. **panel resize 持久化**：手动把搜索面板拖到 1200×500 → 关闭 → ⌥Space 重开 → 尺寸应恢复 1200×500（由 `setFrameAutosaveName` 生效）。
 10. **用户使用旧 .app**：如果用户看不到 Run Count，优先确认 Dock 里的 SwiftSeek.app 是最新构建（`ls -lT SwiftSeek.app/Contents/MacOS/SwiftSeek` 的 mtime）；可能是老 bundle。
 
+### 33o. J3 查询语法：wildcard / phrase / OR / NOT
+前置：已用 J3 刷过 `.app` bundle；DB 有若干已索引文件（任意两个同名基础词不同扩展的文件即可）。
+
+1. **wildcard `*`**：输入 `alph*`，应命中所有 name 以 "alph" 开头的文件（alpha.md, alphabet.txt, …）。
+2. **wildcard `?`**：输入 `f?o`，应命中 name 含 "foo"/"fao"/"fbo" 等单字符 + "o"。
+3. **phrase** `"foo bar"`：输入带双引号 → 只命中 name 或 path 中含字面 `foo bar`（中间有空格）的文件。`fooxbar.md` 不应命中。
+4. **OR**：输入 `alpha|beta` → 命中含 alpha 或 beta 的文件（union）。
+5. **NOT**：输入 `proj -alpha` → 命中路径含 proj 但 name/path 不含 alpha 的文件。
+6. **NOT phrase**：输入 `notes !"foo bar"` → 命中 path 含 notes 但不含字面 `foo bar` 的文件。
+7. **组合**：`recent: ext:md *ta*` → 最近打开的 .md 文件中 name 含 "ta"（`*` 包住）。
+8. **filter 保护**：输入 `foo|ext:md` 应**不**按 OR 处理（right side 是 filter key），而是按字面 `foo|ext:md` 做 substring（大概率 0 结果；测试语义即可）。
+9. **容错**：
+   - `"foo bar`（未闭合引号）应自动补齐、不崩
+   - `|` 单独输入应当字面处理
+   - `*` 单独输入应当回落到 bounded scan（最多返回 LIMIT 条）
+   - `!`、`-` 单独输入应忽略
+10. **CLI 一致**：用同一 query 跑 `./.build/release/SwiftSeekSearch "alpha|beta"`，结果集应与 GUI 搜索窗一致（注意 GUI 按相关性默认排序 + H2 tie-break，CLI 排序按 SearchEngine 默认）。
+11. **不回归**：`ext:md` / `kind:file` / `path:docs` / `recent:` / `frequent:` 与 H2 tie-break / J2 列可见性与 J1 生命周期均应不变。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

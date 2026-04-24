@@ -1,84 +1,81 @@
-# 下一阶段任务书：J2
+# 下一阶段任务书：J3
 
 当前活跃轨道：`everything-ux-parity`
-当前阶段：`J2`
-阶段名称：Run Count 可见性与结果列体验复核
+当前阶段：`J3`
+阶段名称：查询语法增强：wildcard / quote / OR / NOT
 
 ## 交给 Claude 的任务
 
-你现在只做 J2。目标是解决用户“没看到启动次数 / Run Count”的实际体验问题。H1-H5 已证明 usage 数据链路存在，但 J2 必须重新以用户可见性为准验收。
+你现在只做 J3。目标是补齐 Everything 风格常用查询表达能力，让用户可以更精确地表达文件名匹配、短语、二选一和排除。
 
-J2 不做查询语法，不做搜索历史，不做上下文菜单，不做首次使用流程，不把 usage tie-break 改成压过文本相关性。
+J3 不做搜索历史，不做上下文菜单，不做首次使用流程，不做完整括号表达式或 regex。
 
 ## 必须先审计的代码路径
 
-- `Sources/SwiftSeekCore/Schema.swift`
-- `Sources/SwiftSeekCore/UsageTypes.swift`
 - `Sources/SwiftSeekCore/SearchEngine.swift`
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-- `Sources/SwiftSeekCore/Database.swift`
+- `Sources/SwiftSeekCore/Gram.swift`
+- `Sources/SwiftSeekSearch/main.swift`
 - `Sources/SwiftSeek/UI/SearchViewController.swift`
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-- `Sources/SwiftSeek/UI/ResultActionRunner.swift`
 - `Sources/SwiftSeekSmokeTest/main.swift`
+- `Sources/SwiftSeekBench/main.swift`
 
 重点确认：
-- `file_usage.open_count` / `last_opened_at` 是否真实写入
-- `SearchEngine` 是否稳定把 usage 数据 join 到 `SearchResult`
-- 结果表“打开次数” / “最近打开”两列是否默认可见
-- 列宽持久化是否会把列压窄到用户看不见
-- 是否需要“恢复默认列宽”或等价恢复入口
-- 文案是否要同时写清“Run Count / 打开次数”
-- `recent:` / `frequent:` 与可见列是否对同一 usage 数据一致
-- 用户运行 release 包时是否可能因为旧构建导致“没看到列”
+- `*` wildcard
+- `?` wildcard
+- quoted phrase，例如 `"foo bar"`
+- OR，例如 `foo|bar`
+- NOT，例如 `!foo` 或 `-foo`
+- 与既有 `ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:` 的组合语义
+- GUI 和 CLI 的 query 解析是否一致
+- 复杂语法是否会把热路径明显拖慢
 
 ## 必须做
 
-1. 基于当前 H1-H5 实现审计 Run Count 为什么“用户没看到”。
-2. 如果问题是列默认可见性、列宽、标题文案、空值表达、旧持久化状态或 release 构建路径，做最小必要修复。
-3. 保证打开某文件 3 次后，搜索该文件时“打开次数”显示为 3，“最近打开”同步更新。
-4. 保证 fresh DB / 从未打开文件显示清晰空值，例如 `—`。
-5. 如果列宽持久化会把列压窄到几乎不可见，提供“恢复默认列宽”或等价入口。
-6. UI 或文档要明确 Run Count 只统计 SwiftSeek 内部成功 `.open`；Reveal / Copy 不计入。
-7. `recent:` / `frequent:` 结果与显示列一致，不出现“数据有但列看不到”的不一致。
-8. 更新 `docs/manual_test.md`，加入 J2 手测步骤。
-9. 如能自动化，给 `Sources/SwiftSeekSmokeTest/main.swift` 补 usage 可见性/列配置相关 smoke；不能自动化的 GUI 行为必须写入 manual test。
-10. 更新 `docs/known_issues.md`：修完后把 Run Count 可见性问题改成已解决或缩小为真实剩余限制。
+1. 在当前 parser / search 流程上补 `*`、`?`、quoted phrase、OR、NOT。
+2. 定义清楚优先级和容错策略，避免“部分像布尔、部分像字面量”的半吊子行为。
+3. 保持与现有 `ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:` 兼容。
+4. GUI 和 CLI 对同一 query 的结果语义必须一致。
+5. 非法语法不能崩溃；应容错为字面量或空结果。
+6. 更新 `docs/manual_test.md`，补 J3 手测步骤。
+7. 给 `Sources/SwiftSeekSmokeTest/main.swift` 补 wildcard / quote / OR / NOT 及其组合 smoke。
+8. 如有必要，给 `Sources/SwiftSeekBench/main.swift` 补典型复杂语法 bench，确认不会明显拖慢热路径。
+9. 更新 `docs/known_issues.md`，把 J3 已解决和剩余未解决 DSL 边界写清楚。
 
 ## 明确不做
 
-- 不做 J3：wildcard / quote / OR / NOT。
 - 不做 J4：搜索历史 / Saved Filters。
 - 不做 J5：上下文菜单动作扩展。
 - 不做 J6：首次使用完整向导、Launch at Login、签名 / 公证。
-- 不读取 macOS 全局历史。
-- 不改 H2 相关性边界：usage 只能做同 score tie-break，不能压过高相关结果。
+- 不做完整括号表达式。
+- 不做 regex。
+- 不做全文搜索或 AI 语义搜索。
+- 不改 H2 usage tie-break 和 J2 列宽/可见性语义。
 
 ## 验收标准
 
-1. 通过 SwiftSeek 打开某文件 3 次后，搜索该文件可见“打开次数”为 3。
-2. “最近打开”时间随成功 `.open` 更新。
-3. fresh DB / 从未打开文件显示清晰空值，如 `—`。
-4. 默认列宽下“打开次数 / 最近打开”无需横向滚动或极端拉宽即可看见。
-5. 历史列宽异常时有恢复默认列宽的路径。
-6. 文档和 UI 都明确 Run Count 不是 macOS 全局启动次数。
-7. `recent:` / `frequent:` 结果与显示列一致。
+1. `foo*` / `f?o` 等 wildcard 按预期匹配。
+2. `"foo bar"` 作为短语匹配，不被空格拆成两个独立 AND token。
+3. `foo|bar` 返回包含 foo 或 bar 的结果。
+4. `foo !bar` 或 `foo -bar` 能排除 bar。
+5. 与 `ext:` / `path:` / `recent:` / `frequent:` 组合时语义明确。
+6. 非法语法不崩溃，能容错为字面量或空结果。
+7. GUI 与 CLI 对同一 query 结果一致。
 8. `swift build --disable-sandbox` 通过。
 9. `swift run --disable-sandbox SwiftSeekSmokeTest` 通过。
-10. `docs/manual_test.md` 有明确 J2 GUI 手测步骤。
+10. `docs/manual_test.md` 有明确 J3 GUI/CLI 手测步骤。
 
 ## 必须补的手测
 
 ```text
-1. 选择一个已被索引的文件，通过 SwiftSeek 连续打开 3 次。
-2. 再次搜索该文件，确认“打开次数”列显示 3。
-3. 确认“最近打开”列同步刷新为刚刚的时间。
-4. 找一个从未通过 SwiftSeek 打开的文件，确认显示为 `—` 而不是误导性数值。
-5. 如果列初始不可见，验证恢复默认列宽/重置入口可恢复显示。
-6. 输入 `recent:` / `frequent:`，确认结果和列里的 usage 数据一致。
-7. 文案处明确说明 Run Count 只统计 SwiftSeek 内部成功 `.open`。
+1. GUI 输入 `foo*`、`f?o`，确认 wildcard 生效。
+2. GUI 输入 `"foo bar"`，确认按短语匹配而不是拆词。
+3. GUI 输入 `foo|bar`，确认 OR 生效。
+4. GUI 输入 `foo !bar` 或 `foo -bar`，确认排除生效。
+5. GUI 输入 `recent: ext:md foo*`，确认与既有 filter 可组合。
+6. CLI `SwiftSeekSearch` 对同样 query 返回一致结果。
+7. 非法语法样例不崩溃，行为与文档一致。
 ```
 
 ## 验收后文档
 
-J2 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 J3 任务书；如果 REJECT，按 blocker 修复。
+J3 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 J4 任务书；如果 REJECT，按 blocker 修复。

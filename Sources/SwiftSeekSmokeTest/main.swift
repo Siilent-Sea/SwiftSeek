@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -3721,6 +3721,259 @@ reporter.check("H4 DatabaseStats.fileUsageRowCount reflects current state") {
     let postStats = db.computeStats()
     try reporter.require(postStats.fileUsageRowCount == 0,
                          "after clear fileUsageRowCount should be 0, got \(postStats.fileUsageRowCount)")
+}
+
+// MARK: - J3 parser + wildcard / phrase / OR / NOT syntax
+
+// Helper: fullpath-mode fixture with a small set of files so J3
+// semantic tests (wildcard / phrase / OR / NOT) can exercise
+// end-to-end without hand-rolling Row structs. Fullpath keeps
+// path substring active so we can confirm "NOT across name and
+// path" works.
+func makeJ3EngineFixture() throws -> (Database, SearchEngine, URL, URL, [String: String]) {
+    let dbDir = try makeTempDir()
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    let fm = FileManager.default
+    // Directory layout:
+    //   root/proj/alpha.md
+    //   root/proj/beta.txt
+    //   root/notes/foo bar.md      (literal space; phrase test)
+    //   root/notes/fooxbar.md      (no space; phrase should miss)
+    //   root/scratch/report-2024.log
+    try fm.createDirectory(at: root.appendingPathComponent("proj"),
+                           withIntermediateDirectories: true)
+    try fm.createDirectory(at: root.appendingPathComponent("notes"),
+                           withIntermediateDirectories: true)
+    try fm.createDirectory(at: root.appendingPathComponent("scratch"),
+                           withIntermediateDirectories: true)
+    var expected: [String: String] = [:]
+    let files: [(String, String)] = [
+        ("proj/alpha.md",        "proj-alpha"),
+        ("proj/beta.txt",        "proj-beta"),
+        ("notes/foo bar.md",     "phrase-match"),
+        ("notes/fooxbar.md",     "phrase-miss"),
+        ("scratch/report-2024.log", "report"),
+    ]
+    for (rel, tag) in files {
+        let p = root.appendingPathComponent(rel)
+        try "".write(to: p, atomically: true, encoding: .utf8)
+        let canonical = Indexer.canonicalize(path: p.path)
+        expected[tag] = canonical
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    return (db, engine, dbDir, root, expected)
+}
+
+reporter.check("J3 parser: wildcard preserved in plainTokens") {
+    let p = SearchEngine.parseQuery("foo* f?o")
+    try reporter.require(p.plainTokens == ["foo*", "f?o"],
+                         "wildcard tokens should stay in plainTokens verbatim, got \(p.plainTokens)")
+    try reporter.require(p.excludedTokens.isEmpty, "no negation expected")
+    try reporter.require(p.orGroups.isEmpty, "no OR expected")
+    try reporter.require(p.phraseTokens.isEmpty, "no phrase expected")
+}
+
+reporter.check("J3 parser: quoted phrase is captured; whitespace preserved") {
+    let p = SearchEngine.parseQuery("\"foo bar\" baz")
+    try reporter.require(p.phraseTokens == ["foo bar"],
+                         "phrase should be 'foo bar' without quotes, got \(p.phraseTokens)")
+    try reporter.require(p.plainTokens == ["baz"],
+                         "bare token should still be in plainTokens, got \(p.plainTokens)")
+}
+
+reporter.check("J3 parser: NOT tokens strip !/- prefix") {
+    let p = SearchEngine.parseQuery("foo !bar -qux")
+    try reporter.require(p.plainTokens == ["foo"],
+                         "plainTokens wrong: \(p.plainTokens)")
+    try reporter.require(Set(p.excludedTokens) == Set(["bar", "qux"]),
+                         "excludedTokens wrong: \(p.excludedTokens)")
+}
+
+reporter.check("J3 parser: NOT phrase keeps whitespace") {
+    let p = SearchEngine.parseQuery("!\"foo bar\" alpha")
+    try reporter.require(p.excludedPhrases == ["foo bar"],
+                         "excludedPhrases wrong: \(p.excludedPhrases)")
+    try reporter.require(p.plainTokens == ["alpha"],
+                         "plainTokens wrong: \(p.plainTokens)")
+}
+
+reporter.check("J3 parser: OR groups split on | (>= 2 alts, no filter keys)") {
+    let p = SearchEngine.parseQuery("foo|bar qux")
+    try reporter.require(p.orGroups.count == 1, "expected 1 OR group, got \(p.orGroups)")
+    try reporter.require(p.orGroups[0] == ["foo", "bar"],
+                         "OR group wrong: \(p.orGroups[0])")
+    try reporter.require(p.plainTokens == ["qux"],
+                         "plainTokens wrong: \(p.plainTokens)")
+}
+
+reporter.check("J3 parser: | inside a filter-looking alt stays literal") {
+    let p = SearchEngine.parseQuery("foo|ext:md")
+    try reporter.require(p.orGroups.isEmpty,
+                         "should not split when a filter key would be on the RHS")
+    try reporter.require(p.plainTokens == ["foo|ext:md"],
+                         "should fall back to literal token, got \(p.plainTokens)")
+}
+
+reporter.check("J3 parser: filter + usage + mixed syntax coexist") {
+    let p = SearchEngine.parseQuery("ext:md recent: \"foo bar\" !draft alpha|beta")
+    try reporter.require(p.filters.extensions == ["md"],
+                         "ext filter dropped: \(p.filters.extensions)")
+    try reporter.require(p.usageMode == .recent,
+                         "recent: not picked up: \(p.usageMode)")
+    try reporter.require(p.phraseTokens == ["foo bar"], "phrase wrong: \(p.phraseTokens)")
+    try reporter.require(p.excludedTokens == ["draft"], "NOT wrong: \(p.excludedTokens)")
+    try reporter.require(p.orGroups == [["alpha", "beta"]], "OR wrong: \(p.orGroups)")
+    try reporter.require(p.plainTokens.isEmpty, "unexpected plainTokens: \(p.plainTokens)")
+}
+
+reporter.check("J3 parser: bare !/- with empty remainder is ignored") {
+    let p = SearchEngine.parseQuery("foo - ! bar")
+    try reporter.require(p.plainTokens == ["foo", "bar"],
+                         "bare !/- should be dropped, got \(p.plainTokens)")
+    try reporter.require(p.excludedTokens.isEmpty,
+                         "nothing should have been negated: \(p.excludedTokens)")
+}
+
+reporter.check("J3 parser: empty phrase \"\" is ignored") {
+    let p = SearchEngine.parseQuery("foo \"\" bar")
+    try reporter.require(p.plainTokens == ["foo", "bar"],
+                         "empty phrase should be dropped, got \(p.plainTokens)")
+    try reporter.require(p.phraseTokens.isEmpty,
+                         "empty phrase should not be captured: \(p.phraseTokens)")
+}
+
+reporter.check("J3 wildcardAnchor: longest literal run") {
+    try reporter.require(SearchEngine.wildcardAnchor("foo") == "foo",
+                         "no wildcard → full text")
+    try reporter.require(SearchEngine.wildcardAnchor("foo*bar") == "foo" || SearchEngine.wildcardAnchor("foo*bar") == "bar",
+                         "either side is acceptable (same length 3)")
+    try reporter.require(SearchEngine.wildcardAnchor("f?oob*ar") == "oob",
+                         "longest run wins: got \(SearchEngine.wildcardAnchor("f?oob*ar"))")
+    try reporter.require(SearchEngine.wildcardAnchor("***") == "",
+                         "pure wildcards → empty anchor")
+    try reporter.require(SearchEngine.wildcardAnchor("?") == "",
+                         "single wildcard → empty anchor")
+}
+
+reporter.check("J3 tokenMatchesWildcard: wildcard and literal coverage") {
+    // No wildcard — plain contains semantics.
+    try reporter.require(SearchEngine.tokenMatchesWildcard("foo", in: "foobar"),
+                         "'foo' should match 'foobar'")
+    try reporter.require(!SearchEngine.tokenMatchesWildcard("baz", in: "foobar"),
+                         "'baz' should NOT match 'foobar'")
+    // `*` matches zero or more characters.
+    try reporter.require(SearchEngine.tokenMatchesWildcard("foo*", in: "foobar"),
+                         "'foo*' should match 'foobar'")
+    try reporter.require(SearchEngine.tokenMatchesWildcard("*bar", in: "foobar"),
+                         "'*bar' should match 'foobar'")
+    try reporter.require(SearchEngine.tokenMatchesWildcard("f*r", in: "foobar"),
+                         "'f*r' should match 'foobar'")
+    // `?` matches exactly one character.
+    try reporter.require(SearchEngine.tokenMatchesWildcard("f?o", in: "foo"),
+                         "'f?o' should match 'foo'")
+    try reporter.require(SearchEngine.tokenMatchesWildcard("f?o", in: "fao"),
+                         "'f?o' should match 'fao'")
+    try reporter.require(!SearchEngine.tokenMatchesWildcard("f?o", in: "fo"),
+                         "'?' requires exactly 1 char; 'fo' should miss")
+    // Regex specials inside wildcard pattern must be escaped.
+    try reporter.require(SearchEngine.tokenMatchesWildcard("a.b", in: "xa.bx"),
+                         "'.' should be literal, not regex any-char")
+    try reporter.require(!SearchEngine.tokenMatchesWildcard("a.b", in: "axbx"),
+                         "'a.b' should NOT match 'axbx' (dot is literal)")
+}
+
+reporter.check("J3 search: wildcard matches expected files") {
+    let (db, engine, dbDir, root, expected) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // `alph*` matches alpha.md only.
+    let a = try engine.search("alph*")
+    try reporter.require(a.map(\.path).contains(expected["proj-alpha"]!),
+                         "alph* missed alpha.md: \(a.map(\.path))")
+    try reporter.require(!a.map(\.path).contains(expected["proj-beta"]!),
+                         "alph* should not match beta.txt")
+    // `?eta*` matches beta.txt (single char + rest anything)
+    let b = try engine.search("?eta*")
+    try reporter.require(b.map(\.path).contains(expected["proj-beta"]!),
+                         "?eta* missed beta.txt: \(b.map(\.path))")
+}
+
+reporter.check("J3 search: quoted phrase requires whitespace literally") {
+    let (db, engine, dbDir, root, expected) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    let hits = try engine.search("\"foo bar\"")
+    let paths = hits.map(\.path)
+    try reporter.require(paths.contains(expected["phrase-match"]!),
+                         "phrase \"foo bar\" missed `notes/foo bar.md`: \(paths)")
+    try reporter.require(!paths.contains(expected["phrase-miss"]!),
+                         "phrase should NOT match `fooxbar.md`: \(paths)")
+}
+
+reporter.check("J3 search: OR returns union, not AND") {
+    let (db, engine, dbDir, root, expected) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // `alpha|beta` should match both proj/alpha.md and proj/beta.txt.
+    let hits = try engine.search("alpha|beta")
+    let paths = Set(hits.map(\.path))
+    try reporter.require(paths.contains(expected["proj-alpha"]!),
+                         "OR missed alpha.md: \(paths)")
+    try reporter.require(paths.contains(expected["proj-beta"]!),
+                         "OR missed beta.txt: \(paths)")
+}
+
+reporter.check("J3 search: NOT excludes a file") {
+    let (db, engine, dbDir, root, expected) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // `md -alpha` → md files but not alpha. Hits beta.txt? No, it's .txt.
+    // Use `proj -alpha` in fullpath mode: matches beta.txt (path has 'proj')
+    // but not alpha.md.
+    let hits = try engine.search("proj -alpha")
+    let paths = hits.map(\.path)
+    try reporter.require(paths.contains(expected["proj-beta"]!),
+                         "NOT should keep beta.txt: \(paths)")
+    try reporter.require(!paths.contains(expected["proj-alpha"]!),
+                         "NOT should exclude alpha.md: \(paths)")
+}
+
+reporter.check("J3 search: NOT phrase excludes literal space") {
+    let (db, engine, dbDir, root, expected) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // All .md in /notes except the one with "foo bar" phrase.
+    let hits = try engine.search("notes !\"foo bar\"")
+    let paths = hits.map(\.path)
+    try reporter.require(paths.contains(expected["phrase-miss"]!),
+                         "NOT phrase should keep fooxbar.md: \(paths)")
+    try reporter.require(!paths.contains(expected["phrase-match"]!),
+                         "NOT phrase should exclude `foo bar.md`: \(paths)")
+}
+
+reporter.check("J3 search: wildcard + filter + usage mode compose") {
+    let (db, engine, dbDir, root, expected) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // Open beta.txt so recent: shows it.
+    _ = try db.recordOpen(path: expected["proj-beta"]!, now: 1_700_000_000)
+    let hits = try engine.search("recent: *ta* ext:txt")
+    try reporter.require(hits.count == 1 && hits[0].path == expected["proj-beta"]!,
+                         "expected only beta.txt via recent+wildcard+ext: \(hits.map(\.path))")
+}
+
+reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
+    let (db, engine, dbDir, root, _) = try makeJ3EngineFixture()
+    defer { db.close(); cleanup(dbDir); cleanup(root) }
+    // Unterminated phrase — parser auto-closes; query still runs.
+    _ = try engine.search("\"foo bar")
+    // Just `|` — falls through as literal 1-char token.
+    _ = try engine.search("|")
+    // Just `*` — pure wildcard; falls back to filterOnly bounded scan.
+    _ = try engine.search("*")
+    // Double NOT — second `!` becomes part of the excluded term.
+    _ = try engine.search("!!foo")
+    // Empty OR + filter combo.
+    _ = try engine.search("alpha|| ext:md")
 }
 
 // MARK: - J2 result column width reset + usage visibility

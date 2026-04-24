@@ -4,39 +4,40 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-ux-parity`
-- 当前阶段：`J2`
+- 当前阶段：`J3`
 - 当前轨道目标：补齐 SwiftSeek 作为长期使用 macOS 桌面工具时仍欠缺的窗口生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单、首次使用与权限引导体验，让实际使用更接近 Everything-like 工具，而不是只停留在搜索性能和数据层能力。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage`
 
-## 当前阶段：J2
+## 当前阶段：J3
 
 ### 阶段目标
-解决用户“没看到启动次数 / Run Count”的实际体验问题。J2 不是证明 usage 数据库字段存在，而是证明用户在当前 GUI 里能看见、理解并恢复相关列。
+补齐 Everything 风格常用查询表达能力，让用户可以更精确地表达文件名匹配、短语、二选一和排除。
 
 ### 当前代码审计依据
-- `Schema` v6、`Database.recordOpen(path:)`、`SearchEngine LEFT JOIN file_usage`、`SearchResult.openCount/lastOpenedAt` 与结果表两列都已存在，这是 H1-H5 的既有基础。
-- 用户仍反馈“没看到启动次数”，说明问题可能落在列默认可见性、列宽持久化、文案、旧构建或 GUI 呈现层，而不是纯数据层。
-- `SearchViewController` 目前持久化结果列宽；J2 必须确认这不会让“打开次数 / 最近打开”列在真实使用中等于不可见。
-- `recent:` / `frequent:` 已存在，因此 J2 验收必须检查“结果列显示”和“查询入口”对同一 usage 数据是否一致。
+- 当前已支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:`，但 plain query 仍主要是空白分词 AND。
+- 当前还缺 `*` / `?` wildcard、quoted phrase、OR、NOT，这些是 Everything-like 查询体验的核心缺口。
+- J2 已证明 usage 列默认可见性问题主要是窗口宽度和列宽恢复，不应在 J3 顺手重做 J2。
+- J3 需要同时考虑 GUI 搜索窗和 CLI `SwiftSeekSearch` 的语义一致性。
 
 ### 当前阶段禁止事项
-- 不做 wildcard / quote / OR / NOT 查询语法，留给 J3。
 - 不做搜索历史、Saved Filters 或快速过滤器，留给 J4。
 - 不做上下文菜单动作扩展，留给 J5。
 - 不做首次使用向导、Launch at Login 或签名 / 公证方案，留给 J6。
-- 不读取 macOS 全局启动次数，不扫描系统隐私数据，不使用 private API。
-- 不把 usage tie-break 改成压过文本相关性的主排序。
+- 不做完整括号表达式。
+- 不做 regex。
+- 不做全文搜索或 AI 语义搜索。
+- 不把 usage tie-break、J2 列宽恢复和 J1 生命周期修复一起重写。
 
 ### 当前阶段完成判定标准
-J2 只有同时满足以下条件才可验收通过：
-1. 通过 SwiftSeek 打开某文件 3 次后，搜索该文件可见“打开次数”为 3。
-2. “最近打开”时间随成功 `.open` 更新。
-3. fresh DB / 从未打开文件显示清晰空值，如 `—`。
-4. 默认列宽下“打开次数 / 最近打开”无需横向滚动或极端拉宽即可看见。
-5. 历史列宽异常时有恢复默认列宽的路径。
-6. 文档和 UI 都明确 Run Count 不是 macOS 全局启动次数。
-7. `recent:` / `frequent:` 结果与显示列一致。
-8. `docs/manual_test.md` 或等价手测文档补齐 J2 GUI 验证步骤；能自动化的列配置 / usage 可见性逻辑补 smoke，不能自动化的明确写手测。
+J3 只有同时满足以下条件才可验收通过：
+1. `foo*` / `f?o` 等 wildcard 按预期匹配。
+2. `"foo bar"` 作为短语匹配，不被空格拆成两个独立 AND token。
+3. `foo|bar` 返回包含 foo 或 bar 的结果。
+4. `foo !bar` 或 `foo -bar` 排除 bar。
+5. 与 `ext:` / `path:` / `recent:` / `frequent:` 组合时语义明确。
+6. 非法语法不崩溃，能容错为字面量或空结果。
+7. GUI 与 CLI 对同一 query 结果一致。
+8. `docs/manual_test.md` 或等价手测文档补齐 J3 GUI/CLI 验证步骤；能自动化的 parser / search 逻辑补 smoke。
 9. 构建和现有 smoke 测试仍通过，若环境限制导致不能运行，必须记录具体原因。
 
 ## 已归档轨道

@@ -35,17 +35,20 @@
   - "最近打开" header tooltip 说明只来自 SwiftSeek 内部 `.open` 历史。
 - 数据链路 H1-H5 未改：`file_usage` / `Database.recordOpen(path:)` / `SearchResult.openCount/lastOpenedAt` / `LEFT JOIN file_usage` / `recent:` / `frequent:` / 隐私开关都与之前一致。
 
-### 5. Everything-like 查询语法仍不完整
-- 已支持：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:`。
-- 仍不支持：
-  - `*` wildcard
-  - `?` wildcard
-  - quoted phrase，例如 `"foo bar"`
-  - OR，例如 `foo|bar`
-  - NOT，例如 `!foo` 或 `-foo`
-  - 括号表达式
-  - regex
-- J3 只处理 wildcard / quote / OR / NOT；括号和 regex 默认不纳入。
+### 5. Everything-like 查询语法已在 J3 扩展
+- 已支持（J3 落地）：
+  - `*` / `?` wildcard（可在 plain 与 OR 中使用；phrase 内不识别）
+  - quoted phrase `"foo bar"`（空格字面，不切分）
+  - OR `foo|bar`（≥2 非空替换，替换中不能含 filter key）
+  - NOT `!foo` / `-foo` / `!"foo bar"`（否定 plain 或 phrase）
+- 兼容既有：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:` 仍工作；J3 负向 token 不与 filter key 合并（`!ext:md` 会回落为字面 substring，不按 "排除 ext" 处理）。
+- 容错：
+  - 未闭合 `"` → 自动补闭合
+  - 裸 `!` / `-` → 忽略
+  - 空 `""` → 忽略
+  - 只含 `*` 等纯 wildcard → 回落到 bounded scan，不崩
+- 仍不支持：括号表达式、regex、全文内容搜索（J3 明确不做）。
+- GUI 与 CLI 对同一 query 结果一致（`SwiftSeekSearch` / 主搜索窗走同一 `SearchEngine.search`）。
 
 ### 6. 搜索历史 / Saved Filters 仍缺失
 - 当前没有最近查询历史。

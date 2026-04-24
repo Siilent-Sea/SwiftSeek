@@ -144,27 +144,64 @@ public enum UsageMode: Equatable, Sendable {
     case frequent
 }
 
-/// Result of parsing a raw user query into `plainTokens` (fed to the
-/// scoring path) and `filters` (applied post-candidate).
+/// Result of parsing a raw user query.
+///
+/// Pre-J3 layout: plainTokens (AND) + filters + usageMode.
+/// J3 additions (Everything-style query syntax):
+///   * `excludedTokens`   — NOT terms prefixed with `!` or `-`
+///                          (whole-word exclude; may contain wildcards)
+///   * `phraseTokens`     — required quoted phrases (substring match,
+///                          whitespace preserved, no wildcards inside)
+///   * `excludedPhrases`  — NOT phrases (`!"foo bar"` / `-"foo bar"`)
+///   * `orGroups`         — each entry is a list of alternatives split
+///                          on `|`; at least one alternative must match.
+///                          Wildcards inside alternatives are honored;
+///                          phrases / NOT cannot mix with OR for J3.
+///
+/// Wildcards (`*`, `?`) in plainTokens / excludedTokens / orGroups are
+/// honored via the post-filter `tokenMatchesWildcard` helper; grams are
+/// still built from each token's longest literal anchor so SQL-level
+/// candidate retrieval stays efficient.
 public struct ParsedQuery: Equatable, Sendable {
     public var plainTokens: [String]
     public var filters: QueryFilters
     /// H3: `.recent` / `.frequent` reroute candidate retrieval through
     /// `file_usage`. `.normal` preserves pre-H3 behavior.
     public var usageMode: UsageMode
+    /// J3: negated AND terms. Every file matching any of these is
+    /// dropped. Wildcards allowed.
+    public var excludedTokens: [String]
+    /// J3: required substring phrases (from `"..."`). No wildcards;
+    /// whitespace inside is literal.
+    public var phraseTokens: [String]
+    /// J3: negated phrases (`!"foo bar"`).
+    public var excludedPhrases: [String]
+    /// J3: OR groups, each a list of alternatives (>= 2). Each alt
+    /// may include wildcards; phrases / NOT cannot mix with OR.
+    public var orGroups: [[String]]
 
     public init(plainTokens: [String] = [],
                 filters: QueryFilters = QueryFilters(),
-                usageMode: UsageMode = .normal) {
+                usageMode: UsageMode = .normal,
+                excludedTokens: [String] = [],
+                phraseTokens: [String] = [],
+                excludedPhrases: [String] = [],
+                orGroups: [[String]] = []) {
         self.plainTokens = plainTokens
         self.filters = filters
         self.usageMode = usageMode
+        self.excludedTokens = excludedTokens
+        self.phraseTokens = phraseTokens
+        self.excludedPhrases = excludedPhrases
+        self.orGroups = orGroups
     }
 
     /// A query with no meaningful input at all. `search()` short-circuits
     /// to an empty result list for this case.
     public var isEmpty: Bool {
         plainTokens.isEmpty && filters.isEmpty && usageMode == .normal
+            && excludedTokens.isEmpty && phraseTokens.isEmpty
+            && excludedPhrases.isEmpty && orGroups.isEmpty
     }
 }
 
@@ -257,6 +294,88 @@ public final class SearchEngine {
         return n.split(whereSeparator: { $0.isWhitespace }).map { String($0) }
     }
 
+    /// J3 quote-aware tokenizer. Preserves `"..."` blocks as a single
+    /// token (including the quotes themselves so downstream parsing
+    /// can distinguish phrase-origin tokens), lowercases everything,
+    /// and treats runs of whitespace outside quotes as separators.
+    ///
+    /// Examples:
+    ///   `foo "bar baz" qux`       → [`foo`, `"bar baz"`, `qux`]
+    ///   `!"foo bar"`              → [`!"foo bar"`]
+    ///   `a|b "c d" !e -f*`        → [`a|b`, `"c d"`, `!e`, `-f*`]
+    ///   `"unterminated`           → [`"unterminated"`] (auto-closed on EOF)
+    public static func tokenizeWithQuotes(_ raw: String) -> [String] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.isEmpty { return [] }
+        var out: [String] = []
+        var current = ""
+        var inQuote = false
+        for ch in trimmed {
+            if ch == "\"" {
+                current.append(ch)
+                if inQuote {
+                    // closing quote — flush
+                    out.append(current)
+                    current = ""
+                }
+                inQuote.toggle()
+            } else if ch.isWhitespace, !inQuote {
+                if !current.isEmpty { out.append(current); current = "" }
+            } else {
+                current.append(ch)
+            }
+        }
+        if inQuote {
+            // EOF without closing quote: auto-close, still emit the
+            // phrase so the user sees SOMETHING for half-typed input.
+            current.append("\"")
+        }
+        if !current.isEmpty { out.append(current) }
+        return out
+    }
+
+    /// J3 wildcard → regex fragment. Escapes regex specials except
+    /// `*` and `?`, which become `.*` and `.` respectively. The result
+    /// is an unanchored regex fragment suitable for
+    /// `String.range(of:options:.regularExpression)`.
+    static func wildcardToRegex(_ pattern: String) -> String {
+        var out = ""
+        out.reserveCapacity(pattern.count * 2)
+        for ch in pattern {
+            switch ch {
+            case "*": out.append(".*")
+            case "?": out.append(".")
+            case ".", "(", ")", "[", "]", "{", "}", "^", "$", "|", "+", "\\":
+                out.append("\\"); out.append(ch)
+            default:
+                out.append(ch)
+            }
+        }
+        return out
+    }
+
+    /// J3 wildcard-aware substring test. If `pattern` has no `*` or
+    /// `?`, falls back to plain `contains` (cheap). Otherwise compiles
+    /// to a regex fragment and does an unanchored match.
+    public static func tokenMatchesWildcard(_ pattern: String, in text: String) -> Bool {
+        if pattern.isEmpty { return true }
+        if !pattern.contains("*") && !pattern.contains("?") {
+            return text.contains(pattern)
+        }
+        let rx = wildcardToRegex(pattern)
+        return text.range(of: rx, options: .regularExpression) != nil
+    }
+
+    /// J3 longest literal run of a wildcard-containing token — used
+    /// as the gram anchor when routing to `candidates()`. Returns
+    /// empty string if the token is entirely wildcards.
+    public static func wildcardAnchor(_ token: String) -> String {
+        if !token.contains("*") && !token.contains("?") { return token }
+        return token.split(whereSeparator: { $0 == "*" || $0 == "?" })
+            .map(String.init)
+            .max(by: { $0.count < $1.count }) ?? ""
+    }
+
     // MARK: - E3 query filter parser
 
     /// Known filter keys. Unknown `foo:bar` tokens are treated as plain
@@ -291,25 +410,61 @@ public final class SearchEngine {
     /// while the user is still editing.
     public static func parseQuery(_ raw: String) -> ParsedQuery {
         var parsed = ParsedQuery()
-        for token in tokenize(raw) {
+        for rawToken in tokenizeWithQuotes(raw) {
+            // J3: phrase-origin tokens keep their quotes; we strip
+            // them here and route to phraseTokens / excludedPhrases.
+            // NOT prefix `!` / `-` wraps the phrase: `!"foo bar"`.
+            var token = rawToken
+            var negated = false
+            if let first = token.first, first == "!" || first == "-" {
+                let rest = String(token.dropFirst())
+                if rest.isEmpty {
+                    // Bare `!` / `-` is meaningless and was probably
+                    // half-typed. Drop the whole token — don't let
+                    // it leak to plainTokens where it'd become an
+                    // accidental literal substring search.
+                    continue
+                }
+                negated = true
+                token = rest
+            }
+            // Phrase?
+            if token.hasPrefix("\"") && token.hasSuffix("\"") && token.count >= 2 {
+                let inner = String(token.dropFirst().dropLast())
+                // Empty phrase `""` → ignore entirely.
+                if inner.isEmpty { continue }
+                if negated {
+                    parsed.excludedPhrases.append(inner)
+                } else {
+                    parsed.phraseTokens.append(inner)
+                }
+                continue
+            }
+            // At this point token has no surrounding quotes and may
+            // include `*`, `?`, `:`, or `|`.
             guard let colonIdx = token.firstIndex(of: ":") else {
-                parsed.plainTokens.append(token)
+                // No key:value — fall through to plain/OR/NOT routing.
+                addPlainOrOrToken(token, negated: negated, into: &parsed)
                 continue
             }
             let key = String(token[..<colonIdx])
             let valueStart = token.index(after: colonIdx)
             let value = String(token[valueStart...])
-            // H3: `recent:` / `frequent:` are bare mode switches; they
-            // take no value. First one wins; we consume the token so
-            // it doesn't leak into `plainTokens` as literal text.
-            if usageModeKeys.contains(key), value.isEmpty {
+            // H3: `recent:` / `frequent:` are bare mode switches.
+            // NOT on usage-mode keys makes no sense — treat the whole
+            // token as a literal if negated (user probably typed
+            // `!recent:` by accident).
+            if usageModeKeys.contains(key), value.isEmpty, !negated {
                 if parsed.usageMode == .normal {
                     parsed.usageMode = (key == "recent") ? .recent : .frequent
                 }
                 continue
             }
-            if !filterKeys.contains(key) {
-                parsed.plainTokens.append(token)
+            // Negated filter (`!ext:md`) is not part of J3 scope —
+            // fall through as plain token so behavior is predictable
+            // (literal substring search). Documented in manual_test.
+            if !filterKeys.contains(key) || negated {
+                addPlainOrOrToken(token, negated: negated, into: &parsed)
                 continue
             }
             if value.isEmpty { continue }
@@ -349,6 +504,43 @@ public final class SearchEngine {
         return parsed
     }
 
+    /// J3 route a non-phrase token that may carry an OR group into
+    /// the right ParsedQuery field. Splits on `|` only when:
+    ///   * at least one `|` is present AND
+    ///   * splitting yields >= 2 non-empty alternatives AND
+    ///   * no alternative looks like a `key:value` (we refuse to
+    ///     honor OR that crosses filter-key territory; `|` inside a
+    ///     filter-value like `hidden:true|false` is left as-is)
+    /// Negated OR groups are not supported in J3 — if `negated` is
+    /// true we route the whole token (including `|`) into
+    /// excludedTokens as a literal (post-filter will treat it as a
+    /// wildcard-free substring to exclude).
+    private static func addPlainOrOrToken(_ token: String,
+                                          negated: Bool,
+                                          into parsed: inout ParsedQuery) {
+        if negated {
+            parsed.excludedTokens.append(token)
+            return
+        }
+        if token.contains("|") {
+            let parts = token.split(separator: "|", omittingEmptySubsequences: true)
+                .map(String.init)
+            // Refuse OR if any alternative carries a known filter key.
+            let hasFilterLike = parts.contains { alt in
+                if let colon = alt.firstIndex(of: ":") {
+                    let k = String(alt[..<colon])
+                    return filterKeys.contains(k) || usageModeKeys.contains(k)
+                }
+                return false
+            }
+            if !hasFilterLike && parts.count >= 2 {
+                parsed.orGroups.append(parts)
+                return
+            }
+        }
+        parsed.plainTokens.append(token)
+    }
+
     // MARK: - Search
 
     public func search(_ rawQuery: String, options: Options = .init()) throws -> [SearchResult] {
@@ -367,6 +559,23 @@ public final class SearchEngine {
         }
 
         let candidatePool = max(options.limit * options.candidateMultiplier, options.limit)
+
+        // J3: build literal "gram anchors" for SQL-level candidate
+        // retrieval. Wildcards get stripped to their longest literal
+        // run; phrases contribute their whole text; OR alternatives
+        // do NOT contribute to the strict anchor set (they're a
+        // union, not an AND). Empty anchors are filtered out so a
+        // pure-wildcard token like `*` doesn't drag the retrieval
+        // into a meaningless all-files scan.
+        var requireAnchors: [String] = []
+        for pt in parsed.plainTokens {
+            let a = SearchEngine.wildcardAnchor(pt)
+            if !a.isEmpty { requireAnchors.append(a) }
+        }
+        for ph in parsed.phraseTokens {
+            if !ph.isEmpty { requireAnchors.append(ph) }
+        }
+
         let rows: [Row]
         if parsed.usageMode != .normal {
             // H3: `recent:` / `frequent:` candidate pool comes straight
@@ -375,18 +584,21 @@ public final class SearchEngine {
             // emits them already in usage order so the post-filter
             // pipeline preserves ordering.
             rows = try usageCandidates(mode: parsed.usageMode, limit: candidatePool)
-        } else if !parsed.plainTokens.isEmpty {
-            rows = try candidates(tokens: parsed.plainTokens,
+        } else if !requireAnchors.isEmpty {
+            // J3: use anchors (wildcard-stripped, phrase-inclusive)
+            // so candidate retrieval finds a valid superset of the
+            // real match set. The strict wildcard / phrase / OR /
+            // NOT evaluation happens below in the post-filter.
+            rows = try candidates(tokens: requireAnchors,
                                   pathTokens: parsed.filters.pathTokens,
                                   mode: mode,
                                   limit: candidatePool)
         } else {
             // E3 filter-only query: no plain tokens to gram-match against.
-            // G3: filterOnlyCandidates already routes through the v4
-            // tables via `gramCandidates` / `bigramCandidates`. In
-            // compact mode `path:` tokens should instead go through
-            // file_path_segments; extension / kind / root keep their
-            // own primary SQL since those tables are the same.
+            // J3: also the fallback for pure OR / pure NOT / pure-wildcard
+            // queries where we have no reliable anchor — filterOnly's
+            // bounded scan is the safe fallback so the user doesn't end
+            // up scanning the whole table.
             rows = try filterOnlyCandidates(filters: parsed.filters,
                                             mode: mode,
                                             limit: candidatePool)
@@ -416,25 +628,63 @@ public final class SearchEngine {
         // G3: in compact mode the per-token substring AND also runs
         // against name-only; in fullpath mode the pre-G3 behaviour
         // (name OR path) is preserved via rowMatches below.
-        let filtered = rooted.filter { row in
-            // G3 compact plain-token check: every plain token must
-            // match somewhere in nameLower. In fullpath mode name OR
-            // path is accepted (pre-G3 semantics preserved inside
-            // candidates()).
-            // H3: usage modes also use the name-contain semantic
-            // regardless of index mode — `recent: todo` means "most
-            // recent files whose name contains todo". We never widen
-            // back to path substring here so the usage pool stays
-            // predictable.
-            if mode == .compact || parsed.usageMode != .normal {
-                for t in parsed.plainTokens {
-                    if !row.nameLower.contains(t) { return false }
+        // J3 row-level evaluator. Covers plain tokens (with wildcard),
+        // phrase tokens (literal substring), OR groups (any alt),
+        // NOT tokens (wildcard-aware) and NOT phrases (literal).
+        // Behaves differently for compact vs fullpath only on WHERE
+        // matches are allowed to land (name-only vs name-or-path).
+        func j3RowMatches(_ row: Row) -> Bool {
+            // Every plain token must match (AND). Wildcards honored.
+            for pt in parsed.plainTokens {
+                let inName = SearchEngine.tokenMatchesWildcard(pt, in: row.nameLower)
+                // Compact and usage modes: name-only. Fullpath: allow path too.
+                if mode == .compact || parsed.usageMode != .normal {
+                    if !inName { return false }
+                } else {
+                    let inPath = SearchEngine.tokenMatchesWildcard(pt, in: row.pathLower)
+                    if !inName && !inPath { return false }
                 }
+            }
+            // Every required phrase must appear as a literal substring.
+            for ph in parsed.phraseTokens {
+                let inName = row.nameLower.contains(ph)
+                if mode == .compact || parsed.usageMode != .normal {
+                    if !inName { return false }
+                } else {
+                    let inPath = row.pathLower.contains(ph)
+                    if !inName && !inPath { return false }
+                }
+            }
+            // Every excluded plain token must NOT match. NOT applies
+            // across name AND path regardless of compact/fullpath —
+            // intent is "the file must not have this text anywhere
+            // we can see".
+            for et in parsed.excludedTokens {
+                if SearchEngine.tokenMatchesWildcard(et, in: row.nameLower) { return false }
+                if SearchEngine.tokenMatchesWildcard(et, in: row.pathLower) { return false }
+            }
+            for ep in parsed.excludedPhrases {
+                if row.nameLower.contains(ep) { return false }
+                if row.pathLower.contains(ep) { return false }
+            }
+            // Every OR group must have at least one matching alt.
+            for group in parsed.orGroups {
+                var anyHit = false
+                for alt in group {
+                    let inName = SearchEngine.tokenMatchesWildcard(alt, in: row.nameLower)
+                    let inPath = (mode != .compact && parsed.usageMode == .normal)
+                        ? SearchEngine.tokenMatchesWildcard(alt, in: row.pathLower)
+                        : false
+                    if inName || inPath { anyHit = true; break }
+                }
+                if !anyHit { return false }
             }
             return SearchEngine.rowMatches(row: row,
                                            filters: parsed.filters,
                                            mode: mode)
         }
+
+        let filtered = rooted.filter(j3RowMatches)
 
         // If the query is filter-only (no plain tokens) we rank by mtime
         // descending — "show me all md files" is almost always most useful
@@ -459,8 +709,37 @@ public final class SearchEngine {
                              openCount: row.openCount,
                              lastOpenedAt: row.lastOpenedAt)
             }
-        } else if !parsed.plainTokens.isEmpty {
-            scored = rank(rows: filtered, tokens: parsed.plainTokens)
+        } else if !parsed.plainTokens.isEmpty || !parsed.phraseTokens.isEmpty {
+            // J3: scoring uses wildcard-stripped anchors + full
+            // phrase text. scoreToken expects literal substrings;
+            // passing `foo*` would score 0 even for real matches.
+            // For OR groups we add each alt's anchor — the scorer
+            // is permissive (any non-zero signal counts toward
+            // score), so mixing OR alternatives into the score
+            // input amounts to "any matching alt pushes score up".
+            var scoreTokens: [String] = []
+            for pt in parsed.plainTokens {
+                let a = SearchEngine.wildcardAnchor(pt)
+                if !a.isEmpty { scoreTokens.append(a) }
+            }
+            scoreTokens.append(contentsOf: parsed.phraseTokens)
+            if scoreTokens.isEmpty {
+                // All plain tokens were pure-wildcard; fall back to
+                // baseline 100 so H2 tie-break orders the result set
+                // by usage rather than by a misleading 0 score.
+                scored = filtered.map { row in
+                    SearchResult(path: row.path,
+                                 name: row.name,
+                                 isDir: row.isDir,
+                                 size: row.size,
+                                 mtime: row.mtime,
+                                 score: 100,
+                                 openCount: row.openCount,
+                                 lastOpenedAt: row.lastOpenedAt)
+                }
+            } else {
+                scored = rank(rows: filtered, tokens: scoreTokens)
+            }
         } else {
             scored = filtered.map { row in
                 SearchResult(path: row.path,
