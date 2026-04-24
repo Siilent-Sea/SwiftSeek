@@ -393,8 +393,56 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
                 emptyStateLabel.stringValue = "输入关键字开始搜索"
             }
         } else {
-            emptyStateLabel.stringValue = "未找到匹配 “\(trimmed)”"
+            // F4: when a real query returns 0 hits, hint at any degraded
+            // root so the user can tell "no match" from "can't match
+            // because root is offline / unavailable". This is the search
+            // side of pushing RootHealth beyond the settings-page badge.
+            var base = "未找到匹配 “\(trimmed)”"
+            if let degraded = degradedRootsHint() {
+                base += "\n\(degraded)"
+            }
+            emptyStateLabel.stringValue = base
         }
+    }
+
+    /// F4: build a human-readable suffix enumerating roots that are
+    /// currently in a "can't return results" state (offline /
+    /// unavailable / paused). Returns nil when every root is ready so
+    /// the empty state message stays tight in the common case.
+    private func degradedRootsHint() -> String? {
+        let roots: [RootRow]
+        do {
+            roots = try database.listRoots()
+        } catch {
+            NSLog("SwiftSeek: degradedRootsHint listRoots failed: \(error)")
+            return nil
+        }
+        var offline: [String] = []
+        var unavailable: [String] = []
+        var paused: [String] = []
+        for r in roots {
+            let h = database.computeRootHealth(for: r)
+            switch h {
+            case .offline:     offline.append(r.path)
+            case .unavailable: unavailable.append(r.path)
+            case .paused:      paused.append(r.path)
+            default: break
+            }
+        }
+        if offline.isEmpty && unavailable.isEmpty && paused.isEmpty {
+            return nil
+        }
+        var parts: [String] = []
+        if !offline.isEmpty {
+            parts.append("未挂载：\(offline.joined(separator: "、"))")
+        }
+        if !unavailable.isEmpty {
+            parts.append("不可访问：\(unavailable.joined(separator: "、"))")
+        }
+        if !paused.isEmpty {
+            parts.append("已停用：\(paused.joined(separator: "、"))")
+        }
+        return "（root 状态 · " + parts.joined(separator: " · ") + "）"
     }
 
     // MARK: - NSTextFieldDelegate command routing

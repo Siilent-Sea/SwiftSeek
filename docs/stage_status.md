@@ -2,8 +2,8 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-performance`
-- 当前阶段：`F3`（功能落地，等待 Codex 验收）
-- 轨道内已通过：F1（round 1 PASS）、F2（round 2 PASS），均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
+- 当前阶段：`F4`（功能落地，等待 Codex 验收）
+- 轨道内已通过：F1（round 1 PASS）、F2（round 2 PASS）、F3（round 2 PASS），均 2026-04-24，session 019dbdb7-8fa3-72b0-9ad0-f389fa6b1a90
 - 已归档轨道：`v1-baseline`（P0~P6 / PROJECT COMPLETE 2026-04-23）
 - 已归档轨道：`everything-alignment`（E1~E5 / PROJECT COMPLETE 2026-04-24）
 
@@ -32,9 +32,47 @@
 - 把当前已经部分落地的 Everything-like 功能按代码真实状态校正
 - 性能 / 真实相关性 / 结果视图 / DSL / root 健康 / 索引自动化 按可验证顺序推进
 
-### 当前阶段：`F3`（高密度结果视图与排序入口）
+### 当前阶段：`F4`（查询 DSL + RootHealth 真正落地）
 
-#### 当前阶段目标（round 2 全部已落地，等待 Codex 复验）
+#### 当前阶段目标（功能面落地，等待 Codex 验收）
+- ✅ `filterOnlyCandidates` 优先级重排：`path:` ≥3 → file_grams，`path:` ==2 → file_bigrams，`ext:` → trailing-wildcard LIKE，`root:` → prefix LIKE，`kind:` → is_dir=?，最后才 bounded scan
+- ✅ 0 结果空态提示：若有 offline / unavailable / paused root，列出状态 + 路径（新 `degradedRootsHint()`）
+- ✅ 文档：`known_issues.md` 第 7 节重写为 F4 后完整 DSL 支持/不支持清单；第 5 节 root 状态扩大到搜索窗口
+- ✅ smoke +3：path-only gram 路径 / path+ext 组合 / computeRootHealth ready+offline 分类
+
+#### 当前阶段禁止事项
+- 不做全文搜索
+- 不做云盘一致性承诺
+- 不做 OR/NOT/括号/短语等布尔 DSL
+- 不改搜索后端 / 不做 ranking 大改
+
+#### 代码状态（F4 快照）
+- `Sources/SwiftSeekCore/SearchEngine.swift`
+  - `filterOnlyCandidates` 改 6 级优先级：path gram/bigram > ext > root > kind > fallback
+- `Sources/SwiftSeek/UI/SearchViewController.swift`
+  - 新 `degradedRootsHint()` 聚合 offline/unavailable/paused roots
+  - `refreshEmptyState` 0 结果时附加状态尾注
+- `Sources/SwiftSeekSmokeTest/main.swift`
+  - F4 +3 用例；总 118 pass
+- 文档：`known_issues.md` 第 5/7 节改写
+
+#### 完成判定
+1. ✅ DSL 核心字段可用且高频场景效率可接受
+2. ✅ `RootHealth` 不只停留在设置页：搜索空态标注相关 root
+3. ✅ root 状态与搜索结果关系更可解释
+4. ✅ 文档描述的 DSL 支持/不支持清单与代码一致
+5. ✅ `swift build` + smoke 全绿（118/118）
+
+---
+
+### 原 F3 阶段快照（归档保留）
+- rowHeight 22→18，name .medium，path tertiary，mtime/size 等宽数字
+- sort + column width 持久化
+- manual_test §33d/e
+
+### 原 F2/F1 阶段快照（归档保留）
+
+### 原 F3 详细目标（round 2 全部已落地，归档引用）
 **Round 1 REJECT 原因**：仅做了 sort/width 持久化，未触 UI 密度；未补手测。Round 2 补齐：
 - ✅ **视觉密度改动**：rowHeight 22→18；intercellSpacing 纵向 2→1；gridStyleMask 清零；name 列 .medium 字重；path 列 tertiaryLabel 灰；mtime/size 列 `monospacedDigitSystemFont` 数字对齐；文件夹 icon 蓝色 tint 区分 dir/file
 - ✅ 结果视图列布局保留：用户调整列宽后持久化，重启恢复
@@ -145,7 +183,8 @@
 - 轨道内历史结论：
   - `everything-performance / F1 / PASS`（round 1，2026-04-24）
   - `everything-performance / F2 / PASS`（round 2，2026-04-24）
-- 当前阶段（F3）：功能面已落地，等待 round 1 验收。
+  - `everything-performance / F3 / PASS`（round 2，2026-04-24）
+- 当前阶段（F4）：功能面已落地，等待 round 1 验收。
 
 ### 当前活跃轨道验收会话状态
 - 会话状态目录：`docs/agent-state/`

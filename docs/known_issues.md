@@ -35,15 +35,10 @@
   - stderr 日志显式标注 limit 来源（`settings.search_limit` vs `--limit override`）
 - GUI 与 CLI 在默认行为上已一致；旧的"CLI 固定 20"口径已过期。
 
-### 5. roots 健康状态的真实现状
-- `RootHealth` 类型已存在
-- roots UI 已显示：
-  - 就绪
-  - 索引中
-  - 停用
-  - 未挂载
-  - 不可访问
-- 但这些状态主要还停留在设置页 roots 列表，尚未形成更完整的跨页面用户心智
+### 5. roots 健康状态的真实现状（F4 已扩大覆盖）
+- `RootHealth` 类型：ready / indexing / paused / offline / unavailable
+- 设置页 roots 列表显示状态 badge（E4 起）
+- F4 起：搜索窗口 0 结果空态提示会列出 offline / unavailable / paused 的 root 路径，让用户可以判断"为什么没结果"而不是默认以为是查询打错了
 
 ### 6. 结果视图的真实现状
 - 结果视图已经不是单列 launcher：
@@ -51,19 +46,22 @@
   - 已支持列头排序
 - 但当前仍只是第一版多列结果视图，还不算真正成熟的高密度文件搜索器视图
 
-### 7. DSL 的真实现状
-- 当前已支持：
-  - `ext:`
-  - `kind:`
-  - `path:`
-  - `root:`
-  - `hidden:`
-- 当前仍不支持：
-  - OR
-  - NOT
-  - 括号
-  - 引号短语
-- 对部分 filter-only 查询，当前仍会走 bounded scan fallback
+### 7. DSL 的真实现状（F4 已收口一轮）
+- 已支持：
+  - `ext:<a,b,c>`（多扩展名逗号分隔）
+  - `kind:file` / `kind:dir`
+  - `path:<token>`（多词 AND 组合，token 可任意长）
+  - `root:<prefix>`（路径前缀匹配，处理 `/` 边界）
+  - `hidden:true` / `hidden:false`（接受 true/false/yes/no/1/0/on/off 多种别名）
+- 组合语义：所有 filter 之间 AND；filter 可与 plain query 组合
+- filter-only 查询候选路径优先级（F4 更新）：
+  1. `path:` token ≥3 字符 → `file_grams`（trigram）
+  2. `path:` token ==2 字符 → `file_bigrams`（bigram）
+  3. `ext:` → `name_lower LIKE '%.ext'`（trailing wildcard，B-tree 可用）
+  4. `root:` → `path_lower LIKE 'prefix/%'`
+  5. `kind:` → `is_dir = ?`
+  6. bounded scan 兜底（只有 `hidden:` 单独使用时触发）
+- 不支持：OR / NOT / 括号 / 引号短语 / 复杂布尔组合
 
 ### 8. 索引自动化的真实现状
 - add root 后已自动后台索引

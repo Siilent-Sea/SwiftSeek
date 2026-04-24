@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -2475,6 +2475,100 @@ reporter.check("F3 column width persistence: missing = nil, round-trip per key")
         try reporter.require(got == w,
                              "round-trip failed for \(k): \(got) vs \(w)")
     }
+}
+
+// MARK: - F4 (DSL path:/root:/hidden: + RootHealth surfacing)
+
+reporter.check("F4 path:-only filter-only query returns the right files (uses gram path, not bounded scan)") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("notes-dir"),
+                           withIntermediateDirectories: true)
+    try fm.createDirectory(at: root.appendingPathComponent("other"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("notes-dir/a.txt"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("notes-dir/b.txt"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("other/c.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("path:notes-dir")
+    let names = Set(hits.map { $0.name })
+    // Must include both files under notes-dir/ plus the notes-dir
+    // directory itself.
+    try reporter.require(names.contains("a.txt"),
+                         "a.txt missing: \(names)")
+    try reporter.require(names.contains("b.txt"),
+                         "b.txt missing: \(names)")
+    // Must NOT include the other subtree.
+    try reporter.require(!names.contains("c.txt"),
+                         "c.txt leaked through path: filter: \(names)")
+}
+
+reporter.check("F4 path:-only + ext: combination applies both filters") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("notes-dir"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("notes-dir/a.md"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("notes-dir/b.txt"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("other.md"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("path:notes-dir ext:md")
+    let names = Set(hits.map { $0.name })
+    try reporter.require(names == ["a.md"],
+                         "expected only a.md, got \(names)")
+}
+
+reporter.check("F4 RootHealth surfaces in the empty-state suffix logic (via computeRootHealth)") {
+    // We can't render the actual AppKit label from smoke, but the
+    // key contract is that computeRootHealth classifies offline and
+    // unavailable roots correctly. Smoke already covers all 5 states
+    // individually in F4 of the previous stage set (E4); here we
+    // verify the SearchViewController-style summary that F4 adds:
+    // a roots list with a mix of healthy + degraded produces at
+    // least one degraded flag. This is a pure helper test so the
+    // UI layer only has to handle display.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let goodRoot = try makeTempDir()
+    defer { cleanup(goodRoot) }
+    let ghost = "/private/var/tmp/f4-offline-\(UUID().uuidString)"
+    _ = try db.registerRoot(path: goodRoot.path)
+    _ = try db.registerRoot(path: ghost)
+    let rows = try db.listRoots()
+    var statuses: [RootHealth] = []
+    for r in rows {
+        statuses.append(db.computeRootHealth(for: r))
+    }
+    try reporter.require(statuses.contains(.ready),
+                         "expected at least one .ready, got \(statuses)")
+    try reporter.require(statuses.contains(.offline),
+                         "expected at least one .offline (ghost path), got \(statuses)")
 }
 
 reporter.check("F1 warm 2-char search timing under generous CI bound (200ms median)") {

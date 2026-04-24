@@ -425,9 +425,33 @@ public final class SearchEngine {
 
     /// Candidate pool for a query that has filters but no plain tokens.
     /// Emits a single SQL query biased toward whichever filter is likely
-    /// to be most selective (extension > root > kind > naive scan).
+    /// to be most selective.
+    ///
+    /// F4 priority order:
+    ///   1. `path:` token(s) ≥3 chars → file_grams index (trigram)
+    ///   2. `path:` token(s) ==2 chars → file_bigrams index
+    ///   3. extension filter → `name_lower LIKE '%.ext'` (trailing-only
+    ///      wildcard, B-tree-indexable)
+    ///   4. root prefix → `path_lower LIKE 'prefix/%'` (trailing wildcard)
+    ///   5. kind filter → `is_dir = ?`
+    ///   6. fallback bounded scan
+    /// The first match wins; remaining filters are applied post-candidate
+    /// via `rowMatches`.
     private func filterOnlyCandidates(filters: QueryFilters, limit: Int) throws -> [Row] {
-        // Priority 1: extension filter (typically very selective — most
+        // Priority 1 / 2: use the gram / bigram index when `path:` tokens
+        // are selective enough. This is the F4 fix for the bounded-scan
+        // fallback that F1's gap doc flagged.
+        if !filters.pathTokens.isEmpty {
+            let longPath = filters.pathTokens.filter { $0.count >= Gram.size }
+            let shortPath = filters.pathTokens.filter { $0.count == Gram.bigramSize }
+            if !longPath.isEmpty {
+                return try gramCandidates(longTokens: longPath, limit: limit)
+            }
+            if !shortPath.isEmpty {
+                return try bigramCandidates(shortTokens: shortPath, limit: limit)
+            }
+        }
+        // Priority 3: extension filter (typically very selective — most
         // users run `ext:md` to find notes on a specific type).
         if !filters.extensions.isEmpty {
             let placeholders = filters.extensions.map { _ in "?" }.joined(separator: " OR name_lower LIKE ")
