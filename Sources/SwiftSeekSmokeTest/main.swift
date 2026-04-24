@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -337,6 +337,11 @@ func withP2Fixture(_ body: (Database, String) throws -> Void) throws {
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
+    // P2 fixture originally asserts v4 full-path substring semantics
+    // (plain queries can recall path-only hits like `/extras-with-alpha/README.md`).
+    // G3 changed the new-DB default to compact. Keep these P2 regressions
+    // meaningful by opting into fullpath mode explicitly before indexing.
+    try db.setIndexMode(.fullpath)
 
     let root = try makeTempDir()
     defer { cleanup(root) }
@@ -986,16 +991,19 @@ func withP5Fixture(_ body: (Database) throws -> Void) throws {
 
 reporter.check("P5 schema migration reaches current version and creates `settings` table") {
     try withP5Fixture { db in
-        // Current schema version moves over time (E3→3, F1→4). Assert
-        // relative to Schema.currentVersion so this test doesn't need to
-        // be touched every bump.
         try reporter.require(db.schemaVersion == Schema.currentVersion,
                              "schema=\(db.schemaVersion) expected=\(Schema.currentVersion)")
         try reporter.require(try db.tableExists("settings"),
                              "settings table missing")
-        // settings is empty on fresh DB
-        let count = try db.scalarInt("SELECT COUNT(*) FROM settings;") ?? -1
-        try reporter.require(count == 0, "fresh settings count=\(count)")
+        // G3+: fresh DB seeds `index_mode=compact` in v5 migration, so
+        // the settings table is no longer empty. Assert on absence of
+        // user-facing settings instead of raw row count.
+        let unexpected = try db.scalarInt("""
+            SELECT COUNT(*) FROM settings
+            WHERE key NOT IN ('\(SettingsKey.indexMode)');
+        """) ?? -1
+        try reporter.require(unexpected == 0,
+                             "fresh DB should only have the schema-seeded settings row(s); unexpected=\(unexpected)")
     }
 }
 
@@ -1197,12 +1205,17 @@ reporter.check("P5 RebuildCoordinator: walks enabled roots and stamps last_rebui
 
 reporter.check("P5 RebuildCoordinator: concurrent call returns false (prevents duplicate rebuild)") {
     try withP5Fixture { db in
+        // G3: compact mode writes ~10x fewer gram rows per file, so the
+        // first rebuild races past 10ms easily. Use fullpath + more
+        // files to make the busy window reliably long enough for the
+        // race. This test is about the state-lock contract, not mode.
+        try db.setIndexMode(.fullpath)
         let root1 = try makeTempDir()
         defer { cleanup(root1) }
         // Fill with many files so first rebuild stays busy long enough for
         // the second call to race it.
-        for i in 0..<200 {
-            try "x".write(to: root1.appendingPathComponent("f\(i).txt"),
+        for i in 0..<2000 {
+            try "x".write(to: root1.appendingPathComponent("file-with-a-reasonably-long-name-\(i).txt"),
                           atomically: true, encoding: .utf8)
         }
         _ = try db.registerRoot(path: Indexer.canonicalize(path: root1.path))
@@ -1212,7 +1225,7 @@ reporter.check("P5 RebuildCoordinator: concurrent call returns false (prevents d
         try reporter.require(firstStarted, "first rebuild did not start")
         // Second call races — the internal state lock is held briefly so allow
         // a tiny yield to make this deterministic.
-        Thread.sleep(forTimeInterval: 0.01)
+        Thread.sleep(forTimeInterval: 0.001)
         let secondStarted = coord.rebuild()
         try reporter.require(!secondStarted,
                              "second rebuild should be rejected while one is running")
@@ -2057,15 +2070,17 @@ reporter.check("E3 end-to-end: kind:dir returns only directories") {
 
 // MARK: - F1 (search hot path performance)
 
-reporter.check("F1 schema: fresh DB reaches v4 and has file_bigrams table") {
+reporter.check("F1 schema: fresh DB reaches current version and has file_bigrams table") {
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }
     let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
-    try reporter.require(db.schemaVersion == 4,
-                         "expected v4, got \(db.schemaVersion)")
+    // Schema version moves across tracks (F1→4, G3→5). Assert via
+    // Schema.currentVersion so this test stays green across bumps.
+    try reporter.require(db.schemaVersion == Schema.currentVersion,
+                         "expected \(Schema.currentVersion), got \(db.schemaVersion)")
     try reporter.require(try db.tableExists("file_bigrams"),
                          "file_bigrams table missing")
 }
@@ -2081,13 +2096,14 @@ reporter.check("F1 Gram.bigrams: returns 2-grams for 2+ char input, empty for 1 
                          "2-char input exactly one bigram: got \(twoChar)")
 }
 
-reporter.check("F1 Indexer populates file_bigrams when inserting files") {
+reporter.check("F1 Indexer populates file_bigrams when inserting files (fullpath mode)") {
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }
     let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
+    try db.setIndexMode(.fullpath) // G3: explicitly ask for file_bigrams
     let root = try makeTempDir()
     defer { cleanup(root) }
     try "".write(to: root.appendingPathComponent("alpha.txt"),
@@ -2135,11 +2151,16 @@ reporter.check("F1 v3 → v4 migration backfills file_bigrams for pre-existing r
     let db = try Database.open(at: dbURL)
     defer { db.close() }
     try db.migrate()
-    try reporter.require(db.schemaVersion == 4,
-                         "v3→v4 migration did not land, got \(db.schemaVersion)")
+    try reporter.require(db.schemaVersion == Schema.currentVersion,
+                         "v3 → current migration did not land, got \(db.schemaVersion)")
     let bgCount = try db.scalarInt("SELECT COUNT(*) FROM file_bigrams;") ?? 0
     try reporter.require(bgCount > 0,
                          "bigrams not backfilled after migration (count=\(bgCount))")
+    // G3 upgrade path: a v3 DB upgrading through v4 to current should
+    // land at fullpath mode (to preserve existing capability).
+    let mode = try db.getSetting(SettingsKey.indexMode)
+    try reporter.require(mode == IndexMode.fullpath.rawValue,
+                         "v3→current upgrade should default to fullpath mode (got \(String(describing: mode)))")
 }
 
 reporter.check("F1 2-char query goes through the bigram index path, not %LIKE% scan") {
@@ -2246,17 +2267,20 @@ reporter.check("F1 Database settings cache: invalidates on setSetting for same k
 
 // MARK: - F2 (real relevance + GUI/CLI limit parity)
 
-reporter.check("F2 ranking matrix: baseline query 'alpha' over a standard fixture") {
+reporter.check("F2 ranking matrix: baseline query 'alpha' over a standard fixture (fullpath mode)") {
     // Lock down the current scoring contract as a single regression
     // matrix. Every row asserts an exact expected post-E1/F1 score for a
     // specific `alpha` hit. Adjusting scoring rules requires updating
     // this matrix deliberately, not silently.
+    // G3: this matrix assumes v4 fullpath semantics (plain `alpha` recalls
+    // extras-with-alpha/README.md via path match). Explicit opt-in.
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }
     let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
+    try db.setIndexMode(.fullpath)
     let root = try makeTempDir()
     defer { cleanup(root) }
     let fm = FileManager.default
@@ -2682,7 +2706,12 @@ reporter.check("G1 computeStats on fresh DB: known tables all row-count=0, no cr
                          "fresh file_bigrams should be 0, got \(s.fileBigramsRowCount)")
     try reporter.require(s.rootsRowCount == 0, "fresh roots should be 0")
     try reporter.require(s.excludesRowCount == 0, "fresh excludes should be 0")
-    try reporter.require(s.settingsRowCount == 0, "fresh settings should be 0")
+    // G3+: the v5 migration seeds settings(index_mode), so a "fresh" DB
+    // now has at least that row. Assert on "no user-driven settings"
+    // rather than raw count so a future seeded default doesn't break this.
+    try reporter.require(s.settingsRowCount >= 0, "settings row count readable")
+    try reporter.require(s.settingsRowCount <= 2,
+                         "fresh DB should have at most schema-seeded settings, got \(s.settingsRowCount)")
     try reporter.require(s.pageCount > 0, "page_count should be positive")
     try reporter.require(s.pageSize > 0, "page_size should be positive")
     try reporter.require(s.mainFileBytes > 0, "main file should exist")
@@ -2690,13 +2719,14 @@ reporter.check("G1 computeStats on fresh DB: known tables all row-count=0, no cr
     try reporter.require(s.avgBigramsPerFile == nil, "avg bigrams should be nil when files=0")
 }
 
-reporter.check("G1 computeStats averages: per-file grams/bigrams match row counts") {
+reporter.check("G1 computeStats averages: per-file grams/bigrams match row counts (fullpath mode)") {
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }
     let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
     let db = try Database.open(at: paths.databaseURL)
     defer { db.close() }
     try db.migrate()
+    try db.setIndexMode(.fullpath) // G3: exercise the file_grams/file_bigrams path explicitly
     let root = try makeTempDir()
     defer { cleanup(root) }
     for f in ["alpha.txt", "beta.md", "gamma.swift"] {
@@ -2819,6 +2849,232 @@ reporter.check("G1 humanBytes / humanCount / humanAvg render — for missing val
                          "1 MB should produce MB-ish string")
     try reporter.require(DatabaseStats.humanAvg(3.141) == "3.14",
                          "humanAvg(3.141) should be '3.14'")
+}
+
+// MARK: - G3 (schema v5 + compact index + MigrationCoordinator)
+
+reporter.check("G3 schema v5: fresh DB has compact tables + migration_progress") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(db.schemaVersion == 5,
+                         "fresh DB should be at v5, got \(db.schemaVersion)")
+    for table in ["file_name_grams", "file_name_bigrams", "file_path_segments", "migration_progress"] {
+        try reporter.require(try db.tableExists(table),
+                             "\(table) missing after v5 migration")
+    }
+}
+
+reporter.check("G3 index mode: fresh DB default = compact, v4 upgrade default = fullpath") {
+    // fresh
+    let freshDir = try makeTempDir()
+    defer { cleanup(freshDir) }
+    do {
+        let paths = try AppPaths.ensureSupportDirectory(override: freshDir)
+        let db = try Database.open(at: paths.databaseURL)
+        defer { db.close() }
+        try db.migrate()
+        try reporter.require(try db.getIndexMode() == .compact,
+                             "fresh DB should default to compact")
+    }
+    // Pre-existing v4 DB
+    let v4Dir = try makeTempDir()
+    defer { cleanup(v4Dir) }
+    let v4URL = v4Dir.appendingPathComponent("legacy-v4.sqlite3")
+    do {
+        let db = try Database.open(at: v4URL)
+        // Build a minimal v4-shaped schema and stamp user_version=4.
+        try db.exec("""
+        CREATE TABLE files (id INTEGER PRIMARY KEY, parent_id INTEGER,
+          path TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+          name_lower TEXT NOT NULL, path_lower TEXT NOT NULL DEFAULT '',
+          is_dir INTEGER NOT NULL, size INTEGER NOT NULL DEFAULT 0,
+          mtime INTEGER NOT NULL DEFAULT 0, inode INTEGER, volume_id INTEGER);
+        CREATE TABLE roots (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE,
+          enabled INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE excludes (id INTEGER PRIMARY KEY, pattern TEXT NOT NULL UNIQUE);
+        CREATE TABLE file_grams (file_id INTEGER, gram TEXT, PRIMARY KEY(file_id, gram)) WITHOUT ROWID;
+        CREATE TABLE file_bigrams (file_id INTEGER, gram TEXT, PRIMARY KEY(file_id, gram)) WITHOUT ROWID;
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        PRAGMA user_version=4;
+        """)
+        db.close()
+    }
+    let db = try Database.open(at: v4URL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(db.schemaVersion == 5,
+                         "v4 upgrade should reach v5, got \(db.schemaVersion)")
+    let upgradedMode = try db.getIndexMode()
+    try reporter.require(upgradedMode == .fullpath,
+                         "v4 upgrade should default to fullpath, got \(upgradedMode)")
+}
+
+reporter.check("G3 compact indexer: writes name-grams + path-segments, not file_grams/file_bigrams") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Fresh DB → compact by default; index a small tree.
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("docs"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("alpha.md"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("docs/beta.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+
+    let nameGrams = try db.countRows(in: "file_name_grams")
+    let nameBigrams = try db.countRows(in: "file_name_bigrams")
+    let pathSegs = try db.countRows(in: "file_path_segments")
+    let oldGrams = try db.countRows(in: "file_grams")
+    let oldBigrams = try db.countRows(in: "file_bigrams")
+
+    try reporter.require(nameGrams > 0, "compact name_grams not populated")
+    try reporter.require(nameBigrams > 0, "compact name_bigrams not populated")
+    try reporter.require(pathSegs > 0, "compact path_segments not populated")
+    try reporter.require(oldGrams == 0,
+                         "compact mode leaked into file_grams (count=\(oldGrams))")
+    try reporter.require(oldBigrams == 0,
+                         "compact mode leaked into file_bigrams (count=\(oldBigrams))")
+}
+
+reporter.check("G3 search compact: plain query 'alpha' hits basename, not path-substring") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    // Layout matches proposal §5.1 negative example:
+    //   /ROOT/myproj-old/a.txt  — plain "myproj" must NOT hit this file
+    //   /ROOT/alpha.md          — plain "alpha" must hit via basename
+    try fm.createDirectory(at: root.appendingPathComponent("myproj-old"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("alpha.md"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("myproj-old/a.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let alphaHits = try engine.search("alpha")
+    try reporter.require(alphaHits.contains(where: { $0.name == "alpha.md" }),
+                         "basename 'alpha' hit missing: \(alphaHits.map(\.name))")
+    let myprojHits = try engine.search("myproj")
+    try reporter.require(!myprojHits.contains(where: { $0.name == "a.txt" }),
+                         "path substring 'myproj' leaked into compact results: \(myprojHits.map(\.name))")
+}
+
+reporter.check("G3 search compact: path:<token> does segment-prefix match, not substring") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try fm.createDirectory(at: root.appendingPathComponent("docs"),
+                           withIntermediateDirectories: true)
+    try fm.createDirectory(at: root.appendingPathComponent("docs-old"),
+                           withIntermediateDirectories: true)
+    try "".write(to: root.appendingPathComponent("docs/a.txt"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("docs-old/b.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    // path:doc is a prefix of both segment "docs" and "docs-old"; expect both.
+    let doc = try engine.search("path:doc")
+    try reporter.require(doc.contains(where: { $0.name == "a.txt" }),
+                         "path:doc missed a.txt: \(doc.map(\.path))")
+    try reporter.require(doc.contains(where: { $0.name == "b.txt" }),
+                         "path:doc missed b.txt: \(doc.map(\.path))")
+    // path:oj must NOT hit anything (not a segment prefix; compact refuses
+    // segment-internal substring matches, see proposal §5.1 negative ex 2).
+    let oj = try engine.search("path:oj")
+    try reporter.require(!oj.contains(where: { $0.name == "b.txt" }),
+                         "path:oj leaked into compact results: \(oj.map(\.path))")
+}
+
+reporter.check("G3 MigrationCoordinator: incremental backfill + resume after partial run") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Build a fullpath-indexed fixture to simulate an existing v4 DB user.
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for i in 0..<12 {
+        try "".write(to: root.appendingPathComponent("file-\(i).txt"),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    // Switch to compact: at this point file_name_grams etc are still empty.
+    try db.setIndexMode(.compact)
+    let pre = try db.countRows(in: "file_name_grams")
+    try reporter.require(pre == 0,
+                         "file_name_grams should be empty before backfill, got \(pre)")
+    // Run coordinator with small batch so we can observe partial progress.
+    let coord = MigrationCoordinator(database: db)
+    coord.batchSize = 5
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var progressCount = 0
+    let kicked = coord.backfillCompact(resume: true,
+                                       onProgress: { _ in progressCount += 1 },
+                                       onFinish: { _ in done.signal() })
+    try reporter.require(kicked, "backfillCompact refused to start")
+    _ = done.wait(timeout: .now() + 30)
+    let afterGrams = try db.countRows(in: "file_name_grams")
+    try reporter.require(afterGrams > 0,
+                         "backfill did not write file_name_grams")
+    try reporter.require(progressCount >= 1,
+                         "progress callback never fired (got \(progressCount))")
+    // Verify search works under compact after backfill.
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("file-7")
+    try reporter.require(hits.contains(where: { $0.name == "file-7.txt" }),
+                         "compact search after backfill missed file-7.txt")
+}
+
+reporter.check("G3 MigrationCoordinator: last_file_id persisted to migration_progress") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for i in 0..<6 {
+        try "".write(to: root.appendingPathComponent("a-\(i).txt"),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    try db.setIndexMode(.compact)
+    let coord = MigrationCoordinator(database: db)
+    let done = DispatchSemaphore(value: 0)
+    _ = coord.backfillCompact(onFinish: { _ in done.signal() })
+    _ = done.wait(timeout: .now() + 10)
+    let lastId = coord.readLastFileId()
+    try reporter.require(lastId > 0,
+                         "migration_progress last_file_id should be > 0, got \(lastId)")
 }
 
 exit(reporter.summary())

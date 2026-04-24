@@ -288,16 +288,34 @@ public final class SearchEngine {
         let parsed = SearchEngine.parseQuery(rawQuery)
         if parsed.isEmpty { return [] }
 
+        // G3: read index mode once per search. F1 settings cache makes
+        // this cheap; compact vs fullpath drives the candidate tables
+        // and the post-filter rules.
+        let mode: IndexMode
+        do {
+            mode = try database.getIndexMode()
+        } catch {
+            NSLog("SwiftSeek: SearchEngine getIndexMode failed, defaulting to compact: \(error)")
+            mode = .compact
+        }
+
         let candidatePool = max(options.limit * options.candidateMultiplier, options.limit)
         let rows: [Row]
         if !parsed.plainTokens.isEmpty {
-            rows = try candidates(tokens: parsed.plainTokens, limit: candidatePool)
+            rows = try candidates(tokens: parsed.plainTokens,
+                                  pathTokens: parsed.filters.pathTokens,
+                                  mode: mode,
+                                  limit: candidatePool)
         } else {
             // E3 filter-only query: no plain tokens to gram-match against.
-            // Pull the DB through a single SQL query biased toward one of
-            // the filters (extension first if present, then kind, then
-            // root prefix, else a bounded table scan).
-            rows = try filterOnlyCandidates(filters: parsed.filters, limit: candidatePool)
+            // G3: filterOnlyCandidates already routes through the v4
+            // tables via `gramCandidates` / `bigramCandidates`. In
+            // compact mode `path:` tokens should instead go through
+            // file_path_segments; extension / kind / root keep their
+            // own primary SQL since those tables are the same.
+            rows = try filterOnlyCandidates(filters: parsed.filters,
+                                            mode: mode,
+                                            limit: candidatePool)
         }
 
         // P5 root-enabled filter: drop candidates whose path is not covered by
@@ -321,8 +339,22 @@ public final class SearchEngine {
 
         // E3 apply user-expressed filters AFTER root gating so we don't
         // pay for filter checks on rows the user could never see anyway.
+        // G3: in compact mode the per-token substring AND also runs
+        // against name-only; in fullpath mode the pre-G3 behaviour
+        // (name OR path) is preserved via rowMatches below.
         let filtered = rooted.filter { row in
-            SearchEngine.rowMatches(row: row, filters: parsed.filters)
+            // G3 compact plain-token check: every plain token must
+            // match somewhere in nameLower. In fullpath mode name OR
+            // path is accepted (pre-G3 semantics preserved inside
+            // candidates()).
+            if mode == .compact {
+                for t in parsed.plainTokens {
+                    if !row.nameLower.contains(t) { return false }
+                }
+            }
+            return SearchEngine.rowMatches(row: row,
+                                           filters: parsed.filters,
+                                           mode: mode)
         }
 
         // If the query is filter-only (no plain tokens) we rank by mtime
@@ -353,11 +385,17 @@ public final class SearchEngine {
     /// Public test-facing filter predicate. Identical semantics to the
     /// internal `rowMatches`; takes primitive fields so smoke tests can
     /// hand-craft rows without building a full `Row` value.
+    ///
+    /// `mode` defaults to `.fullpath` to preserve the pre-G3 contract
+    /// (path: tokens do substring on pathLower). In `.compact` mode
+    /// path: tokens switch to segment-prefix semantics (see
+    /// docs/everything_footprint_v5_proposal.md §5.1).
     public static func matches(nameLower: String,
                                pathLower: String,
                                path: String,
                                isDir: Bool,
-                               filters: QueryFilters) -> Bool {
+                               filters: QueryFilters,
+                               mode: IndexMode = .fullpath) -> Bool {
         if !filters.extensions.isEmpty {
             if !filters.extensions.contains(extension_(of: nameLower)) { return false }
         }
@@ -365,8 +403,21 @@ public final class SearchEngine {
             let k: QueryKind = isDir ? .dir : .file
             if !filters.kinds.contains(k) { return false }
         }
-        for t in filters.pathTokens {
-            if !pathLower.contains(t) { return false }
+        if !filters.pathTokens.isEmpty {
+            if mode == .fullpath {
+                // Pre-G3: simple substring anywhere in pathLower.
+                for t in filters.pathTokens {
+                    if !pathLower.contains(t) { return false }
+                }
+            } else {
+                // G3 compact: prefix match against per-segment list.
+                let segments = Gram.pathSegments(pathLower: pathLower)
+                for t in filters.pathTokens {
+                    if !segments.contains(where: { $0.hasPrefix(t) }) {
+                        return false
+                    }
+                }
+            }
         }
         if let prefix = filters.rootRestriction, !prefix.isEmpty {
             let lowerPrefix = prefix.lowercased()
@@ -386,33 +437,15 @@ public final class SearchEngine {
     }
 
     /// Return true iff `row` satisfies every active filter in `filters`.
-    private static func rowMatches(row: Row, filters: QueryFilters) -> Bool {
-        if !filters.extensions.isEmpty {
-            let ext = Self.extension_(of: row.nameLower)
-            if !filters.extensions.contains(ext) { return false }
-        }
-        if !filters.kinds.isEmpty {
-            let k: QueryKind = row.isDir ? .dir : .file
-            if !filters.kinds.contains(k) { return false }
-        }
-        for t in filters.pathTokens {
-            if !row.pathLower.contains(t) { return false }
-        }
-        if let prefix = filters.rootRestriction, !prefix.isEmpty {
-            let lowerPrefix = prefix.lowercased()
-            if row.pathLower != lowerPrefix && !row.pathLower.hasPrefix(lowerPrefix + "/") {
-                return false
-            }
-        }
-        switch filters.hiddenMode {
-        case .unspecified:
-            break
-        case .requireHidden:
-            if !HiddenPath.isHidden(row.path) { return false }
-        case .requireVisible:
-            if HiddenPath.isHidden(row.path) { return false }
-        }
-        return true
+    private static func rowMatches(row: Row,
+                                   filters: QueryFilters,
+                                   mode: IndexMode = .fullpath) -> Bool {
+        return matches(nameLower: row.nameLower,
+                       pathLower: row.pathLower,
+                       path: row.path,
+                       isDir: row.isDir,
+                       filters: filters,
+                       mode: mode)
     }
 
     /// Extract the extension token (lowercased, no dot) for filter checks.
@@ -448,18 +481,22 @@ public final class SearchEngine {
     ///      (too short for either gram table).
     /// The first match wins; remaining filters are applied post-candidate
     /// via `rowMatches`.
-    private func filterOnlyCandidates(filters: QueryFilters, limit: Int) throws -> [Row] {
-        // Priority 1 / 2: use the gram / bigram index when `path:` tokens
-        // are selective enough. This is the F4 fix for the bounded-scan
-        // fallback that F1's gap doc flagged.
+    private func filterOnlyCandidates(filters: QueryFilters, mode: IndexMode, limit: Int) throws -> [Row] {
+        // Priority 1 / 2: `path:` token routing depends on mode.
         if !filters.pathTokens.isEmpty {
+            if mode == .compact {
+                // G3 compact: segment-prefix lookup against
+                // file_path_segments (the small index). No gram work.
+                return try pathSegmentCandidates(pathTokens: filters.pathTokens, limit: limit)
+            }
+            // Fullpath mode (F4 behaviour).
             let longPath = filters.pathTokens.filter { $0.count >= Gram.size }
             let shortPath = filters.pathTokens.filter { $0.count == Gram.bigramSize }
             if !longPath.isEmpty {
-                return try gramCandidates(longTokens: longPath, limit: limit)
+                return try gramCandidates(longTokens: longPath, mode: .fullpath, limit: limit)
             }
             if !shortPath.isEmpty {
-                return try bigramCandidates(shortTokens: shortPath, limit: limit)
+                return try bigramCandidates(shortTokens: shortPath, mode: .fullpath, limit: limit)
             }
         }
         // Priority 3: extension filter (typically very selective — most
@@ -538,14 +575,20 @@ public final class SearchEngine {
 
     /// Retrieve the candidate pool for a multi-token query.
     ///
-    /// F1 routes are now:
-    ///   * All tokens >=3 chars → trigram index (`file_grams`)
-    ///   * At least one token 2 chars, no 1-char tokens → bigram index
-    ///     (`file_bigrams`), falling back to trigrams only for the 3+
-    ///     tokens mixed in.
-    ///   * At least one token 1 char → single-token LIKE fallback (rare
-    ///     enough to keep simple; still bounded by LIMIT).
-    private func candidates(tokens: [String], limit: Int) throws -> [Row] {
+    /// F1/G3 candidate retrieval. Routes by mode:
+    ///   fullpath mode (v4 semantics, pre-G3 default):
+    ///     * All tokens >=3 chars → `file_grams` (name+path)
+    ///     * 2-char only → `file_bigrams`
+    ///     * any 1-char → LIKE fallback
+    ///   compact mode (G3 default for new DBs):
+    ///     * >=3 chars → `file_name_grams` (name only)
+    ///     * 2-char → `file_name_bigrams` (name only)
+    ///     * 1-char → LIKE on name_lower only
+    ///     * Post-filter also requires match in name (enforced at caller)
+    private func candidates(tokens: [String],
+                            pathTokens: [String],
+                            mode: IndexMode,
+                            limit: Int) throws -> [Row] {
         var longTokens: [String] = []   // >= 3 chars  (trigram)
         var shortTokens: [String] = []  // == 2 chars  (bigram)
         var tinyTokens: [String] = []   // == 1 char   (LIKE fallback)
@@ -556,58 +599,77 @@ public final class SearchEngine {
         }
 
         let rawRows: [Row]
-        if !tinyTokens.isEmpty {
-            // F1: 1-char queries are rare but still need to return *some*
-            // results. We keep the legacy LIKE path here, explicitly not as
-            // the main multi-char hot path. Picks the longest available
-            // token as the LIKE seed to maximise selectivity.
-            let primary = tokens.max(by: { $0.count < $1.count })!
-            rawRows = try likeCandidates(token: primary, limit: limit)
-        } else if longTokens.isEmpty, !shortTokens.isEmpty {
-            // F1 pure 2-char path: use the bigram index. No leading-wildcard
-            // LIKE scan involved.
-            rawRows = try bigramCandidates(shortTokens: shortTokens, limit: limit)
-        } else if !longTokens.isEmpty, shortTokens.isEmpty {
-            // Classic trigram-only path.
-            rawRows = try gramCandidates(longTokens: longTokens, limit: limit)
+        if mode == .fullpath {
+            if !tinyTokens.isEmpty {
+                let primary = tokens.max(by: { $0.count < $1.count })!
+                rawRows = try likeCandidates(token: primary, nameOnly: false, limit: limit)
+            } else if longTokens.isEmpty, !shortTokens.isEmpty {
+                rawRows = try bigramCandidates(shortTokens: shortTokens, mode: .fullpath, limit: limit)
+            } else {
+                rawRows = try gramCandidates(longTokens: longTokens, mode: .fullpath, limit: limit)
+            }
         } else {
-            // Mixed: use trigrams for the long tokens (more selective) and
-            // rely on the post-filter substring check below to enforce the
-            // 2-char tokens on each row.
-            rawRows = try gramCandidates(longTokens: longTokens, limit: limit)
+            // Compact mode: basename-only index candidate retrieval.
+            if !tinyTokens.isEmpty {
+                let primary = tokens.max(by: { $0.count < $1.count })!
+                rawRows = try likeCandidates(token: primary, nameOnly: true, limit: limit)
+            } else if longTokens.isEmpty, !shortTokens.isEmpty {
+                rawRows = try bigramCandidates(shortTokens: shortTokens, mode: .compact, limit: limit)
+            } else {
+                rawRows = try gramCandidates(longTokens: longTokens, mode: .compact, limit: limit)
+            }
         }
 
-        // Per-token substring AND: every token must be a substring of name OR
-        // path; gram retrieval alone is only a gate, the contiguous match is
-        // still required.
+        // Per-token substring AND. In fullpath mode either name OR path
+        // matches; in compact mode only name counts (and path: filters
+        // are applied separately via rowMatches/matches).
         return rawRows.filter { row in
             for t in tokens {
-                if !row.nameLower.contains(t) && !row.pathLower.contains(t) {
-                    return false
+                if mode == .fullpath {
+                    if !row.nameLower.contains(t) && !row.pathLower.contains(t) {
+                        return false
+                    }
+                } else {
+                    if !row.nameLower.contains(t) { return false }
                 }
             }
             return true
         }
     }
 
-    private func likeCandidates(token: String, limit: Int) throws -> [Row] {
-        let sql = """
-        SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
-        WHERE name_lower LIKE ? OR path_lower LIKE ?
-        LIMIT ?;
-        """
+    private func likeCandidates(token: String, nameOnly: Bool, limit: Int) throws -> [Row] {
+        let sql: String
+        if nameOnly {
+            sql = """
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            WHERE name_lower LIKE ?
+            LIMIT ?;
+            """
+        } else {
+            sql = """
+            SELECT path, name, is_dir, size, mtime, name_lower, path_lower FROM files
+            WHERE name_lower LIKE ? OR path_lower LIKE ?
+            LIMIT ?;
+            """
+        }
         let like = "%\(token)%"
         return try executeQuery(sql) { stmt, transient in
             _ = sqlite3_bind_text(stmt, 1, like, -1, transient)
-            _ = sqlite3_bind_text(stmt, 2, like, -1, transient)
-            _ = sqlite3_bind_int64(stmt, 3, Int64(limit))
+            var idx: Int32 = 2
+            if !nameOnly {
+                _ = sqlite3_bind_text(stmt, idx, like, -1, transient)
+                idx += 1
+            }
+            _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
         }
     }
 
-    /// F1 short-query hot path. Mirrors `gramCandidates` against the
-    /// `file_bigrams` index so a 2-character query like `ab` does an
-    /// indexed lookup instead of a leading-wildcard `%ab%` scan.
-    private func bigramCandidates(shortTokens: [String], limit: Int) throws -> [Row] {
+    /// F1 / G3: bigram candidate retrieval. `mode` switches between
+    /// the v4 name+path table (`file_bigrams`) and the compact
+    /// basename-only table (`file_name_bigrams`).
+    private func bigramCandidates(shortTokens: [String],
+                                  mode: IndexMode,
+                                  limit: Int) throws -> [Row] {
         var gramSet: Set<String> = []
         for t in shortTokens {
             gramSet.formUnion(Gram.bigrams(of: t))
@@ -615,9 +677,10 @@ public final class SearchEngine {
         let grams = Array(gramSet)
         guard !grams.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: grams.count).joined(separator: ",")
+        let table = (mode == .compact) ? "file_name_bigrams" : "file_bigrams"
         let sql = """
         SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
-        FROM file_bigrams fg
+        FROM \(table) fg
         JOIN files f ON f.id = fg.file_id
         WHERE fg.gram IN (\(placeholders))
         GROUP BY fg.file_id
@@ -636,7 +699,12 @@ public final class SearchEngine {
         }
     }
 
-    private func gramCandidates(longTokens: [String], limit: Int) throws -> [Row] {
+    /// F1 / G3: trigram candidate retrieval. `mode` switches between
+    /// the v4 name+path table (`file_grams`) and the compact
+    /// basename-only table (`file_name_grams`).
+    private func gramCandidates(longTokens: [String],
+                                mode: IndexMode,
+                                limit: Int) throws -> [Row] {
         var gramSet: Set<String> = []
         for t in longTokens {
             gramSet.formUnion(Gram.grams(of: t))
@@ -644,9 +712,10 @@ public final class SearchEngine {
         let grams = Array(gramSet)
         guard !grams.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: grams.count).joined(separator: ",")
+        let table = (mode == .compact) ? "file_name_grams" : "file_grams"
         let sql = """
         SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
-        FROM file_grams fg
+        FROM \(table) fg
         JOIN files f ON f.id = fg.file_id
         WHERE fg.gram IN (\(placeholders))
         GROUP BY fg.file_id
@@ -660,6 +729,40 @@ public final class SearchEngine {
                 idx += 1
             }
             _ = sqlite3_bind_int64(stmt, idx, Int64(grams.count))
+            idx += 1
+            _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
+        }
+    }
+
+    /// G3: candidate rows by `path:<token>` segment-prefix match
+    /// against the compact `file_path_segments` table. Used when the
+    /// query has only path: filters (or when path: is more selective
+    /// than plain tokens in compact mode).
+    private func pathSegmentCandidates(pathTokens: [String], limit: Int) throws -> [Row] {
+        guard !pathTokens.isEmpty else { return [] }
+        // AND every path token: each must match some row's segment as a
+        // prefix. SQL-side: `GROUP BY file_id HAVING COUNT(DISTINCT segment)`
+        // counts matched path tokens per file.
+        let cases = pathTokens.map { _ in "(ps.segment = ? OR ps.segment LIKE ?)" }
+            .joined(separator: " OR ")
+        let sql = """
+        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
+        FROM file_path_segments ps
+        JOIN files f ON f.id = ps.file_id
+        WHERE \(cases)
+        GROUP BY ps.file_id
+        HAVING COUNT(DISTINCT ps.segment) >= ?
+        LIMIT ?;
+        """
+        return try executeQuery(sql) { stmt, transient in
+            var idx: Int32 = 1
+            for t in pathTokens {
+                _ = sqlite3_bind_text(stmt, idx, t, -1, transient)
+                idx += 1
+                _ = sqlite3_bind_text(stmt, idx, "\(t)%", -1, transient)
+                idx += 1
+            }
+            _ = sqlite3_bind_int64(stmt, idx, Int64(pathTokens.count))
             idx += 1
             _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
         }

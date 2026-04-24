@@ -42,4 +42,31 @@ public enum Gram {
     public static func indexBigrams(nameLower: String, pathLower: String) -> Set<String> {
         bigrams(of: nameLower).union(bigrams(of: pathLower))
     }
+
+    /// G3: basename-only 3-grams for Compact mode `file_name_grams`.
+    /// Deliberately does not include path grams — Compact mode trades
+    /// full-path substring capability for much smaller per-file index
+    /// rows. See `docs/everything_footprint_v5_proposal.md` §3.
+    public static func nameGrams(nameLower: String) -> Set<String> {
+        grams(of: nameLower)
+    }
+
+    /// G3: basename-only 2-grams for Compact mode `file_name_bigrams`.
+    public static func nameBigrams(nameLower: String) -> Set<String> {
+        bigrams(of: nameLower)
+    }
+
+    /// G3: path segments for Compact mode `file_path_segments` table.
+    /// Splits `pathLower` on `/` and drops empty segments (caused by
+    /// the leading `/`). The resulting set is what we index for
+    /// `path:<token>` segment-prefix matching — no rolling window, just
+    /// one row per segment per file.
+    public static func pathSegments(pathLower: String) -> Set<String> {
+        var out: Set<String> = []
+        for part in pathLower.split(separator: "/", omittingEmptySubsequences: true) {
+            let s = String(part)
+            if !s.isEmpty { out.insert(s) }
+        }
+        return out
+    }
 }

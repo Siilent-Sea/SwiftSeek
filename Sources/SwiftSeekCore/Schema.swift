@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Schema {
-    public static let currentVersion: Int32 = 4
+    public static let currentVersion: Int32 = 5
 
     public struct Migration {
         public let target: Int32
@@ -82,6 +82,42 @@ public enum Schema {
             ) WITHOUT ROWID;
             """,
             "CREATE INDEX IF NOT EXISTS idx_file_bigrams_gram ON file_bigrams(gram);"
+        ]),
+        // G3 Schema v5: compact-index tables. CREATE-only; backfill of
+        // existing rows is done out-of-band by MigrationCoordinator
+        // when the user switches to compact mode. See
+        // docs/everything_footprint_v5_proposal.md §6.
+        Migration(target: 5, statements: [
+            """
+            CREATE TABLE IF NOT EXISTS file_name_grams (
+                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                gram TEXT NOT NULL,
+                PRIMARY KEY(file_id, gram)
+            ) WITHOUT ROWID;
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_file_name_grams_gram ON file_name_grams(gram);",
+            """
+            CREATE TABLE IF NOT EXISTS file_name_bigrams (
+                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                gram TEXT NOT NULL,
+                PRIMARY KEY(file_id, gram)
+            ) WITHOUT ROWID;
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_file_name_bigrams_gram ON file_name_bigrams(gram);",
+            """
+            CREATE TABLE IF NOT EXISTS file_path_segments (
+                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                segment TEXT NOT NULL,
+                PRIMARY KEY(file_id, segment)
+            ) WITHOUT ROWID;
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_file_path_segments_segment ON file_path_segments(segment);",
+            """
+            CREATE TABLE IF NOT EXISTS migration_progress (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            """
         ])
     ]
 }

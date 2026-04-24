@@ -117,6 +117,25 @@ public final class Database {
                 if migration.target == 4 {
                     try backfillFileBigrams()
                 }
+                // G3 v5: CREATE-only migration. Backfill of existing rows
+                // into the new compact tables is out-of-band via
+                // MigrationCoordinator (so we don't hold a multi-minute
+                // BEGIN IMMEDIATE during startup). Here we only seed the
+                // index_mode setting:
+                //   * brand-new DB (no pre-existing schema, current == 0)
+                //     → compact (the new default)
+                //   * any existing DB upgrading through v5 → fullpath so
+                //     the user's current search behaviour is preserved
+                //     until they explicitly opt into compact via the UI.
+                //     (v2+ all had file_grams with full-path semantics;
+                //     v1 had only name-level index but we still default
+                //     fullpath for safety — the user can switch.)
+                if migration.target == 5 {
+                    // `current` == pre-migrate version captured before the
+                    // loop; brand-new DB iff it was 0.
+                    let defaultMode: IndexMode = (current == 0) ? .compact : .fullpath
+                    try exec("INSERT OR IGNORE INTO settings(key, value) VALUES ('\(SettingsKey.indexMode)', '\(defaultMode.rawValue)');")
+                }
             }
             try exec("PRAGMA user_version=\(Schema.currentVersion);")
             try exec("COMMIT;")
@@ -330,6 +349,43 @@ public final class Database {
         return sqlite3_step(stmt) == SQLITE_ROW
     }
 
+    /// G3: helper for the upsert-style index pattern used in insertFiles.
+    /// Takes a pre-prepared (delete, insert) pair and writes each value
+    /// for the given file_id after clearing any existing rows. Keeps
+    /// the main insertFiles body readable across the 3-way
+    /// fullpath/compact split.
+    static func clearAndWriteIndex(
+        fileId: Int64,
+        values: Set<String>,
+        deleteStmt: OpaquePointer?,
+        insertStmt: OpaquePointer?,
+        deleteSQL: String,
+        insertSQL: String,
+        handle: OpaquePointer,
+        transient: sqlite3_destructor_type
+    ) throws {
+        guard let deleteStmt, let insertStmt else { return }
+        sqlite3_reset(deleteStmt)
+        sqlite3_clear_bindings(deleteStmt)
+        _ = sqlite3_bind_int64(deleteStmt, 1, fileId)
+        let delRC = sqlite3_step(deleteStmt)
+        if delRC != SQLITE_DONE {
+            let msg = String(cString: sqlite3_errmsg(handle))
+            throw DatabaseError.stepFailed(code: delRC, message: msg, sql: deleteSQL)
+        }
+        for value in values {
+            sqlite3_reset(insertStmt)
+            sqlite3_clear_bindings(insertStmt)
+            _ = sqlite3_bind_int64(insertStmt, 1, fileId)
+            _ = sqlite3_bind_text(insertStmt, 2, value, -1, transient)
+            let insRC = sqlite3_step(insertStmt)
+            if insRC != SQLITE_DONE {
+                let msg = String(cString: sqlite3_errmsg(handle))
+                throw DatabaseError.stepFailed(code: insRC, message: msg, sql: insertSQL)
+            }
+        }
+    }
+
     public func insertFiles(_ rows: [FileRow]) throws {
         guard !rows.isEmpty else { return }
         guard let handle else { throw DatabaseError.openFailed(code: 0, message: "closed") }
@@ -348,12 +404,22 @@ public final class Database {
                 mtime=excluded.mtime;
             """
             let selectIdSQL = "SELECT id FROM files WHERE path = ?;"
+            // v4 fullpath-mode tables
             let deleteGramsSQL = "DELETE FROM file_grams WHERE file_id = ?;"
             let insertGramSQL = "INSERT OR IGNORE INTO file_grams(file_id, gram) VALUES (?, ?);"
-            // F1: parallel bigram index statements. file_bigrams is the
-            // short-query hot path added in schema v4.
             let deleteBigramsSQL = "DELETE FROM file_bigrams WHERE file_id = ?;"
             let insertBigramSQL = "INSERT OR IGNORE INTO file_bigrams(file_id, gram) VALUES (?, ?);"
+            // G3 v5 compact-mode tables
+            let deleteNameGramsSQL = "DELETE FROM file_name_grams WHERE file_id = ?;"
+            let insertNameGramSQL = "INSERT OR IGNORE INTO file_name_grams(file_id, gram) VALUES (?, ?);"
+            let deleteNameBigramsSQL = "DELETE FROM file_name_bigrams WHERE file_id = ?;"
+            let insertNameBigramSQL = "INSERT OR IGNORE INTO file_name_bigrams(file_id, gram) VALUES (?, ?);"
+            let deletePathSegSQL = "DELETE FROM file_path_segments WHERE file_id = ?;"
+            let insertPathSegSQL = "INSERT OR IGNORE INTO file_path_segments(file_id, segment) VALUES (?, ?);"
+
+            // Read index_mode once per batch. The F1 settings cache
+            // makes this essentially free.
+            let indexMode: IndexMode = (try? getIndexMode()) ?? .compact
 
             var upsert: OpaquePointer?
             var selectId: OpaquePointer?
@@ -361,6 +427,12 @@ public final class Database {
             var insertGram: OpaquePointer?
             var deleteBigrams: OpaquePointer?
             var insertBigram: OpaquePointer?
+            var deleteNameGrams: OpaquePointer?
+            var insertNameGram: OpaquePointer?
+            var deleteNameBigrams: OpaquePointer?
+            var insertNameBigram: OpaquePointer?
+            var deletePathSeg: OpaquePointer?
+            var insertPathSeg: OpaquePointer?
 
             let prep: (String, UnsafeMutablePointer<OpaquePointer?>) throws -> Void = { sql, ptr in
                 let rc = sqlite3_prepare_v2(handle, sql, -1, ptr, nil)
@@ -371,10 +443,22 @@ public final class Database {
             }
             try prep(upsertSQL, &upsert)
             try prep(selectIdSQL, &selectId)
-            try prep(deleteGramsSQL, &deleteGrams)
-            try prep(insertGramSQL, &insertGram)
-            try prep(deleteBigramsSQL, &deleteBigrams)
-            try prep(insertBigramSQL, &insertBigram)
+            // Only prepare the statements we're going to use. v4 tables
+            // remain present after v5 migration, so fullpath mode keeps
+            // writing to them without any schema change.
+            if indexMode == .fullpath {
+                try prep(deleteGramsSQL, &deleteGrams)
+                try prep(insertGramSQL, &insertGram)
+                try prep(deleteBigramsSQL, &deleteBigrams)
+                try prep(insertBigramSQL, &insertBigram)
+            } else {
+                try prep(deleteNameGramsSQL, &deleteNameGrams)
+                try prep(insertNameGramSQL, &insertNameGram)
+                try prep(deleteNameBigramsSQL, &deleteNameBigrams)
+                try prep(insertNameBigramSQL, &insertNameBigram)
+                try prep(deletePathSegSQL, &deletePathSeg)
+                try prep(insertPathSegSQL, &insertPathSeg)
+            }
             defer {
                 sqlite3_finalize(upsert)
                 sqlite3_finalize(selectId)
@@ -382,6 +466,12 @@ public final class Database {
                 sqlite3_finalize(insertGram)
                 sqlite3_finalize(deleteBigrams)
                 sqlite3_finalize(insertBigram)
+                sqlite3_finalize(deleteNameGrams)
+                sqlite3_finalize(insertNameGram)
+                sqlite3_finalize(deleteNameBigrams)
+                sqlite3_finalize(insertNameBigram)
+                sqlite3_finalize(deletePathSeg)
+                sqlite3_finalize(insertPathSeg)
             }
 
             let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -412,49 +502,44 @@ public final class Database {
                 }
                 let fileId = sqlite3_column_int64(selectId, 0)
 
-                sqlite3_reset(deleteGrams)
-                sqlite3_clear_bindings(deleteGrams)
-                _ = sqlite3_bind_int64(deleteGrams, 1, fileId)
-                let delRC = sqlite3_step(deleteGrams)
-                if delRC != SQLITE_DONE {
-                    let msg = String(cString: sqlite3_errmsg(handle))
-                    throw DatabaseError.stepFailed(code: delRC, message: msg, sql: deleteGramsSQL)
-                }
-
-                for gram in Gram.indexGrams(nameLower: row.nameLower, pathLower: row.pathLower) {
-                    sqlite3_reset(insertGram)
-                    sqlite3_clear_bindings(insertGram)
-                    _ = sqlite3_bind_int64(insertGram, 1, fileId)
-                    _ = sqlite3_bind_text(insertGram, 2, gram, -1, transient)
-                    let insRC = sqlite3_step(insertGram)
-                    if insRC != SQLITE_DONE {
-                        let msg = String(cString: sqlite3_errmsg(handle))
-                        throw DatabaseError.stepFailed(code: insRC, message: msg, sql: insertGramSQL)
-                    }
-                }
-
-                // F1: mirror trigrams into file_bigrams so the 2-character
-                // hot path has an index to use instead of leading-wildcard
-                // LIKE. Same delete-then-insert pattern as file_grams keeps
-                // upsert-on-path semantics consistent.
-                sqlite3_reset(deleteBigrams)
-                sqlite3_clear_bindings(deleteBigrams)
-                _ = sqlite3_bind_int64(deleteBigrams, 1, fileId)
-                let delBRC = sqlite3_step(deleteBigrams)
-                if delBRC != SQLITE_DONE {
-                    let msg = String(cString: sqlite3_errmsg(handle))
-                    throw DatabaseError.stepFailed(code: delBRC, message: msg, sql: deleteBigramsSQL)
-                }
-                for bigram in Gram.indexBigrams(nameLower: row.nameLower, pathLower: row.pathLower) {
-                    sqlite3_reset(insertBigram)
-                    sqlite3_clear_bindings(insertBigram)
-                    _ = sqlite3_bind_int64(insertBigram, 1, fileId)
-                    _ = sqlite3_bind_text(insertBigram, 2, bigram, -1, transient)
-                    let insBRC = sqlite3_step(insertBigram)
-                    if insBRC != SQLITE_DONE {
-                        let msg = String(cString: sqlite3_errmsg(handle))
-                        throw DatabaseError.stepFailed(code: insBRC, message: msg, sql: insertBigramSQL)
-                    }
+                // G3: write the index tables that match the current mode.
+                // In fullpath mode we write file_grams + file_bigrams (the
+                // F1 behaviour, with full path included in the sliding
+                // window). In compact mode we write file_name_grams +
+                // file_name_bigrams (basename only) plus file_path_segments
+                // for `path:<token>` queries.
+                if indexMode == .fullpath {
+                    try Database.clearAndWriteIndex(
+                        fileId: fileId,
+                        values: Gram.indexGrams(nameLower: row.nameLower, pathLower: row.pathLower),
+                        deleteStmt: deleteGrams, insertStmt: insertGram,
+                        deleteSQL: deleteGramsSQL, insertSQL: insertGramSQL,
+                        handle: handle, transient: transient)
+                    try Database.clearAndWriteIndex(
+                        fileId: fileId,
+                        values: Gram.indexBigrams(nameLower: row.nameLower, pathLower: row.pathLower),
+                        deleteStmt: deleteBigrams, insertStmt: insertBigram,
+                        deleteSQL: deleteBigramsSQL, insertSQL: insertBigramSQL,
+                        handle: handle, transient: transient)
+                } else {
+                    try Database.clearAndWriteIndex(
+                        fileId: fileId,
+                        values: Gram.nameGrams(nameLower: row.nameLower),
+                        deleteStmt: deleteNameGrams, insertStmt: insertNameGram,
+                        deleteSQL: deleteNameGramsSQL, insertSQL: insertNameGramSQL,
+                        handle: handle, transient: transient)
+                    try Database.clearAndWriteIndex(
+                        fileId: fileId,
+                        values: Gram.nameBigrams(nameLower: row.nameLower),
+                        deleteStmt: deleteNameBigrams, insertStmt: insertNameBigram,
+                        deleteSQL: deleteNameBigramsSQL, insertSQL: insertNameBigramSQL,
+                        handle: handle, transient: transient)
+                    try Database.clearAndWriteIndex(
+                        fileId: fileId,
+                        values: Gram.pathSegments(pathLower: row.pathLower),
+                        deleteStmt: deletePathSeg, insertStmt: insertPathSeg,
+                        deleteSQL: deletePathSegSQL, insertSQL: insertPathSegSQL,
+                        handle: handle, transient: transient)
                 }
             }
 

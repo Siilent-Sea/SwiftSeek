@@ -47,6 +47,23 @@ public enum SettingsKey {
     public static let resultColumnWidthPath  = "result_col_width_path"
     public static let resultColumnWidthMtime = "result_col_width_mtime"
     public static let resultColumnWidthSize  = "result_col_width_size"
+    // G3: index mode (compact vs fullpath). New DBs default to compact
+    // (set in Database.migrate's v5 branch). v4→v5 upgrades default to
+    // fullpath to preserve the pre-existing user capability until they
+    // explicitly switch.
+    public static let indexMode              = "index_mode"
+}
+
+/// G3 index modes defined in `docs/everything_footprint_v5_proposal.md` § 3/4.
+public enum IndexMode: String, Equatable, Sendable {
+    /// Default for new v5 DBs. Only basename grams/bigrams + per-segment
+    /// path index. Smallest disk footprint; plain query won't surface
+    /// path-only hits, `path:` does segment-prefix match.
+    case compact
+    /// Pre-G3 v4 behaviour. Full path substring via `file_grams` +
+    /// `file_bigrams`. Users who need "match any substring of path"
+    /// opt into this explicitly.
+    case fullpath
 }
 
 // MARK: - E5 hotkey presets
@@ -143,6 +160,23 @@ public func clampSearchLimit(_ value: Int) -> Int {
 }
 
 public extension Database {
+    /// G3: read persisted index mode. Returns `.compact` on missing /
+    /// malformed rows (matches new-DB default). Callers that need to
+    /// preserve v4 behaviour on upgrade paths must check for the
+    /// setting's presence explicitly via `getSetting(_:)` before
+    /// relying on this default.
+    func getIndexMode() throws -> IndexMode {
+        let raw = try getSetting(SettingsKey.indexMode) ?? ""
+        return IndexMode(rawValue: raw) ?? .compact
+    }
+
+    /// G3: set index mode. No side effects here — the caller is
+    /// responsible for triggering rebuild / backfill flows (see
+    /// `MigrationCoordinator`).
+    func setIndexMode(_ mode: IndexMode) throws {
+        try setSetting(SettingsKey.indexMode, value: mode.rawValue)
+    }
+
     /// F3: persisted result sort order, used by SearchViewController to
     /// restore the last-used sort on launch. Returns `.scoreDescending`
     /// on missing / malformed row so first-run UX is still sane.
