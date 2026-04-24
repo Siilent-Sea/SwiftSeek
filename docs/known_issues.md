@@ -24,15 +24,16 @@
 - 但它仍是 substring + bonus 的第一版启发式
 - 还谈不上成熟的 Everything-like 相关性模型
 
-### 4. 结果上限的真实现状（F2 收口）
+### 4. 结果上限的真实现状（F2 已收口）
 - GUI：
-  - 已有 `search_limit`
-  - 设置页可改
-  - 搜索窗口热路径已读取该值（F1 起 settings cache 命中）
+  - `search_limit` 持久化到 `settings` 表
+  - 设置页可改，范围 [20, 1000]，默认 100
+  - 搜索窗口热路径读取该值（F1 起 settings cache 命中，几乎零开销）
 - CLI：
-  - `SwiftSeekSearch` 默认仍是固定 20
-  - 需要 `--limit` 才能改
-  - F2 阶段会把 CLI 默认值对齐到 DB 的 `search_limit`
+  - `SwiftSeekSearch` 默认读取 `settings.search_limit`，与 GUI 同源
+  - `--limit N` 显式覆盖保留（脚本 / 一次性调试用）
+  - stderr 日志显式标注 limit 来源（`settings.search_limit` vs `--limit override`）
+- GUI 与 CLI 在默认行为上已一致；旧的"CLI 固定 20"口径已过期。
 
 ### 5. roots 健康状态的真实现状
 - `RootHealth` 类型已存在
