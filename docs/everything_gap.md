@@ -1,5 +1,10 @@
 # SwiftSeek 与 Everything-like 体验的当前差距
 
+> Archived note:
+> 这份文档是 `everything-alignment` 轨道的历史 gap 快照。
+> 它不再代表当前事实，尤其不再覆盖当前最突出的热路径性能问题。
+> 当前应优先查看 [docs/everything_performance_gap.md](docs/everything_performance_gap.md)。
+
 本文档只基于当前真实仓库写，不按理想空项目脑补。
 
 ---

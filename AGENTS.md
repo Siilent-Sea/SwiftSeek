@@ -27,7 +27,7 @@ SwiftSeek 不再是“一次性做完即停止”的单轨项目，后续按 tra
 
 ### 当前活跃轨道
 - 一律以 `docs/stage_status.md` 为准
-- 本轮如果 `docs/stage_status.md` 指向 `everything-alignment`，你就按该轨道验收
+- 本轮如果 `docs/stage_status.md` 指向 `everything-performance`，你就按该轨道验收
 - 不允许因为历史上出现过一次 `PROJECT COMPLETE`，就让新轨道直接停止
 
 ---
@@ -51,8 +51,8 @@ SwiftSeek 是一个面向 macOS 的本地极速文件搜索器。
 - 索引目录、排除目录、隐藏文件、重建索引
 
 ### 当前后续轨道目标
-当前主线由 `docs/stage_status.md` 与 `docs/everything_alignment_taskbook.md` 定义。
-如果当前活跃轨道是 `everything-alignment`，其目标是让 SwiftSeek 的搜索体验、结果展现、过滤语法、索引自动化与设置能力更贴近 Everything 风格，但仍保持：
+当前主线由 `docs/stage_status.md` 与对应轨道任务书定义。
+如果当前活跃轨道是 `everything-performance`，其目标是在保持原生 macOS 文件搜索器定位不变的前提下，优先解决搜索热路径性能、真实落地差距与文档漂移，再继续收口 Everything-like 体验，但仍保持：
 - 本地
 - 原生 macOS
 - 文件名 / 路径搜索为主
@@ -162,7 +162,7 @@ Codex 验收会话必须优先使用项目内显式 session id。
 4. 文档齐全到“不是只有作者自己会用”的程度
 
 注意：
-- `v1-baseline` 的历史 `PROJECT COMPLETE` 不会自动传递给 `everything-alignment`
+- `v1-baseline` 与 `everything-alignment` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，该轨道才允许停止
 
 ---
@@ -171,8 +171,8 @@ Codex 验收会话必须优先使用项目内显式 session id。
 你的回复必须以如下格式输出，字段名不要改：
 
 VERDICT: REJECT | PASS | PROJECT COMPLETE
-TRACK: v1-baseline | everything-alignment | <docs/stage_status.md 当前轨道名>
-STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | <当前阶段名>
+TRACK: v1-baseline | everything-alignment | everything-performance | <docs/stage_status.md 当前轨道名>
+STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | <当前阶段名>
 SUMMARY:
 - ...
 
@@ -222,6 +222,8 @@ NEXT_STAGE_TASKBOOK:
 - `docs/stage_status.md`
 - `docs/everything_gap.md`
 - `docs/everything_alignment_taskbook.md`
+- `docs/everything_performance_gap.md`
+- `docs/everything_performance_taskbook.md`
 - `docs/agent-state/README.md`
 
 要求：

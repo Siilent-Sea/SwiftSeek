@@ -159,9 +159,30 @@ public final class SearchEngine {
     }
 
     private let database: Database
+    /// F1: prepared statement cache keyed by SQL string. Each row is a single
+    /// pointer we reset + rebind on reuse; SQLite is opened in
+    /// `SQLITE_OPEN_FULLMUTEX` (serialized), so an internal lock keeps the
+    /// dictionary itself safe across the background search queue and the
+    /// smoke / bench threads that hit the engine directly.
+    private let stmtLock = NSLock()
+    private var stmtCache: [String: OpaquePointer] = [:]
+    /// Exposed for F1 bench / smoke so tests can verify the cache is actually
+    /// being hit rather than just compiled.
+    public private(set) var stmtCacheHits: Int = 0
+    public private(set) var stmtCacheMisses: Int = 0
 
     public init(database: Database) {
         self.database = database
+    }
+
+    deinit {
+        // Finalize every cached statement so SQLite doesn't complain when
+        // the DB is closed. Held under the lock for the same reason the
+        // cache needs one.
+        stmtLock.lock()
+        for (_, stmt) in stmtCache { sqlite3_finalize(stmt) }
+        stmtCache.removeAll()
+        stmtLock.unlock()
     }
 
     // MARK: - Query normalization / tokenization
@@ -480,26 +501,44 @@ public final class SearchEngine {
 
     // MARK: - Candidate retrieval
 
-    /// Retrieve the candidate pool for a multi-token query. Uses the union of
-    /// grams from all tokens >=3 chars; tokens shorter than gram size add a
-    /// LIKE constraint instead. Post-filters to ensure every token is a
-    /// substring somewhere on each row (nameLower OR pathLower).
+    /// Retrieve the candidate pool for a multi-token query.
+    ///
+    /// F1 routes are now:
+    ///   * All tokens >=3 chars → trigram index (`file_grams`)
+    ///   * At least one token 2 chars, no 1-char tokens → bigram index
+    ///     (`file_bigrams`), falling back to trigrams only for the 3+
+    ///     tokens mixed in.
+    ///   * At least one token 1 char → single-token LIKE fallback (rare
+    ///     enough to keep simple; still bounded by LIMIT).
     private func candidates(tokens: [String], limit: Int) throws -> [Row] {
-        var longTokens: [String] = []
-        var shortTokens: [String] = []
+        var longTokens: [String] = []   // >= 3 chars  (trigram)
+        var shortTokens: [String] = []  // == 2 chars  (bigram)
+        var tinyTokens: [String] = []   // == 1 char   (LIKE fallback)
         for t in tokens {
-            if t.count >= Gram.size { longTokens.append(t) } else { shortTokens.append(t) }
+            if t.count >= Gram.size { longTokens.append(t) }
+            else if t.count == Gram.bigramSize { shortTokens.append(t) }
+            else { tinyTokens.append(t) }
         }
 
         let rawRows: [Row]
-        if longTokens.isEmpty {
-            // All tokens short. Any single one becomes the primary LIKE filter
-            // (pick first), remaining tokens are applied as post-filters.
-            guard let primary = shortTokens.first else { return [] }
+        if !tinyTokens.isEmpty {
+            // F1: 1-char queries are rare but still need to return *some*
+            // results. We keep the legacy LIKE path here, explicitly not as
+            // the main multi-char hot path. Picks the longest available
+            // token as the LIKE seed to maximise selectivity.
+            let primary = tokens.max(by: { $0.count < $1.count })!
             rawRows = try likeCandidates(token: primary, limit: limit)
+        } else if longTokens.isEmpty, !shortTokens.isEmpty {
+            // F1 pure 2-char path: use the bigram index. No leading-wildcard
+            // LIKE scan involved.
+            rawRows = try bigramCandidates(shortTokens: shortTokens, limit: limit)
+        } else if !longTokens.isEmpty, shortTokens.isEmpty {
+            // Classic trigram-only path.
+            rawRows = try gramCandidates(longTokens: longTokens, limit: limit)
         } else {
-            // Use union of grams across all long tokens, requiring all unique
-            // grams present via HAVING. Short tokens are post-filtered below.
+            // Mixed: use trigrams for the long tokens (more selective) and
+            // rely on the post-filter substring check below to enforce the
+            // 2-char tokens on each row.
             rawRows = try gramCandidates(longTokens: longTokens, limit: limit)
         }
 
@@ -527,6 +566,38 @@ public final class SearchEngine {
             _ = sqlite3_bind_text(stmt, 1, like, -1, transient)
             _ = sqlite3_bind_text(stmt, 2, like, -1, transient)
             _ = sqlite3_bind_int64(stmt, 3, Int64(limit))
+        }
+    }
+
+    /// F1 short-query hot path. Mirrors `gramCandidates` against the
+    /// `file_bigrams` index so a 2-character query like `ab` does an
+    /// indexed lookup instead of a leading-wildcard `%ab%` scan.
+    private func bigramCandidates(shortTokens: [String], limit: Int) throws -> [Row] {
+        var gramSet: Set<String> = []
+        for t in shortTokens {
+            gramSet.formUnion(Gram.bigrams(of: t))
+        }
+        let grams = Array(gramSet)
+        guard !grams.isEmpty else { return [] }
+        let placeholders = Array(repeating: "?", count: grams.count).joined(separator: ",")
+        let sql = """
+        SELECT f.path, f.name, f.is_dir, f.size, f.mtime, f.name_lower, f.path_lower
+        FROM file_bigrams fg
+        JOIN files f ON f.id = fg.file_id
+        WHERE fg.gram IN (\(placeholders))
+        GROUP BY fg.file_id
+        HAVING COUNT(DISTINCT fg.gram) = ?
+        LIMIT ?;
+        """
+        return try executeQuery(sql) { stmt, transient in
+            var idx: Int32 = 1
+            for g in grams {
+                _ = sqlite3_bind_text(stmt, idx, g, -1, transient)
+                idx += 1
+            }
+            _ = sqlite3_bind_int64(stmt, idx, Int64(grams.count))
+            idx += 1
+            _ = sqlite3_bind_int64(stmt, idx, Int64(limit))
         }
     }
 
@@ -562,13 +633,13 @@ public final class SearchEngine {
     private func executeQuery(_ sql: String,
                               bind: (OpaquePointer?, sqlite3_destructor_type) -> Void) throws -> [Row] {
         guard let handle = database.rawHandle else { throw SearchError.closedDatabase }
-        var stmt: OpaquePointer?
-        let rc = sqlite3_prepare_v2(handle, sql, -1, &stmt, nil)
-        guard rc == SQLITE_OK else {
-            let msg = String(cString: sqlite3_errmsg(handle))
-            throw SearchError.prepareFailed(rc, msg, sql)
-        }
-        defer { sqlite3_finalize(stmt) }
+        // F1: prepared-statement reuse. Same SQL string → same cached stmt;
+        // we reset bindings on reuse. The number of distinct SQL strings is
+        // bounded by the set of gram counts we emit (1..<k>), so the cache
+        // stays small in practice.
+        let stmt = try acquireStmt(sql, handle: handle)
+        sqlite3_reset(stmt)
+        sqlite3_clear_bindings(stmt)
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         bind(stmt, transient)
 
@@ -578,6 +649,9 @@ public final class SearchEngine {
             if step == SQLITE_DONE { break }
             if step != SQLITE_ROW {
                 let msg = String(cString: sqlite3_errmsg(handle))
+                // Don't throw while holding the statement — reset first so
+                // the next caller won't inherit a busy statement.
+                sqlite3_reset(stmt)
                 throw SearchError.stepFailed(step, msg, sql)
             }
             let path = String(cString: sqlite3_column_text(stmt, 0))
@@ -596,6 +670,39 @@ public final class SearchEngine {
                            pathLower: pathLower))
         }
         return out
+    }
+
+    /// Look up an existing prepared statement for `sql` or compile one and
+    /// cache it. Thread-safe: callers on the search queue and smoke tests
+    /// on other threads can both go through this.
+    private func acquireStmt(_ sql: String, handle: OpaquePointer) throws -> OpaquePointer {
+        stmtLock.lock()
+        if let hit = stmtCache[sql] {
+            stmtCacheHits += 1
+            stmtLock.unlock()
+            return hit
+        }
+        stmtLock.unlock()
+
+        var stmt: OpaquePointer?
+        let rc = sqlite3_prepare_v2(handle, sql, -1, &stmt, nil)
+        guard rc == SQLITE_OK, let prepared = stmt else {
+            let msg = String(cString: sqlite3_errmsg(handle))
+            if let stmt { sqlite3_finalize(stmt) }
+            throw SearchError.prepareFailed(rc, msg, sql)
+        }
+        stmtLock.lock()
+        if let race = stmtCache[sql] {
+            // Another thread prepared the same SQL while we were compiling.
+            // Keep the earlier one; finalize ours.
+            stmtLock.unlock()
+            sqlite3_finalize(prepared)
+            return race
+        }
+        stmtCache[sql] = prepared
+        stmtCacheMisses += 1
+        stmtLock.unlock()
+        return prepared
     }
 
     // MARK: - Scoring

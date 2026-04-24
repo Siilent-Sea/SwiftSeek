@@ -12,6 +12,7 @@ let package = Package(
         .executable(name: "SwiftSeekSearch", targets: ["SwiftSeekSearch"]),
         .executable(name: "SwiftSeekSmokeTest", targets: ["SwiftSeekSmokeTest"]),
         .executable(name: "SwiftSeekStartup", targets: ["SwiftSeekStartup"]),
+        .executable(name: "SwiftSeekBench", targets: ["SwiftSeekBench"]),
         .library(name: "SwiftSeekCore", targets: ["SwiftSeekCore"])
     ],
     targets: [
@@ -48,6 +49,13 @@ let package = Package(
             name: "SwiftSeekStartup",
             dependencies: ["SwiftSeekCore"],
             path: "Sources/SwiftSeekStartup"
+        ),
+        // F1: search hot-path benchmark / perf probe. Not part of the ship
+        // binary set; intended to be driven manually or from CI.
+        .executableTarget(
+            name: "SwiftSeekBench",
+            dependencies: ["SwiftSeekCore"],
+            path: "Sources/SwiftSeekBench"
         )
     ]
 )

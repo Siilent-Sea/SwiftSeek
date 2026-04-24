@@ -1,4 +1,8 @@
-# SwiftSeek 架构（P5 快照）
+# SwiftSeek 架构（历史快照）
+
+> Note:
+> 这份文档主要保留 baseline / archived alignment 阶段的结构快照，不是当前 `everything-performance` 轨道的权威状态文档。
+> 当前路线、差距与阶段目标以 `docs/stage_status.md`、`docs/everything_performance_gap.md`、`docs/everything_performance_taskbook.md` 为准。
 
 ## 技术栈
 - Swift 6.3 / Swift Package Manager（本机无 Xcode.app）

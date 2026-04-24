@@ -26,9 +26,37 @@ public final class Database {
     public let url: URL
     public private(set) var schemaVersion: Int32 = 0
 
+    // F1 hot-path caches. Avoid re-reading the same rows on every single
+    // keystroke's worth of search. All mutations (registerRoot, removeRoot,
+    // setRootEnabled, setSetting) invalidate the relevant cache.
+    private let cacheLock = NSLock()
+    private var rootsCached: [RootRow]?
+    private var settingsCached: [String: String?] = [:]
+    /// Exposed for tests / bench harness. Observation-only: lets callers
+    /// verify cache hit behaviour without reaching into `rootsCached`.
+    public private(set) var rootsCacheHits: Int = 0
+    public private(set) var rootsCacheMisses: Int = 0
+
     private init(handle: OpaquePointer, url: URL) {
         self.handle = handle
         self.url = url
+    }
+
+    /// F1: drop memoised roots / settings so the next read re-hits the DB.
+    /// Called from the few write paths that can invalidate state.
+    func invalidateRootsCache() {
+        cacheLock.lock()
+        rootsCached = nil
+        cacheLock.unlock()
+    }
+    func invalidateSettingsCache(key: String? = nil) {
+        cacheLock.lock()
+        if let k = key {
+            settingsCached.removeValue(forKey: k)
+        } else {
+            settingsCached.removeAll()
+        }
+        cacheLock.unlock()
     }
 
     public static func open(at url: URL) throws -> Database {
@@ -83,6 +111,11 @@ public final class Database {
                 // migration so existing P1 data becomes searchable without re-indexing.
                 if migration.target == 2 {
                     try backfillFileGrams()
+                }
+                // F1 v4 introduces the bigram index. Backfill so existing v3
+                // databases become short-query-searchable without re-indexing.
+                if migration.target == 4 {
+                    try backfillFileBigrams()
                 }
             }
             try exec("PRAGMA user_version=\(Schema.currentVersion);")
@@ -139,6 +172,55 @@ public final class Database {
         }
     }
 
+    /// F1: mirror of `backfillFileGrams` for the new 2-gram index table.
+    /// Keeps the two tables populated from the same source of truth (the
+    /// `files` table) so a db migrated from v3 → v4 is searchable on the
+    /// short-query path without requiring a full re-index.
+    private func backfillFileBigrams() throws {
+        guard let handle else { return }
+        var selectStmt: OpaquePointer?
+        let selectSQL = "SELECT id, name_lower, path_lower FROM files;"
+        let prepSel = sqlite3_prepare_v2(handle, selectSQL, -1, &selectStmt, nil)
+        guard prepSel == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(handle))
+            throw DatabaseError.prepareFailed(code: prepSel, message: msg, sql: selectSQL)
+        }
+        defer { sqlite3_finalize(selectStmt) }
+
+        var rows: [(Int64, String, String)] = []
+        while sqlite3_step(selectStmt) == SQLITE_ROW {
+            let id = sqlite3_column_int64(selectStmt, 0)
+            let nameLower = String(cString: sqlite3_column_text(selectStmt, 1))
+            let pathLower = String(cString: sqlite3_column_text(selectStmt, 2))
+            rows.append((id, nameLower, pathLower))
+        }
+        guard !rows.isEmpty else { return }
+
+        var insertStmt: OpaquePointer?
+        let insertSQL = "INSERT OR IGNORE INTO file_bigrams(file_id, gram) VALUES (?, ?);"
+        let prepIns = sqlite3_prepare_v2(handle, insertSQL, -1, &insertStmt, nil)
+        guard prepIns == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(handle))
+            throw DatabaseError.prepareFailed(code: prepIns, message: msg, sql: insertSQL)
+        }
+        defer { sqlite3_finalize(insertStmt) }
+
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (id, nameLower, pathLower) in rows {
+            for bigram in Gram.indexBigrams(nameLower: nameLower, pathLower: pathLower) {
+                sqlite3_reset(insertStmt)
+                sqlite3_clear_bindings(insertStmt)
+                _ = sqlite3_bind_int64(insertStmt, 1, id)
+                _ = sqlite3_bind_text(insertStmt, 2, bigram, -1, transient)
+                let rc = sqlite3_step(insertStmt)
+                if rc != SQLITE_DONE {
+                    let msg = String(cString: sqlite3_errmsg(handle))
+                    throw DatabaseError.stepFailed(code: rc, message: msg, sql: insertSQL)
+                }
+            }
+        }
+    }
+
     public func exec(_ sql: String) throws {
         guard let handle else { return }
         var err: UnsafeMutablePointer<CChar>?
@@ -181,6 +263,7 @@ public final class Database {
     }
 
     public func registerRoot(path: String) throws -> Int64 {
+        defer { invalidateRootsCache() }
         guard let handle else { throw DatabaseError.openFailed(code: 0, message: "closed") }
         var stmt: OpaquePointer?
         let sql = "INSERT OR IGNORE INTO roots(path, enabled) VALUES (?, 1);"
@@ -267,11 +350,17 @@ public final class Database {
             let selectIdSQL = "SELECT id FROM files WHERE path = ?;"
             let deleteGramsSQL = "DELETE FROM file_grams WHERE file_id = ?;"
             let insertGramSQL = "INSERT OR IGNORE INTO file_grams(file_id, gram) VALUES (?, ?);"
+            // F1: parallel bigram index statements. file_bigrams is the
+            // short-query hot path added in schema v4.
+            let deleteBigramsSQL = "DELETE FROM file_bigrams WHERE file_id = ?;"
+            let insertBigramSQL = "INSERT OR IGNORE INTO file_bigrams(file_id, gram) VALUES (?, ?);"
 
             var upsert: OpaquePointer?
             var selectId: OpaquePointer?
             var deleteGrams: OpaquePointer?
             var insertGram: OpaquePointer?
+            var deleteBigrams: OpaquePointer?
+            var insertBigram: OpaquePointer?
 
             let prep: (String, UnsafeMutablePointer<OpaquePointer?>) throws -> Void = { sql, ptr in
                 let rc = sqlite3_prepare_v2(handle, sql, -1, ptr, nil)
@@ -284,11 +373,15 @@ public final class Database {
             try prep(selectIdSQL, &selectId)
             try prep(deleteGramsSQL, &deleteGrams)
             try prep(insertGramSQL, &insertGram)
+            try prep(deleteBigramsSQL, &deleteBigrams)
+            try prep(insertBigramSQL, &insertBigram)
             defer {
                 sqlite3_finalize(upsert)
                 sqlite3_finalize(selectId)
                 sqlite3_finalize(deleteGrams)
                 sqlite3_finalize(insertGram)
+                sqlite3_finalize(deleteBigrams)
+                sqlite3_finalize(insertBigram)
             }
 
             let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -337,6 +430,30 @@ public final class Database {
                     if insRC != SQLITE_DONE {
                         let msg = String(cString: sqlite3_errmsg(handle))
                         throw DatabaseError.stepFailed(code: insRC, message: msg, sql: insertGramSQL)
+                    }
+                }
+
+                // F1: mirror trigrams into file_bigrams so the 2-character
+                // hot path has an index to use instead of leading-wildcard
+                // LIKE. Same delete-then-insert pattern as file_grams keeps
+                // upsert-on-path semantics consistent.
+                sqlite3_reset(deleteBigrams)
+                sqlite3_clear_bindings(deleteBigrams)
+                _ = sqlite3_bind_int64(deleteBigrams, 1, fileId)
+                let delBRC = sqlite3_step(deleteBigrams)
+                if delBRC != SQLITE_DONE {
+                    let msg = String(cString: sqlite3_errmsg(handle))
+                    throw DatabaseError.stepFailed(code: delBRC, message: msg, sql: deleteBigramsSQL)
+                }
+                for bigram in Gram.indexBigrams(nameLower: row.nameLower, pathLower: row.pathLower) {
+                    sqlite3_reset(insertBigram)
+                    sqlite3_clear_bindings(insertBigram)
+                    _ = sqlite3_bind_int64(insertBigram, 1, fileId)
+                    _ = sqlite3_bind_text(insertBigram, 2, bigram, -1, transient)
+                    let insBRC = sqlite3_step(insertBigram)
+                    if insBRC != SQLITE_DONE {
+                        let msg = String(cString: sqlite3_errmsg(handle))
+                        throw DatabaseError.stepFailed(code: insBRC, message: msg, sql: insertBigramSQL)
                     }
                 }
             }
@@ -422,6 +539,18 @@ public final class Database {
     // MARK: - P5 roots management
 
     public func listRoots() throws -> [RootRow] {
+        // F1 hot path: memoise roots across back-to-back search calls. Writes
+        // (registerRoot / removeRoot / setRootEnabled) invalidate. Reads are
+        // guarded by the same lock; the snapshot itself is a Swift array of
+        // value types so callers mutating their copy cannot corrupt the cache.
+        cacheLock.lock()
+        if let hit = rootsCached {
+            rootsCacheHits += 1
+            cacheLock.unlock()
+            return hit
+        }
+        cacheLock.unlock()
+
         guard let handle else { return [] }
         var stmt: OpaquePointer?
         let sql = "SELECT id, path, enabled FROM roots ORDER BY path;"
@@ -439,10 +568,15 @@ public final class Database {
                 enabled: sqlite3_column_int(stmt, 2) != 0
             ))
         }
+        cacheLock.lock()
+        rootsCached = out
+        rootsCacheMisses += 1
+        cacheLock.unlock()
         return out
     }
 
     public func setRootEnabled(id: Int64, enabled: Bool) throws {
+        defer { invalidateRootsCache() }
         guard let handle else { return }
         var stmt: OpaquePointer?
         let sql = "UPDATE roots SET enabled = ? WHERE id = ?;"
@@ -465,6 +599,7 @@ public final class Database {
     /// Disabled roots are still tracked in the roots table, but removal deletes the
     /// registration entirely — caller should use setRootEnabled for reversible pause.
     public func removeRoot(id: Int64) throws {
+        defer { invalidateRootsCache() }
         guard let handle else { return }
         // Look up the path first so we can clean up files under it.
         var pathStmt: OpaquePointer?
@@ -585,6 +720,16 @@ public final class Database {
     // MARK: - P5 settings key/value store
 
     public func getSetting(_ key: String) throws -> String? {
+        // F1 hot path: memoise the occasional string read. Callers like the
+        // search box read `search_limit` on every keystroke; without this
+        // cache that was a full prepare / step / finalize cycle each time.
+        cacheLock.lock()
+        if let hit = settingsCached[key] {
+            cacheLock.unlock()
+            return hit
+        }
+        cacheLock.unlock()
+
         guard let handle else { return nil }
         var stmt: OpaquePointer?
         let sql = "SELECT value FROM settings WHERE key = ?;"
@@ -596,13 +741,20 @@ public final class Database {
         defer { sqlite3_finalize(stmt) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         _ = sqlite3_bind_text(stmt, 1, key, -1, transient)
+        let value: String?
         if sqlite3_step(stmt) == SQLITE_ROW {
-            return String(cString: sqlite3_column_text(stmt, 0))
+            value = String(cString: sqlite3_column_text(stmt, 0))
+        } else {
+            value = nil
         }
-        return nil
+        cacheLock.lock()
+        settingsCached[key] = value
+        cacheLock.unlock()
+        return value
     }
 
     public func setSetting(_ key: String, value: String) throws {
+        defer { invalidateSettingsCache(key: key) }
         guard let handle else { return }
         var stmt: OpaquePointer?
         let sql = """

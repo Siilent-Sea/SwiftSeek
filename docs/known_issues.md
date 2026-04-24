@@ -1,65 +1,74 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前仓库的已知限制。这里列的是“当前就是这样”，不是单纯 bug 乱报。
+本文档记录当前用户真实会感知到的限制，不把“已经部分落地”写成“已经完全解决”。
 
-## 当前活跃轨道视角下的明显限制
+## 当前活跃轨道相关限制
 
-### 1. 查询语法已接入（E3 起）
-- 支持过滤语法：`ext:`、`kind:` (`file` / `dir`)、`path:`、`root:`、`hidden:` (`true`/`false`/`yes`/`no`/`1`/`0`/`on`/`off`)
-- filter 与 plain query 可组合（AND 语义）
-- 未知过滤 key（如 `foo:bar`）保留为 plain token，不被误解为 filter
-- 未知 kind 值、空 filter 值均静默忽略，不抛错
-- **不支持** 查询 DSL（括号 / OR / NOT 等）；**不支持** 全文内容搜索；**不支持** AI 语义搜索。
+### 1. 短查询性能（F1 已改进）
+- 2 字符查询走新的 `file_bigrams` 倒排索引路径（Schema v4）
+- 不再以 `%token%` LIKE 全表扫描为主路径
+- 1 字符查询仍保留 LIKE fallback（低频场景，保留兜底）
+- 实测 release build 10k 文件：warm 2-char median 2-4ms
+- 仍会受数据库规模影响；100k+ 的大库需单独观测
 
-### 2. 结果列表 Everything 风格已接入（E2 起）
-- 结果视图已改为 4 列：名称 / 路径 / 修改时间 / 大小
-- 列头可点击切换排序；默认仍为 score 降序
-- 当前尚不提供 pinned column、多选列、右键列菜单等高级视图能力（留给后续非阶段任务再考虑）
+### 2. 搜索热路径开销（F1 已改进）
+- SearchEngine 有 prepared statement cache（SQL 串 → `OpaquePointer`）
+- Database 有 roots cache 和 settings cache
+- 写路径自动 invalidate
+- 实测 bench 10k 文件 50 iters：stmt cache 98.6% hit、roots cache 99.7% hit
 
-### 3. 热键已可配置（E5 起）
-- 设置 → 常规 → 全局热键下拉选单提供 5 个预设：⌥Space（默认）/ ⌃Space / ⇧⌘Space / ⌃⌥Space / ⌥⌘Space
-- 选择后立即生效：持久化到 DB + 重新调用 `RegisterEventHotKey`
-- 注册失败自动回滚到上一个有效组合并弹窗提示，不会停留在未注册成功的新值上
-- 不支持任意组合的录制（闭合列表，避免 key recorder 复杂度）；未来如需再扩
+### 3. 搜索相关性的真实现状
+- 现在已经不是最早的 baseline：
+  - plain token AND 已有
+  - basename / token boundary / path segment / extension bonus 已有
+- 但它仍是 substring + bonus 的第一版启发式
+- 还谈不上成熟的 Everything-like 相关性模型
 
-### 4. 索引自动化体验已接入（E4 起）
-- 新增 root 直接后台 `indexOneRoot`，不再弹 “要不要现在重建”
-- 隐藏文件开关切换后弹 “立即重建 / 稍后” 选择，不再静默等待
-- exclude 新增仍走 `deleteFilesMatchingExclude`（立即生效）
-- 整体 “改完设置马上知道会怎么生效” 链路通畅
+### 4. 结果上限的真实现状（F2 收口）
+- GUI：
+  - 已有 `search_limit`
+  - 设置页可改
+  - 搜索窗口热路径已读取该值（F1 起 settings cache 命中）
+- CLI：
+  - `SwiftSeekSearch` 默认仍是固定 20
+  - 需要 `--limit` 才能改
+  - F2 阶段会把 CLI 默认值对齐到 DB 的 `search_limit`
 
-## E1 已解决的限制（2026-04-24）
+### 5. roots 健康状态的真实现状
+- `RootHealth` 类型已存在
+- roots UI 已显示：
+  - 就绪
+  - 索引中
+  - 停用
+  - 未挂载
+  - 不可访问
+- 但这些状态主要还停留在设置页 roots 列表，尚未形成更完整的跨页面用户心智
 
-### E1 已解决
-- **多词 query AND 语义**：`SearchEngine.tokenize` + 逐 token substring AND filter。
-- **相关性细粒度 bonus**：basename (+50) / token boundary (+30) / path segment (+40) / extension (+80) / 多词 all-in-basename (+100)。
-- **GUI 结果上限可配置**：`search_limit` 持久化到 settings 表，范围 [20, 1000]，默认 100；设置页常规 pane 提供配置入口；SearchViewController 每次查询读取，状态栏动态回显“仅显示前 N 条”。
+### 6. 结果视图的真实现状
+- 结果视图已经不是单列 launcher：
+  - 名称 / 路径 / 修改时间 / 大小 四列都已存在
+  - 已支持列头排序
+- 但当前仍只是第一版多列结果视图，还不算真正成熟的高密度文件搜索器视图
 
-### E2 已解决
-- **多列高密度结果视图**：4 列（名称 / 路径 / 修改时间 / 大小）+ NSTableHeaderView。
-- **排序切换**：列头点击；`SearchSortKey.{score, name, path, mtime, size}` + ascending。默认 `.scoreDescending`。
-- **排序稳定 + 大小写不敏感**：`SearchEngine.sort(_:by:)` 是 pure function，tie-break 用 shorter-path-then-alphabetical，保证可重现与可逆。
-- **键盘流 / 右键 / 拖拽 / QuickLook / 高亮 不回退**：新 cell 类型保留所有原行为。
+### 7. DSL 的真实现状
+- 当前已支持：
+  - `ext:`
+  - `kind:`
+  - `path:`
+  - `root:`
+  - `hidden:`
+- 当前仍不支持：
+  - OR
+  - NOT
+  - 括号
+  - 引号短语
+- 对部分 filter-only 查询，当前仍会走 bounded scan fallback
 
-### E3 已解决
-- **5 个字段过滤**：`ext:` / `kind:` / `path:` / `root:` / `hidden:` 通过 `SearchEngine.parseQuery(_:)` 解析。
-- **plain + filter 可组合**：plain token 仍走 gram + AND substring；filter 在候选收回后 AND 应用。
-- **filter-only 查询**：经 `filterOnlyCandidates` 单条 SQL 收回候选（ext > root > kind 优先级），按 mtime 降序展示。
-- **宽容解析**：未知 key / 未知 kind 值 / 空 filter 值均静默退化，不抛错。
-- **CLI 与 GUI 同源**：`SwiftSeekSearch` 未改动，parser 自然生效。
-
-### E4 已解决
-- **`RootHealth` 5 档**：ready / indexing / paused / offline / unavailable；`Database.computeRootHealth(for:currentlyIndexingPath:)`。
-- **状态对用户可见**：IndexingPane roots 列显示状态文案；IndexingPane 订阅 `RebuildCoordinator.onStateChange` 实时刷新。
-- **新增 root 自动后台索引**：`autoIndexAfterAdd` → `RebuildCoordinator.indexOneRoot`；不再弹 confirm。拖入文件夹流程同样走自动索引，使用 `pendingAutoIndex` FIFO 队列保证 N 个 drop 都被逐一索引（round 2 regression fix）。
-- **hidden 开关显式反馈**：切换后弹 “立即重建 / 稍后”，选择前明确告知已保存 + 生效语义。
-- **exclude 新增**：继续使用 v1 已有的立即清理路径，文案明确说明 “无需重建”。
-
-### E5 已解决
-- **热键可配置**：`HotkeyPresets` 5 个 Spotlight 风格 Space 组合；`Database.{get,set}Hotkey(keyCode:modifiers:)` 持久化。
-- **冲突反馈**：SettingsWindowController 切换热键时 persist + 调 AppDelegate.reinstallHotkey；注册失败回滚到上一个有效值 + 弹窗提示。
-- **malformed fallback**：DB 中手写非法 hotkey 值自动回退到默认预设，启动链路不会卡死。
-- **CLI 无耦合**：CLI binaries 不受热键改动影响；GUI 唯一消费者。
+### 8. 索引自动化的真实现状
+- add root 后已自动后台索引
+- hidden 开关会提示立即重建或稍后
+- exclude 新增会立即清理已索引子树
+- 但索引自动化、状态反馈和最终用户心智仍未完全收口
 
 ## 环境约束
 
@@ -101,16 +110,6 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 - 停用：保留已索引数据，但搜索不返回
 - 启用：无需重建，搜索立即恢复
 - 移除：级联清理该 root 下记录
-
-### hidden / exclude 生效方式
-- 新增 exclude 时会立即清理已索引子树
-- hidden 开关切换后，对已有索引数据仍需重建才能完全体现
-
-### 搜索结果上限
-- 可配置项，持久化到 DB 的 settings 表
-- 默认 100，范围 [20, 1000]
-- 超过后写入被 clamp 到边界
-- 设置页 → 常规 → 搜索结果上限
 
 ### Gatekeeper 首次运行拦截
 - release 可执行首次运行可能被 Gatekeeper 拦截

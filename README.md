@@ -2,7 +2,7 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline` 已完成，当前进入后续迭代轨道 `everything-alignment`。
+当前仓库不是空项目：`v1-baseline` 已完成，`everything-alignment` 已归档；当前开启的新活跃轨道是 `everything-performance`。
 
 ## v1 baseline 能力
 - Swift + AppKit + SQLite + FSEvents，macOS 13+
@@ -19,8 +19,8 @@ macOS 原生本地极速文件搜索器。
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`
-- 当前活跃轨道：`everything-alignment`
-- 当前阶段：`E1`
+- 当前活跃轨道：`everything-performance`
+- 当前阶段：`F1`
 
 ## 快速上手（本地交付）
 
@@ -56,10 +56,10 @@ swift run SwiftSeekSearch <query>
 ```
 
 ## Roadmap
-后续 Everything-like 对齐路线已单独整理，README 只保留入口：
+当前路线已切到 `everything-performance`，README 只保留入口：
 
-- 当前差距清单：[docs/everything_gap.md](docs/everything_gap.md)
-- 阶段任务书：[docs/everything_alignment_taskbook.md](docs/everything_alignment_taskbook.md)
+- 当前性能 / 落地差距清单：[docs/everything_performance_gap.md](docs/everything_performance_gap.md)
+- 当前阶段任务书：[docs/everything_performance_taskbook.md](docs/everything_performance_taskbook.md)
 
 ## 目录
 ```text
@@ -79,6 +79,8 @@ docs/
   known_issues.md
   everything_gap.md
   everything_alignment_taskbook.md
+  everything_performance_gap.md
+  everything_performance_taskbook.md
   agent-state/
 AGENTS.md / CLAUDE.md
 ```
@@ -86,4 +88,4 @@ AGENTS.md / CLAUDE.md
 ## 协作模式
 - Claude：主开发代理，负责实现、自检。
 - Codex：独立验收代理，负责 REJECT / PASS / 下一阶段任务书。
-- 历史 `v1-baseline` 已完成，但当前 `everything-alignment` 仍需继续推进。
+- 历史 `v1-baseline` 与 `everything-alignment` 都已归档；当前继续推进的是 `everything-performance`。

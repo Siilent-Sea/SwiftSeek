@@ -1,9 +1,10 @@
 # SwiftSeek Track Status
 
 ## 轨道总览
-- 当前活跃轨道：**（无活跃轨道）** `everything-alignment` 已完成
-- 已归档轨道：`v1-baseline`（P0–P6 / PROJECT COMPLETE 2026-04-23）
-- 已归档轨道：`everything-alignment`（E1–E5 / PROJECT COMPLETE 2026-04-24）
+- 当前活跃轨道：`everything-performance`
+- 当前阶段：`F1`（功能落地，等待 Codex 验收）
+- 已归档轨道：`v1-baseline`（P0~P6 / PROJECT COMPLETE 2026-04-23）
+- 已归档轨道：`everything-alignment`（E1~E5 / PROJECT COMPLETE 2026-04-24）
 
 ## 已归档轨道：`v1-baseline`
 - 状态：`PROJECT COMPLETE`
@@ -11,57 +12,87 @@
 - 范围：P0 ~ P6
 
 ## 已归档轨道：`everything-alignment`
-- 状态：`PROJECT COMPLETE`（Codex 2026-04-24 E5 round 1 颁发）
-- session id：`019dbd4c-e0c9-7370-8a0c-1d4263a9f19b`
-- 阶段记录：
-  - E1 — 搜索相关性与结果上限（round 2 PASS）
-  - E2 — 结果视图与排序切换（round 2 PASS）
-  - E3 — 查询语法与过滤（round 1 PASS）
-  - E4 — 索引自动化 + root 状态（round 2 PASS）
-  - E5 — 热键配置 + 使用习惯优化 + 收尾（round 1 PROJECT COMPLETE）
+- 状态：`PROJECT COMPLETE`
+- 完成日期：2026-04-24
+- 范围：E1 ~ E5
 
-## 历史阶段详情（归档保留）
+## 当前活跃轨道：`everything-performance`
 
-### E5（热键自定义 + 使用习惯优化 + 收尾文档）
+### 当前轨道目标
+- 先解决"建了索引但搜索仍慢"的核心问题
+- 把当前已经部分落地的 Everything-like 功能按代码真实状态校正
+- 性能 / 真实相关性 / 结果视图 / DSL / root 健康 / 索引自动化 按可验证顺序推进
 
-### 当前阶段目标（均已落地）
-- ✅ 全局热键可配置（SettingsTypes `HotkeyPresets` 5 个预设）
-- ✅ `Database.{get,set}Hotkey(keyCode:modifiers:)`，持久化到 settings 表
-- ✅ AppDelegate 启动读持久化组合 + 提供 `reinstallHotkey()` 供设置页重注册
-- ✅ GeneralPane 加热键下拉选单；切换时持久化 + 触发 reinstall；失败时回滚并弹窗
-- ✅ 文档收尾：README / manual_test / known_issues / stage_status 对齐 E5 最终行为
-- ✅ 5 条 E5 smoke 覆盖（预设完整性 / 全 Space 键 / getHotkey 默认值 / round-trip 所有预设 / 非法值 fallback）
-- ✅ 手测对齐（见 docs/manual_test.md 新增章节）
+### 当前阶段：`F1`（搜索热路径性能）
 
-### 当前阶段禁止事项
-- 不引入新的搜索后端
-- 不做大规模 UX 重写
-- 不碰 E1-E4 已 sealed 能力
+#### 当前阶段目标（全部已落地，等待 Codex 验收）
+- ✅ 2 字符查询不再走 `%LIKE%` 全表扫描主路径 → Schema v4 新增 `file_bigrams` 表；`SearchEngine.bigramCandidates` 走倒排索引
+- ✅ 3+ 字符查询继续保持索引驱动（trigram + HAVING count 不变）
+- ✅ 1 字符 fallback 保留 LIKE，但明确不是主路径（只有纯 1-char query 才走）
+- ✅ SearchEngine 加 prepared statement cache（key by SQL，NSLock 保护）
+- ✅ Database 加 roots cache + settings cache，写入路径自动 invalidate
+- ✅ 新 SwiftSeekBench executable target：warm 2-char / 3+char / 多词 timing 采样 + median/p95 + cache hit stats
+- ✅ `docs/everything_performance_taskbook.md` 固化性能目标
 
-### 当前代码状态（E5 快照）
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-  - `HotkeyPreset` / `HotkeyPresets`（5 个 Spotlight 风格预设，Carbon constants 本地化避免 Core 依赖 Carbon）
-  - `Database.getHotkey()` / `setHotkey(keyCode:modifiers:)` extension，默认值 = HotkeyPresets.default，malformed → 默认
-- `Sources/SwiftSeek/App/AppDelegate.swift`
-  - `installGlobalHotkey` 读持久化组合
-  - 新 `reinstallHotkey()` public；调用方传给 SettingsWindowController 构造
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-  - SettingsWindowController init 加 `hotkeyReinstallHandler` 参数
-  - GeneralPane 加 `hotkeyPopup` NSPopUpButton；`onHotkeyChanged` 动作 persist + reinstall + 失败回滚
-- `Sources/SwiftSeekSmokeTest/main.swift`
-  - +5 条 E5 用例
-  - 总数：51 + 10(E1) + 7(E2) + 17(E3) + 8(E4) + 5(E5) = 98，全绿
+#### 当前阶段禁止事项
+- 不做结果视图重设计（F3）
+- 不做相关性大改版（F2）
+- 不做 DSL 扩张（F4）
+- 不做热键 / root UI / 自动索引额外功能开发（F4/F5）
 
-### 当前阶段完成判定标准
-1. ✅ 热键可配置且持久化
-2. ✅ 热键冲突与无效输入有明确反馈（注册失败弹窗 + 自动回滚）
-3. ✅ 文档与手测对齐最终行为
-4. ✅ `swift build` + smoke 全绿
+#### 当前代码状态（F1 快照）
+- `Sources/SwiftSeekCore/Schema.swift`
+  - currentVersion = 4
+  - Migration(target:4) 创建 `file_bigrams` + `idx_file_bigrams_gram`
+- `Sources/SwiftSeekCore/Gram.swift`
+  - 新 `bigramSize = 2` / `bigrams(of:)` / `indexBigrams(nameLower:pathLower:)`
+- `Sources/SwiftSeekCore/Database.swift`
+  - `backfillFileBigrams` 在 v3→v4 迁移后跑
+  - `insertFiles` 同时写 `file_grams` 和 `file_bigrams`（delete-then-insert 模式）
+  - `cacheLock` + `rootsCached` + `settingsCached`
+  - `listRoots` 命中 cache；`registerRoot` / `removeRoot` / `setRootEnabled` 自动 invalidate
+  - `getSetting` 命中 cache（含 nil 值）；`setSetting` 按 key invalidate
+  - 公开 `rootsCacheHits` / `rootsCacheMisses` 给 bench 观察
+- `Sources/SwiftSeekCore/SearchEngine.swift`
+  - `stmtLock` + `stmtCache` dictionary
+  - `acquireStmt(_:handle:)` 获取或预编译并缓存
+  - `executeQuery` 每次 reset+clear_bindings 复用
+  - `candidates(tokens:limit:)` 路径分流：all long → trigram；all 2-char → bigram；mixed → trigram + 2-char post-filter；1-char → LIKE fallback
+  - 新 `bigramCandidates(shortTokens:limit:)` 走 `file_bigrams` 表
+  - 公开 `stmtCacheHits` / `stmtCacheMisses` 给 bench 观察
+- `Package.swift` 新 `SwiftSeekBench` executable target
+- `Sources/SwiftSeekBench/main.swift`
+  - 10k fixture DB + 50 iters/query 默认
+  - 2-char 目标 median ≤ 50ms / p95 ≤ 150ms
+  - 3+char 目标 median ≤ 30ms / p95 ≤ 100ms
+  - `--enforce-targets` 超标 exit(1)
+
+#### 当前阶段完成判定标准
+1. ✅ 2 字符查询不再以 `%LIKE%` 全表扫描为主路径
+2. ✅ 3+ 字符查询继续保持索引驱动，无回退
+3. ✅ 同类 SQL 不再每次搜索都重新 prepare（stmt cache hit rate 98%+ 实测）
+4. ✅ roots / settings 热路径读取不再每次都直读 DB（rootsCacheHits/listRoots ≈ 99.7% 实测）
+5. ✅ 仓库中有 benchmark / perf probe（`SwiftSeekBench`）
+6. ✅ 文档固化目标（上面列出的 50ms / 30ms 数字）
+7. ✅ `swift build` 成功
+8. ✅ `SwiftSeekSmokeTest` 成功（107/107 含 9 条 F1 新用例）
+
+#### 实测数据（release build，10k 合成文件，50 iters/query）
+- warm 2-char `al`: median 2.38ms / p95 2.75ms
+- warm 2-char `be`: median 4.52ms / p95 5.02ms
+- warm 2-char `do`: median 2.75ms / p95 3.14ms
+- warm 3+char `alpha`: median 2.96ms / p95 3.55ms
+- warm 3+char `beta`: median 3.29ms / p95 3.90ms
+- warm 3+char `docs`: median 2.93ms / p95 3.53ms
+- warm 3+char `alpha beta`: median 1.40ms / p95 1.95ms
+- stmt cache: 353 hits / 5 misses
+- roots cache: 357 hits / 1 miss
 
 ### 当前最新 Codex 结论
-- 轨道内最新 PASS：`E4 / round 2 / 2026-04-24`
-- 当前阶段（E5）：等待 round 1 验收（本轮预期 PROJECT COMPLETE）
+- 轨道内历史结论：
+  - `everything-performance / F1 / REJECT`（round 0 — 代码未落地前的状态审阅）
+- 当前阶段（F1）：功能面已落地，等待 round 1 复验。
 
 ### 当前活跃轨道验收会话状态
-- 当前 session id：`019dbd4c-e0c9-7370-8a0c-1d4263a9f19b`
-- 恢复策略：`codex exec resume <session_id>`
+- 会话状态目录：`docs/agent-state/`
+- 新轨道 session 将在首次 F1 round 1 Codex 调用后写回

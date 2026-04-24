@@ -1,21 +1,43 @@
-# 下一阶段任务书
+# 下一阶段任务书（过渡 F1 → F2）
 
-## 当前状态
-**无活跃轨道。**
+## Track
+`everything-performance`
 
-`everything-alignment` 轨道已于 2026-04-24 由 Codex 独立验收颁发 `VERDICT: PROJECT COMPLETE`。
+## Stage
+F1 当前刚落地（等待 Codex 验收）。本文件是 F1 → F2 的过渡骨架。
 
-## 历史完成
-- `v1-baseline`：2026-04-23 PROJECT COMPLETE（P0 ~ P6）
-- `everything-alignment`：2026-04-24 PROJECT COMPLETE（E1 ~ E5）
+## F2 目标（预告）
+把"排序更像 Everything"与"limit 真正一致"重新做实。
 
-## 如何启动新轨道
-以用户驱动为前提。启动新轨道时需要在仓库内完成以下登记：
+### 必须做
+- 重新审视 plain query 多词 AND 的真实效果（E1 已实现，F2 校准）
+- 继续校准 basename / token boundary / path segment / extension bonus
+- 统一 GUI / CLI / settings 的结果上限语义：`SwiftSeekSearch` CLI 当前默认 `--limit 20`，需改为与 DB 的 `search_limit` 一致或明确可覆盖
+- 文档与代码重新对齐
 
-1. 在 `docs/stage_status.md` 顶部标注新轨道名和当前阶段
-2. 新增 `docs/<track>_taskbook.md` 详细任务书（目标 / 阶段划分 / 验收标准 / 非目标）
-3. 选择合适的 session id 策略：
-   - 直接在 `docs/agent-state/codex-acceptance-session.{txt,json}` 中替换为新 session id
-   - 或另起一份 `codex-acceptance-session-<track>.json` 并在 stage_status 中指向新文件
+### 明确不做
+- 不做大性能架构重写（F1 已收口）
+- 不做结果视图重设计（F3）
+- 不做复杂 DSL（F4）
+- 不引入新 bonus 评分维度（保持现有 4 档 + all-in-basename）
 
-Codex 不会主动开启新轨道。Claude 也不会，除非用户明确发起。
+### 涉及关键文件
+- `Sources/SwiftSeekCore/SearchEngine.swift`
+- `Sources/SwiftSeek/UI/SearchViewController.swift`
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
+- `Sources/SwiftSeekSearch/main.swift`
+- `Sources/SwiftSeekCore/SettingsTypes.swift`
+- `docs/known_issues.md`
+
+### 验收标准
+1. 多词 AND 与 ranking 行为有明确可重复验证结果
+2. GUI 与 CLI 的结果上限行为不再互相漂移
+3. 文档对相关性和 limit 的描述与代码一致
+4. `swift build` 与 smoke 全绿
+
+---
+
+## 过渡期说明
+F1 round 1 验收完成后本文件需要刷新：
+1. 若 F1 PASS，正文展开为完整 F2 任务书
+2. 若 F1 REJECT，维持 F1 状态按 Codex required fix 修后重验

@@ -1,4 +1,8 @@
-# SwiftSeek 手工测试（P0 + P1 + P2 + P3 + P4 + P5 + P6）
+# SwiftSeek 手工测试（baseline + archived alignment features）
+
+> Note:
+> 这份文档主要覆盖已落地功能的手工验证。
+> 当前活跃轨道 `everything-performance` 的性能验证与 benchmark 要求，应以 `docs/everything_performance_taskbook.md` 为准。
 
 前置：macOS 13+，Swift 6.x 可用。
 
@@ -29,10 +33,10 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 swift run --disable-sandbox SwiftSeekSmokeTest
 ```
 期望末尾：
+``` 
+Smoke total: 98  pass: 98  fail: 0
 ```
-Smoke total: 51  pass: 51  fail: 0
-```
-并以 exit code 0 结束。（6 P0 + 5 P1 + 8 P2 + 10 P3 + 7 P4 + 2 P4-startup + 13 P5；P5 round 2 新增 3 条 disabled-root 闭环验证）
+并以 exit code 0 结束。
 
 ## 2b. 非 GUI 启动检查（适合 headless 验收环境）
 

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Schema {
-    public static let currentVersion: Int32 = 3
+    public static let currentVersion: Int32 = 4
 
     public struct Migration {
         public let target: Int32
@@ -66,6 +66,22 @@ public enum Schema {
                 value TEXT NOT NULL
             );
             """
+        ]),
+        // F1: bigram index for the 2-character hot path. Without this, short
+        // queries fall back to `%LIKE%` which forces a full-table scan even
+        // when `idx_files_name_lower` / `idx_files_path_lower` exist (the
+        // leading wildcard kills B-tree use). The separate `file_bigrams`
+        // table means the 3-gram table layout is untouched and 3+ char
+        // queries keep the exact behaviour validated in E1–E3.
+        Migration(target: 4, statements: [
+            """
+            CREATE TABLE IF NOT EXISTS file_bigrams (
+                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                gram TEXT NOT NULL,
+                PRIMARY KEY(file_id, gram)
+            ) WITHOUT ROWID;
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_file_bigrams_gram ON file_bigrams(gram);"
         ])
     ]
 }

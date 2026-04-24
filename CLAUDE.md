@@ -18,7 +18,7 @@ SwiftSeek 已不是“从 P0 开始的新项目”。
 
 ### 当前继续推进的轨道
 - 当前活跃轨道由 `docs/stage_status.md` 决定
-- 如果 `docs/stage_status.md` 写的是 `everything-alignment`，你就继续做该轨道
+- 如果 `docs/stage_status.md` 写的是 `everything-performance`，你就继续做该轨道
 - 历史 `PROJECT COMPLETE` 不是当前轨道的停止条件
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，你才允许停
 
@@ -130,8 +130,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 `VERDICT: PROJECT COMPLETE`
 
 注意：
-- 历史 `v1-baseline` 的 `PROJECT COMPLETE` 不算当前轨道停止条件
-- 如果当前活跃轨道是 `everything-alignment`，那就必须等 `everything-alignment` 自己拿到新的 `PROJECT COMPLETE`
+- 历史 `v1-baseline` 与 `everything-alignment` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
+- 如果当前活跃轨道是 `everything-performance`，那就必须等 `everything-performance` 自己拿到新的 `PROJECT COMPLETE`
 
 除此之外，以下都不是允许停下的理由：
 - “历史上已经完成过”
@@ -158,6 +158,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 - `docs/known_issues.md`
 - `docs/everything_gap.md`
 - `docs/everything_alignment_taskbook.md`
+- `docs/everything_performance_gap.md`
+- `docs/everything_performance_taskbook.md`
 - `docs/agent-state/README.md`
 
 ---
@@ -169,7 +171,7 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 4. 不允许把 Codex 的模糊反馈解释成 PASS
 5. 不允许跳过 Codex 验收
 6. 不允许把“修了一部分”说成“已关闭 blocker”
-7. 不允许因为历史上完成过 v1 就停止 everything-alignment
+7. 不允许因为历史上完成过旧轨道就停止当前新轨道
 8. 不允许继续使用旧版“默认只靠 `resume --last`”的主路径
 
 ---

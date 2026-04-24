@@ -3,39 +3,37 @@
 本文件只保留当前有效结论。
 
 ## 当前有效结论
-**VERDICT: PROJECT COMPLETE**
-TRACK: everything-alignment
-STAGE: E5 (final)
-ROUND: 1
+VERDICT: (pending F1 round 1 re-verification)
+TRACK: everything-performance
+STAGE: F1
+ROUND: 1 (awaiting Codex)
 DATE: 2026-04-24
-SESSION_ID: 019dbd4c-e0c9-7370-8a0c-1d4263a9f19b
-COMMIT: ad5f15c
 
 ### Summary
-Codex 2026-04-24 独立验收 E5 round 1 颁发 `VERDICT: PROJECT COMPLETE for everything-alignment track`。
+F1 功能面已落地，覆盖 4 项 blocker：
 
-理由（由 Codex verdict 给出）：
-- E5 四项验收标准全部满足（热键可配 + 冲突弹窗回滚 + 文档对齐 + build/smoke 全绿）
-- E1–E4 均保持 PASS 状态不回退
-- build / smoke / startup 实跑全绿：Build complete!；Smoke total 98 pass 98 fail 0；schema=3 + startup check PASS
-- 文档与手测已对齐最终行为
+1. **2 字符查询主路径去掉 `%LIKE%`**：Schema v4 新增 `file_bigrams` 倒排表；`SearchEngine.bigramCandidates` 走 `JOIN file_bigrams` + `HAVING COUNT(DISTINCT gram)` 形态，与 trigram 主路径结构相同。
+2. **prepared statement cache**：SearchEngine 内部按 SQL 字符串缓存 `OpaquePointer`；每次搜索 `sqlite3_reset` + `sqlite3_clear_bindings` 复用。实测 10k 库 50 iters × 7 query：353 hits / 5 misses。
+3. **roots / settings 缓存**：Database 新增 `rootsCached` + `settingsCached`（NSLock 保护）；`listRoots` / `getSetting` 命中返回；`registerRoot` / `removeRoot` / `setRootEnabled` / `setSetting` 写入自动 invalidate。bench 实测 roots cache 357 hits / 1 miss。
+4. **benchmark / perf probe**：新 `SwiftSeekBench` executable target；`--enforce-targets` 模式验证 median / p95 不超标。warm 2-char median 2-4ms，warm 3+char median 1-3ms，远低于 50ms / 30ms 文档目标。
+
+### 本地自检
+- `swift build --disable-sandbox` → Build complete!
+- `SwiftSeekSmokeTest` → 107 pass / 0 fail（含 9 条 F1 新用例）
+- `SwiftSeekStartup --db /tmp/ss-f1.sqlite3` → schema=4 + startup check PASS
+- `SwiftSeekBench --enforce-targets` → 全部 [ok]，exit 0
 
 ### Blockers / Required fixes
-- None
+- 待 Codex round 1 实际判定。
 
-### Non-blocking notes（Codex 原文）
-1. 早期 `docs/stage_status.md` 里 E5 smoke 数字与实际不一致（round-1 Codex 截屏时写的是 7 条，实际是 5 条）—— 已在收尾文档刷新中统一为 5 条。
-2. `agent-state/codex-acceptance-session.json` 的 `commit_at_review` 在 Codex 审查时还是 `pending-e5`—— 已在本收尾提交中更新为 `ad5f15c` 与 PROJECT COMPLETE。
-3. E5 自动化主要覆盖预设与数据库读写；热键冲突弹窗与重注册成功 / 失败的 GUI 行为依赖 `docs/manual_test.md` 33b 的手测步骤。
+### Non-blocking notes
+- `SwiftSeekSearch` CLI 默认 `--limit 20` 未改（F2 任务，不在 F1 scope）。
+- Swift 6 `IndexProgress` Sendable warning 未动（非功能阻塞，留给 F5 或单独整理）。
+- bigram 表对磁盘大小有影响：10k 文件约新增 40k bigrams。文档明确说明，不是 bug。
 
-## 轨道内已通过阶段（最终）
-- E1（2026-04-24 round 2 PASS）
-- E2（2026-04-24 round 2 PASS）
-- E3（2026-04-24 round 1 PASS）
-- E4（2026-04-24 round 2 PASS）
-- E5（2026-04-24 round 1 PROJECT COMPLETE）
+## 轨道内已通过阶段
+（尚无）
 
-## 轨道归档
-本轨道 `everything-alignment` 在 2026-04-24 Codex 独立验收下达到 `PROJECT COMPLETE`，无活跃后续阶段。
-
-如需启动新轨道（v2 / feature-specific），由用户发起并在 `docs/stage_status.md` 与 `docs/<track>_taskbook.md` 中登记。Codex 不会自行开启新轨道。
+## 历史归档轨道
+- `v1-baseline`：P0 ~ P6 / PROJECT COMPLETE 2026-04-23
+- `everything-alignment`：E1 ~ E5 / PROJECT COMPLETE 2026-04-24

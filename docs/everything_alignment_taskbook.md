@@ -1,5 +1,10 @@
 # SwiftSeek Everything-alignment 任务书
 
+> Archived note:
+> 这份任务书属于已归档的 `everything-alignment` 轨道。
+> 当前活跃轨道已切换为 `everything-performance`。
+> 后续开发应优先查看 [docs/everything_performance_taskbook.md](docs/everything_performance_taskbook.md)。
+
 目标：在不推翻 `v1-baseline` 的前提下，把 SwiftSeek 沿着更接近 Everything 的主路线继续推进。
 
 约束：

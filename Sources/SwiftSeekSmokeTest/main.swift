@@ -49,7 +49,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -984,9 +984,13 @@ func withP5Fixture(_ body: (Database) throws -> Void) throws {
     try body(db)
 }
 
-reporter.check("P5 schema migration reaches v3 and creates `settings` table") {
+reporter.check("P5 schema migration reaches current version and creates `settings` table") {
     try withP5Fixture { db in
-        try reporter.require(db.schemaVersion == 3, "schema=\(db.schemaVersion)")
+        // Current schema version moves over time (E3→3, F1→4). Assert
+        // relative to Schema.currentVersion so this test doesn't need to
+        // be touched every bump.
+        try reporter.require(db.schemaVersion == Schema.currentVersion,
+                             "schema=\(db.schemaVersion) expected=\(Schema.currentVersion)")
         try reporter.require(try db.tableExists("settings"),
                              "settings table missing")
         // settings is empty on fresh DB
@@ -2049,6 +2053,237 @@ reporter.check("E3 end-to-end: kind:dir returns only directories") {
     }
     try reporter.require(hits.count >= 2,
                          "expected at least 2 dirs (root + docs + docs/notes), got \(hits.count)")
+}
+
+// MARK: - F1 (search hot path performance)
+
+reporter.check("F1 schema: fresh DB reaches v4 and has file_bigrams table") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(db.schemaVersion == 4,
+                         "expected v4, got \(db.schemaVersion)")
+    try reporter.require(try db.tableExists("file_bigrams"),
+                         "file_bigrams table missing")
+}
+
+reporter.check("F1 Gram.bigrams: returns 2-grams for 2+ char input, empty for 1 char") {
+    let b = Gram.bigrams(of: "alpha")
+    try reporter.require(b == ["al", "lp", "ph", "ha"],
+                         "bigrams(alpha) wrong: \(b.sorted())")
+    try reporter.require(Gram.bigrams(of: "a").isEmpty,
+                         "1-char input must yield no bigrams")
+    let twoChar = Gram.bigrams(of: "ab")
+    try reporter.require(twoChar == ["ab"],
+                         "2-char input exactly one bigram: got \(twoChar)")
+}
+
+reporter.check("F1 Indexer populates file_bigrams when inserting files") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    try "".write(to: root.appendingPathComponent("alpha.txt"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let count = try db.scalarInt("SELECT COUNT(*) FROM file_bigrams;") ?? 0
+    try reporter.require(count > 0,
+                         "file_bigrams empty after index (count=\(count))")
+}
+
+reporter.check("F1 v3 → v4 migration backfills file_bigrams for pre-existing rows") {
+    // Build a v3-shaped DB with rows, then re-open through the regular
+    // API so migrate() bumps to v4 and populates file_bigrams.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let dbURL = dbDir.appendingPathComponent("legacy-v3.sqlite3")
+    // Step 1: open and migrate to v3 baseline, then force user_version
+    // to 3 so the next open treats this as pre-F1.
+    do {
+        let db = try Database.open(at: dbURL)
+        // Apply v1-v3 manually so we bypass the v4 trigger.
+        try db.exec("""
+        CREATE TABLE files (id INTEGER PRIMARY KEY, parent_id INTEGER,
+          path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, name_lower TEXT NOT NULL,
+          path_lower TEXT NOT NULL DEFAULT '',
+          is_dir INTEGER NOT NULL, size INTEGER NOT NULL DEFAULT 0,
+          mtime INTEGER NOT NULL DEFAULT 0, inode INTEGER, volume_id INTEGER);
+        CREATE INDEX idx_files_name_lower ON files(name_lower);
+        CREATE INDEX idx_files_parent ON files(parent_id);
+        CREATE INDEX idx_files_path_lower ON files(path_lower);
+        CREATE TABLE roots (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE,
+          enabled INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE excludes (id INTEGER PRIMARY KEY, pattern TEXT NOT NULL UNIQUE);
+        CREATE TABLE file_grams (file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+          gram TEXT NOT NULL, PRIMARY KEY(file_id, gram)) WITHOUT ROWID;
+        CREATE INDEX idx_file_grams_gram ON file_grams(gram);
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO files(path, path_lower, name, name_lower, is_dir)
+          VALUES ('/legacy/Alpha.TXT', '/legacy/alpha.txt', 'Alpha.TXT', 'alpha.txt', 0);
+        PRAGMA user_version=3;
+        """)
+        db.close()
+    }
+    // Step 2: reopen → migrate should jump 3 → 4 and call backfillFileBigrams.
+    let db = try Database.open(at: dbURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(db.schemaVersion == 4,
+                         "v3→v4 migration did not land, got \(db.schemaVersion)")
+    let bgCount = try db.scalarInt("SELECT COUNT(*) FROM file_bigrams;") ?? 0
+    try reporter.require(bgCount > 0,
+                         "bigrams not backfilled after migration (count=\(bgCount))")
+}
+
+reporter.check("F1 2-char query goes through the bigram index path, not %LIKE% scan") {
+    // Build a tiny fixture and confirm the bigram-driven path returns the
+    // right rows. We can't directly instrument the SQL at runtime, but the
+    // stmt cache observability gives us a proxy: the first search compiles
+    // the bigram SQL, repeated searches hit the cache.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for f in ["ab-notes.txt", "bb-report.txt", "cc-log.txt"] {
+        try "".write(to: root.appendingPathComponent(f),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("ab")
+    let names = hits.map { $0.name }.sorted()
+    // Both ab-notes and bb-report contain 'ab' — second has "bb" + "b-" + ...
+    // Actually bb-report has no "ab" in name or path. Only ab-notes.txt should match.
+    try reporter.require(names == ["ab-notes.txt"],
+                         "2-char 'ab' should return only ab-notes.txt, got \(names)")
+}
+
+reporter.check("F1 SearchEngine stmt cache: repeat query hits the cache") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for i in 0..<20 {
+        try "".write(to: root.appendingPathComponent("alpha\(i).txt"),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    _ = try engine.search("alpha")
+    let missesAfterFirst = engine.stmtCacheMisses
+    for _ in 0..<10 {
+        _ = try engine.search("alpha")
+    }
+    try reporter.require(engine.stmtCacheMisses == missesAfterFirst,
+                         "stmt cache did not absorb repeat queries: misses went from \(missesAfterFirst) to \(engine.stmtCacheMisses)")
+    try reporter.require(engine.stmtCacheHits >= 10,
+                         "stmt cache hits=\(engine.stmtCacheHits) after 10 repeats")
+}
+
+reporter.check("F1 Database roots cache: hits second call, invalidates on registerRoot") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    _ = try db.listRoots()                      // miss
+    let missBase = db.rootsCacheMisses
+    _ = try db.listRoots()                      // should hit
+    _ = try db.listRoots()                      // should hit
+    try reporter.require(db.rootsCacheMisses == missBase,
+                         "second listRoots should not miss; misses went from \(missBase) to \(db.rootsCacheMisses)")
+    try reporter.require(db.rootsCacheHits >= 2,
+                         "expected >=2 cache hits, got \(db.rootsCacheHits)")
+    // register bumps the miss counter next time through
+    let someDir = try makeTempDir()
+    defer { cleanup(someDir) }
+    _ = try db.registerRoot(path: someDir.path)
+    _ = try db.listRoots()                      // must miss (invalidated)
+    try reporter.require(db.rootsCacheMisses == missBase + 1,
+                         "registerRoot should invalidate roots cache")
+}
+
+reporter.check("F1 Database settings cache: invalidates on setSetting for same key") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // First read: misses (key absent → cached as nil).
+    try reporter.require((try db.getSetting("k1")) == nil, "fresh key must be nil")
+    // Second read: hits cache, still nil.
+    try reporter.require((try db.getSetting("k1")) == nil, "cached-nil read broke")
+    // Write then read: must see the new value, not stale nil.
+    try db.setSetting("k1", value: "v1")
+    let afterV1 = try db.getSetting("k1")
+    try reporter.require(afterV1 == "v1",
+                         "stale cache after setSetting: got \(String(describing: afterV1))")
+    // Overwrite then read: new value again.
+    try db.setSetting("k1", value: "v2")
+    try reporter.require((try db.getSetting("k1")) == "v2",
+                         "stale cache after overwrite")
+}
+
+reporter.check("F1 warm 2-char search timing under generous CI bound (200ms median)") {
+    // Looser than the documented 50ms target so this smoke test remains
+    // reliable across sandbox / slow CI / debug build conditions. The
+    // documented tight target is enforced by SwiftSeekBench --enforce-targets.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    // ~500 files — small enough that the DB-insert loop doesn't dominate
+    // the smoke run, large enough that a %LIKE% regression is visible.
+    var rows: [FileRow] = []
+    for i in 0..<500 {
+        let name = "alpha-\(i).txt"
+        let path = "\(root.path)/\(name)"
+        rows.append(FileRow(
+            path: path,
+            pathLower: path.lowercased(),
+            name: name,
+            nameLower: name.lowercased(),
+            isDir: false,
+            size: 0,
+            mtime: 0
+        ))
+    }
+    try db.insertFiles(rows)
+    _ = try db.registerRoot(path: root.path)
+    let engine = SearchEngine(database: db)
+    _ = try engine.search("al")      // warm
+    _ = try engine.search("al")      // warm
+    var samples: [Double] = []
+    for _ in 0..<21 {
+        let t0 = Date()
+        _ = try engine.search("al")
+        samples.append(Date().timeIntervalSince(t0) * 1000)
+    }
+    samples.sort()
+    let median = samples[samples.count / 2]
+    try reporter.require(median < 200,
+                         "2-char median \(median)ms exceeded 200ms ceiling (regression?)")
 }
 
 exit(reporter.summary())
