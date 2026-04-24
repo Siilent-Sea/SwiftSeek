@@ -3999,6 +3999,63 @@ reporter.check("J3 round 2: pure-OR finds matches past bounded-scan window") {
                          "OR with no matches anywhere must return []; got \(emptyHits.count)")
 }
 
+reporter.check("J3 round 3: OR with pure-wildcard alt matches all (*|foo)") {
+    // *|foo: `*` should semantically match every file; unioned with
+    // `foo` → result should include at least one file that doesn't
+    // contain "foo", proving the wildcard alt actually contributed.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    let fm = FileManager.default
+    try "".write(to: root.appendingPathComponent("foo-target.md"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("unrelated.txt"),
+                 atomically: true, encoding: .utf8)
+    try "".write(to: root.appendingPathComponent("another.log"),
+                 atomically: true, encoding: .utf8)
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("*|foo")
+    let names = Set(hits.map(\.name))
+    try reporter.require(names.contains("foo-target.md"),
+                         "foo alt should hit foo-target.md, got \(names)")
+    // Critical: wildcard alt must also contribute — at least ONE file
+    // whose name does not contain 'foo' must be present.
+    let nonFoo = names.filter { !$0.contains("foo") }
+    try reporter.require(!nonFoo.isEmpty,
+                         "wildcard alt `*` must contribute files that don't contain 'foo'; got names=\(names)")
+}
+
+reporter.check("J3 round 3: pure-wildcard OR returns bounded scan (*|?)") {
+    // Both alts are pure wildcards. orUnionCandidates should fall
+    // into the bounded-scan branch and return at least some rows,
+    // not an empty set.
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setIndexMode(.fullpath)
+    let root = try makeTempDir()
+    defer { cleanup(root) }
+    for name in ["alpha.md", "beta.txt", "gamma.log"] {
+        try "".write(to: root.appendingPathComponent(name),
+                     atomically: true, encoding: .utf8)
+    }
+    _ = try Indexer(database: db).indexRoot(root)
+    let engine = SearchEngine(database: db)
+    let hits = try engine.search("*|?")
+    try reporter.require(hits.count >= 3,
+                         "pure-wildcard OR should include all 3 files, got \(hits.count): \(hits.map(\.name))")
+}
+
 reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     let (db, engine, dbDir, root, _) = try makeJ3EngineFixture()
     defer { db.close(); cleanup(dbDir); cleanup(root) }

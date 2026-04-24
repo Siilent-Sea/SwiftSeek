@@ -1143,10 +1143,19 @@ public final class SearchEngine {
         var seen = Set<String>()
         var out: [Row] = []
         out.reserveCapacity(min(limit, 512))
+        // J3 round 3: a pure-wildcard alt (`*`, `?`, `*?`, …) has no
+        // gram anchor but its semantic is "matches anything" — which
+        // at the OR level means "union in everything, bounded by
+        // limit". Track that intent and fire a single bounded scan at
+        // the end so we don't run it per-alt.
+        var needsBoundedScan = false
         for group in orGroups {
             for alt in group {
                 let anchor = SearchEngine.wildcardAnchor(alt)
-                if anchor.isEmpty { continue }
+                if anchor.isEmpty {
+                    needsBoundedScan = true
+                    continue
+                }
                 let perAltRows = try candidates(tokens: [anchor],
                                                 pathTokens: [],
                                                 mode: mode,
@@ -1156,6 +1165,22 @@ public final class SearchEngine {
                         out.append(row)
                         if out.count >= limit { return out }
                     }
+                }
+            }
+        }
+        if needsBoundedScan && out.count < limit {
+            // Bounded scan over `files` up to the remaining quota.
+            // The post-filter in `search()` confirms per-row with
+            // `tokenMatchesWildcard` against each alt; `*` / `?` match
+            // trivially, so every bounded-scan row ends up in the
+            // result unless some other negation / filter drops it.
+            let rest = try filterOnlyCandidates(filters: QueryFilters(),
+                                                mode: mode,
+                                                limit: limit)
+            for row in rest {
+                if seen.insert(row.path).inserted {
+                    out.append(row)
+                    if out.count >= limit { return out }
                 }
             }
         }

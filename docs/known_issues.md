@@ -35,13 +35,14 @@
   - "最近打开" header tooltip 说明只来自 SwiftSeek 内部 `.open` 历史。
 - 数据链路 H1-H5 未改：`file_usage` / `Database.recordOpen(path:)` / `SearchResult.openCount/lastOpenedAt` / `LEFT JOIN file_usage` / `recent:` / `frequent:` / 隐私开关都与之前一致。
 
-### 5. Everything-like 查询语法已在 J3 扩展
-- 已实现（J3 round 2 收口）：
+### 5. Everything-like 查询语法已在 J3 完整扩展
+- 当前已实现（J3 round 3 收口）：
   - `*` / `?` wildcard（可在 plain 与 OR 中使用；phrase 内不识别）
   - quoted phrase `"foo bar"`（空格字面，不切分）
   - OR `foo|bar`（≥2 非空替换，替换中不能含 filter key）
   - NOT `!foo` / `-foo` / `!"foo bar"`（否定 plain 或 phrase）
-- **纯 OR 完整检索**（J3 round 2 修复）：`alpha|beta` 每个 alt 单独走 gram 检索 + union（`orUnionCandidates`），不再落回 `filterOnlyCandidates` 的 bounded scan；大库尾部命中不会漏掉。
+- **纯 OR 完整检索**（J3 round 2）：`alpha|beta` 每个 alt 单独走 gram 检索 + union（`orUnionCandidates`），不再落回 bounded scan；大库尾部命中不会漏掉。
+- **OR + wildcard alt 语义**（J3 round 3）：`*|foo` / `*|?` 这类 OR 组中出现纯 wildcard alt 时，`orUnionCandidates` 除了各 alt 的 gram 检索，还会 union 一次 bounded scan（`filterOnlyCandidates`），post-filter `tokenMatchesWildcard` 确认每行是否匹配任一 alt。`*` 语义上匹配所有文件，因此 bounded scan 会补齐无 anchor alt 覆盖的行。
 - 兼容既有：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:` 仍工作；J3 负向 token 不与 filter key 合并（`!ext:md` 会回落为字面 substring，不按 "排除 ext" 处理）。
 - 容错：
   - 未闭合 `"` → 自动补闭合
