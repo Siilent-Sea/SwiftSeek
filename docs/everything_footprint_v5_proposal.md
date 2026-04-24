@@ -75,24 +75,43 @@ Compact mode 是 G3 引入的默认模式。基本想法：**只对 basename 做
 
 ## 5. 搜索语义差异
 
-### 5.1 Compact mode 下 query 行为
+### 5.1 Compact mode 下 query 行为 — 冻结定义
 
-| Query 形态 | v4 行为 | Compact v5 行为 | 能力 delta |
-|---|---|---|---|
-| `foo` (name substring) | `file_grams` IN | `file_name_grams` IN | 同 |
-| `al` (2-char name substring) | `file_bigrams` IN | `file_name_bigrams` IN | 同 |
-| `myproj` 只在 path 中 | `file_grams` IN | `file_path_segments` 按 segment 精确匹配 | **差异**：compact 只能匹配完整 segment 或其前缀（取决于实现），不能匹配 segment 内部 substring |
-| `path:myproj` | `file_grams` IN + post-filter | `file_path_segments` IN | 同（甚至更快） |
-| `ext:md` | `LIKE '%.md'` 线性扫描 | 同 | 同 |
+**硬定义（G3 必须按此实现；偏离 = 越界）：**
+
+| 维度 | Compact v5 冻结行为 |
+|------|---------------------|
+| `plain-token`（无 `path:` 前缀） | 只在 **basename** 匹配。`token.count >= 3` 走 `file_name_grams`；`token.count == 2` 走 `file_name_bigrams`；`token.count == 1` 走 LIKE fallback（仅对 `name_lower`）。**绝不召回 path-only 命中**。 |
+| `path:<token>` | 走 `file_path_segments` 做**前缀匹配**（SQL: `segment = ? OR segment LIKE ? \|\| '%'`）。token 无需是完整 segment；但必须从 segment 开头开始。长度无限制。 |
+| `path:` 多 token | 每 token 独立 AND：所有 token 都必须在 row 的某个 segment 上命中前缀 |
+| `root:<prefix>` | 不变 — `path_lower LIKE 'prefix/%'`，走 `idx_files_path_lower` |
+| `ext:` / `kind:` / `hidden:` | 不变 |
+
+**正例（compact 模式必须命中）**：
+
+1. query `foo` on file `foo-bar.txt` under `/a/b/` → hit（basename substring `file_name_grams` 命中）
+2. query `al` on `/docs/alpha.md` → hit（2-char basename `file_name_bigrams` 命中）
+3. query `path:docs` on `/work/docs/a.md` → hit（`docs` 是整个 segment，前缀匹配命中）
+4. query `path:doc` on `/work/docs/a.md` → hit（`doc` 是 segment `docs` 的前缀）
+5. query `ext:md` on `/work/readme.md` → hit（ext filter 不变）
+
+**反例（compact 模式明确不命中）**：
+
+1. query `myproj` on `/home/myproj-old/a.txt` → **miss**（`myproj` 只在 segment `myproj-old` 中间 substring；basename `a.txt` 不含 `myproj`）。要命中需切 fullpath mode。
+2. query `path:oj` on `/home/myproj/a.txt` → **miss**（`oj` 不是 segment `myproj` 的前缀，只是中间 substring）
+3. query `path:proj` on `/home/myproj/a.txt` → **miss**（不是前缀）
+4. query `proj` on `/home/myproj/a.txt`（basename 不含 proj）→ **miss**（plain query 不再召回 path substring）
+
+G3 smoke 必须至少各覆盖一条正例 + 一条反例。
 
 ### 5.2 明确能力 delta（compact）
 
-- ✅ 保留：文件名任意 substring、path segment 匹配、ext / kind / root / hidden filter、多词 AND、所有 E1 bonus 评分
-- ✅ 保留 / 等效：`path:<token>` 对常见 token（>=2 字符、对应一个 segment）能命中
-- ⚠️ 变化：`path:<subseg>`（例如 `path:yproj`）不能命中 segment 中间子串 —— 必须走 fullpath mode
-- ⚠️ 变化：未加 `path:` 前缀的 plain query 只对 basename 匹配；路径中 token 需要显式 `path:token`
+- ✅ 保留：文件名任意 substring、path segment **前缀**匹配、ext / kind / root / hidden filter、多词 AND、所有 E1 bonus 评分
+- ⚠️ 变化：plain query 不再召回 path-only 命中 —— 用户要搜路径中的 token 必须加 `path:` 前缀
+- ⚠️ 变化：`path:<token>` 只做前缀匹配，不做 segment 内部 substring；中间 substring 必须走 fullpath mode
+- ⚠️ 变化：路径中 segment 外观被 `-` / `_` / `.` 切的子部分（例如 `myproj-old` 里的 `old`）不在 compact index 里
 
-UI 文案要明确这个变化。G4 会在设置 mode 切换处展示。
+UI 文案（G4）必须明确这个变化。
 
 ---
 
@@ -157,11 +176,57 @@ CREATE TABLE IF NOT EXISTS migration_progress (
 - 用户在 fullpath mode 下继续写入 v4 表
 - 如果用户明确切到 compact mode 并完成回填，可选"清空 v4 索引释放空间"（维护页新按钮）—— 最后一步 VACUUM 释放磁盘
 
-### 6.4 Rollback
+### 6.4 Rollback + Rebuild Plan（冻结）
 
-- 若 G3 实测有问题，用户可在设置页切回 fullpath
-- 切回时若 v4 表还有数据，直接使用；若已清空则提示"需重建"
-- Schema v5 添加的表不删（向前兼容）；保留空表不计入主要体积（几 KB）
+**触发场景 / 响应矩阵**：
+
+| 用户动作 | 当前 state | 响应 |
+|---------|-----------|-----|
+| 切 `fullpath → compact` | v4 表有数据、compact 表空 | UI 弹窗"需回填 compact 索引"；点"开始"触发 `MigrationCoordinator.backfillCompact(resume:true)`；不阻主；进度写入 `migration_progress.last_file_id_processed` |
+| 切 `compact → fullpath` | v4 表完整 | mode 立即生效（SearchEngine 读新 mode 走 v4 表）；无需重建 |
+| 切 `compact → fullpath` | v4 表已被"清空 v4 索引"按钮清过 | UI 弹窗"需重建 v4 索引"；点"开始"调用 `RebuildCoordinator.rebuild()` 全量重新索引，写 v4 表；**不重置 migration_progress**（compact 表不动，下次切回 compact 可继续） |
+| backfill 失败（任一批次 throw） | 部分 compact 回填完 | `migration_progress` 保留已完成的 `last_file_id_processed`；UI 维护页按钮变"继续回填（X / Y）"；用户点击继续 |
+| 用户在 compact 模式下新建 root 索引 | compact 表活动 | Indexer 对新 root 直接写 compact 表（不走 backfill），不影响 migration_progress |
+| 用户"清空 v4 索引释放空间" | mode=compact + backfill 完成 | UI 二次确认后 `DELETE FROM file_grams; DELETE FROM file_bigrams; VACUUM;` 释放磁盘；**切回 fullpath 需全量重建** |
+
+**rebuild 目标表**：
+
+- `RebuildCoordinator.rebuild()` 的目标表由当前 `index_mode` 决定：
+  - mode=compact → 清空并重建 `file_name_grams` / `file_name_bigrams` / `file_path_segments`（不动 v4 表）
+  - mode=fullpath → 清空并重建 `file_grams` / `file_bigrams`（不动 v5 compact 表）
+- `RebuildCoordinator` 的 indexer options 增加 `indexMode` 字段
+- **绝不同时重建两套表** — 避免 5×+ 磁盘占用
+
+**`migration_progress` 生命周期**：
+
+- 创建：首次切到 compact 模式时
+- 更新：每批 backfill 后
+- 清理：backfill 完成（last_file_id_processed >= max files.id）后，UI 提示"回填完成"；`migration_progress` row 保留用于审计，但 coordinator 下次看到"完成"态不再触发工作
+- 重置：用户在 compact 模式下点"强制重新回填"（隐藏在维护页高级操作里），coordinator 清 `migration_progress` 行 + 清 compact 表然后重新开始
+
+**越界 / 不允许的 G3 行为**（Codex 验收时 reject）：
+
+- ❌ G3 在 `Database.migrate()` 单事务里跑 compact backfill
+- ❌ G3 在 App 启动主线程自动触发 backfill（哪怕是"少量"）
+- ❌ G3 同时重建 v4 + v5 两套表
+- ❌ G3 删除 v4 `file_grams` / `file_bigrams` 或 unsafely 清空用户数据而无 UI 确认
+- ❌ G3 在 compact mode 下对 path 做 full substring 匹配（必须 fullpath mode 才行）
+- ❌ G3 忽略 `migration_progress` — 每次打开都从 id=0 重新回填
+
+**符合设计的 G3 行为**：
+
+- ✅ v4→v5 migrate 只跑 `CREATE TABLE` + `CREATE INDEX` + `INSERT INTO settings(index_mode, 'fullpath')` ;
+- ✅ 新 DB 自动 `index_mode='compact'`
+- ✅ Indexer 按 mode 写对应表
+- ✅ MigrationCoordinator 分批（batch_size 可配，默认 5000）+ 每批独立事务 + `wal_checkpoint(PASSIVE)`
+- ✅ `migration_progress` 按 batch 更新
+- ✅ SearchEngine 按 mode 分流 candidates
+
+### 6.5 Schema v5 向前兼容
+
+- Schema v5 添加的表不在回滚时删除
+- 保留空表占用可忽略（几 KB）
+- 未来 v6 可选择删除 v4 表；不是 v5 的范围
 
 ---
 

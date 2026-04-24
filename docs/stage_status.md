@@ -58,17 +58,14 @@
 
 ## 当前阶段：`G2` - 紧凑索引策略设计
 
-### 当前阶段目标（零代码，纯设计文档）
-- ✅ 输出 `docs/everything_footprint_v5_proposal.md`：
-  - Compact mode 表结构（file_name_grams / file_name_bigrams / file_path_segments）
-  - Full-path substring 作为高级模式保留 v4 表
-  - 能力差异矩阵（basename vs segment vs full substring）
-  - Schema v5 migration statements 草案
-  - 分批 backfill / MigrationCoordinator 接口约束
-  - v4 表保留 + rollback 策略
-  - 查询路径分流方案
-  - G5 benchmark 指标 + 预期数字
-  - 11 节 + 验收矩阵 + 变更日志
+### Round 1 REJECT（2026-04-24）
+- blocker 1：compact path 语义未冻结（"取决于实现"留给 G3 的自由度过大）
+- blocker 2：rebuild plan 不够成形（mode 切换触发条件、目标表、migration_progress 生命周期、越界边界都缺）
+
+### Round 2（当前提交）
+- ✅ 冻结 compact path 语义：plain query 只命中 basename；`path:<token>` 走 segment **前缀**匹配；4 正例 + 4 反例
+- ✅ 扩完整 rebuild/rollback plan：触发场景 / 响应矩阵、rebuild 目标表规则、migration_progress 生命周期、越界 / 符合设计行为清单
+- ✅ 文档与 G3 实现之间的合同完全对齐
 
 ### 当前阶段禁止事项
 - 不直接实现 Schema v5（G3）
@@ -79,15 +76,15 @@
 
 ### 代码状态（G2 快照）
 - 零代码改动
-- 新增 `docs/everything_footprint_v5_proposal.md`
+- 新增 `docs/everything_footprint_v5_proposal.md`（round 2 扩到 § 5.1 硬定义 + § 6.4 完整 rebuild plan + § 6.5 向前兼容）
 - stage_status.md 本段
 
 ### 完成判定
-1. ✅ 文档明确 compact mode vs full-path substring mode 的能力差异
-2. ✅ 文档明确 v4 到 v5 的数据迁移策略
-3. ✅ 文档明确失败恢复、回滚和重建策略
-4. ✅ 文档明确 500k benchmark 目标（G5 实测）
-5. ✅ Codex 可据此判断 G3 是否越界
+1. ✅ 文档明确 compact mode vs full-path substring mode 的能力差异（§ 5.1 矩阵 + 8 正反例）
+2. ✅ 文档明确 v4 到 v5 的数据迁移策略（§ 6.1 + 6.2）
+3. ✅ 文档明确失败恢复、回滚和重建策略（§ 6.4 矩阵 + 生命周期 + 越界清单）
+4. ✅ 文档明确 500k benchmark 目标（§ 8）
+5. ✅ Codex 可据此判断 G3 是否越界（§ 6.4 "越界 / 符合设计" 双清单）
 
 ---
 
