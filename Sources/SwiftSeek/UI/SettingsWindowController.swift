@@ -237,6 +237,14 @@ private final class GeneralPane: NSViewController {
     private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "随 macOS 登录自动启动 SwiftSeek",
                                                  target: nil, action: nil)
     private let launchAtLoginNote = NSTextField(wrappingLabelWithString: "")
+    // L2: Dock visibility toggle. Checkbox reflects the persisted
+    // intent; the note explains the "takes effect on next launch"
+    // contract because runtime `.regular` ↔ `.accessory` transitions
+    // on ad-hoc bundles can leave window/menu state inconsistent.
+    // Default unchecked = L1 menubar-agent / no Dock.
+    private let dockIconCheckbox = NSButton(checkboxWithTitle: "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）",
+                                            target: nil, action: nil)
+    private let dockIconNote = NSTextField(wrappingLabelWithString: "")
     /// Closure injected by AppDelegate so this pane can trigger
     /// re-registration of the Carbon hotkey without reaching through
     /// the view hierarchy. Returns true iff the new combo registered
@@ -251,7 +259,9 @@ private final class GeneralPane: NSViewController {
     required init?(coder: NSCoder) { fatalError("unused") }
 
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 360))
+        // L2 grew the pane: extra Dock-visibility checkbox + multiline note;
+        // bumped from 360 to 440 so the bottom rows aren't clipped on first paint.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 440))
 
         let title = NSTextField(labelWithString: "常规")
         title.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
@@ -364,6 +374,15 @@ private final class GeneralPane: NSViewController {
         launchAtLoginNote.textColor = .secondaryLabelColor
         launchAtLoginNote.stringValue = "调用 SMAppService。未签名 / 未公证的构建可能要求在系统设置 → 通用 → 登录项里手动批准。切换后这里会显示实际状态。"
 
+        // L2 Dock visibility row
+        dockIconCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        dockIconCheckbox.target = self
+        dockIconCheckbox.action = #selector(onDockIconToggle(_:))
+        dockIconNote.translatesAutoresizingMaskIntoConstraints = false
+        dockIconNote.font = NSFont.systemFont(ofSize: 11)
+        dockIconNote.textColor = .secondaryLabelColor
+        dockIconNote.stringValue = "默认不勾选：SwiftSeek 仅在菜单栏常驻，不出现在 Dock / Command+Tab。勾选后下次启动 SwiftSeek 会以普通 App 形态运行（保留菜单栏入口）。**切换需重启 SwiftSeek 生效**：菜单栏 → 退出 SwiftSeek → 重新打开 dist/SwiftSeek.app。"
+
         root.addSubview(title)
         root.addSubview(row)
         root.addSubview(note)
@@ -375,6 +394,8 @@ private final class GeneralPane: NSViewController {
         root.addSubview(modeNote)
         root.addSubview(launchAtLoginCheckbox)
         root.addSubview(launchAtLoginNote)
+        root.addSubview(dockIconCheckbox)
+        root.addSubview(dockIconNote)
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -414,7 +435,13 @@ private final class GeneralPane: NSViewController {
             launchAtLoginNote.topAnchor.constraint(equalTo: launchAtLoginCheckbox.bottomAnchor, constant: 6),
             launchAtLoginNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             launchAtLoginNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            launchAtLoginNote.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
+
+            dockIconCheckbox.topAnchor.constraint(equalTo: launchAtLoginNote.bottomAnchor, constant: 18),
+            dockIconCheckbox.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            dockIconNote.topAnchor.constraint(equalTo: dockIconCheckbox.bottomAnchor, constant: 6),
+            dockIconNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            dockIconNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            dockIconNote.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
         ])
         self.view = root
     }
@@ -466,6 +493,53 @@ private final class GeneralPane: NSViewController {
 
         // J6: reflect SMAppService state.
         reflectLaunchAtLoginState()
+
+        // L2: reflect persisted Dock-visibility intent. We compare
+        // intent against the live `NSApp.activationPolicy()` so the
+        // note can warn the user when they last toggled but didn't
+        // restart yet.
+        reflectDockIconState()
+    }
+
+    private func reflectDockIconState() {
+        let intent = (try? database.getDockIconVisible()) ?? false
+        dockIconCheckbox.state = intent ? .on : .off
+        let liveRegular = (NSApp.activationPolicy() == .regular)
+        if intent == liveRegular {
+            // Setting matches current process state.
+            dockIconNote.stringValue = intent
+                ? "✓ 当前以普通 App 形态运行：Dock 中可见，菜单栏入口同时保留。下次启动会沿用此设置。"
+                : "✓ 当前以菜单栏 agent 形态运行（默认）：Dock 中不显示，仅保留菜单栏入口。下次启动会沿用此设置。"
+        } else {
+            // User flipped but hasn't relaunched.
+            dockIconNote.stringValue = intent
+                ? "⚠️ 已勾选「在 Dock 显示」，但当前进程仍是菜单栏 agent 模式（`.accessory`）。请退出 SwiftSeek（菜单栏 → 退出）并重新启动后生效。"
+                : "⚠️ 已取消勾选，但当前进程仍以普通 App 形态运行（`.regular`）。请退出 SwiftSeek（菜单栏 → 退出）并重新启动后生效。"
+        }
+    }
+
+    @objc private func onDockIconToggle(_ sender: NSButton) {
+        let want = (sender.state == .on)
+        do {
+            try database.setDockIconVisible(want)
+        } catch {
+            // Persist failed — show error and revert checkbox so
+            // user understands change didn't take.
+            let alert = NSAlert()
+            alert.messageText = "保存 Dock 显示设置失败"
+            alert.informativeText = "\(error)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+            sender.state = want ? .off : .on
+            return
+        }
+        // Persist succeeded; refresh the explanation note. We do NOT
+        // call `NSApp.setActivationPolicy(...)` here because runtime
+        // .regular ↔ .accessory transitions on ad-hoc bundles are not
+        // reliable enough to ship as a "live" toggle. The note tells
+        // the user to relaunch.
+        reflectDockIconState()
     }
 
     private func reflectLaunchAtLoginState() {

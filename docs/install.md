@@ -73,10 +73,26 @@ open dist/SwiftSeek.app
 
 ### 实现方式（仅供排查参考）
 
-`AppDelegate.applicationDidFinishLaunching` 调用 `NSApp.setActivationPolicy(.accessory)`：
-- 运行时控制，便于 L2 加 "显示 Dock 图标" 设置
+`AppDelegate.applicationDidFinishLaunching`：
+- 第一步先调 `NSApp.setActivationPolicy(.accessory)` 作为 L1 默认
+- DB 打开后读 `dock_icon_visible` 设置；为 `true` 时切到 `.regular`，否则保持 `.accessory`
 - `Info.plist` 仍保留 `LSUIElement=false`（package-app.sh 里有注释说明），不与运行时策略冲突
 - ad-hoc / 未签名 bundle 的 LaunchServices 行为更稳定
+
+### L2 让 Dock 图标重新显示
+
+设置 → 常规 → 最下方 "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）" 复选框：
+
+1. **勾选**该复选框 → 复选框右下方 note 会变成"已勾选，但当前进程仍是菜单栏 agent 模式"
+2. **退出 SwiftSeek**：菜单栏 → "退出 SwiftSeek"（⌘Q）
+3. **重新打开** `dist/SwiftSeek.app` 或 `/Applications/SwiftSeek.app`
+4. 这次 Dock 中会出现 SwiftSeek 图标；菜单栏图标同时保留
+5. 想关回菜单栏 agent 模式：再次取消勾选 → 退出 → 重新打开
+
+为什么需要重启而不是实时切：
+- macOS `NSApp.setActivationPolicy(.regular)` ↔ `.accessory` 在未签名 / ad-hoc bundle 上可能让主菜单、key window、Dock 状态不一致
+- 持久化意图 + 重启生效是当前轨道的诚实契约；UI note 会明确告诉用户需要重启
+- L1/L2 的 `LSUIElement=false` 不变，运行时 activation policy 是真正的控制源
 
 ### 退出路径（重要）
 

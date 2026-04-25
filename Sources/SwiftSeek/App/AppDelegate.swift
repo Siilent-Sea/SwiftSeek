@@ -23,25 +23,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("SwiftSeek: bundle=\(BuildInfo.bundlePath)")
         NSLog("SwiftSeek: binary=\(BuildInfo.executablePath)")
 
-        // L1: switch to menubar-agent activation policy BEFORE any
-        // window or main-menu installation. `.accessory` removes the
-        // Dock icon, suppresses the standard Cocoa main menu in the
-        // system menu bar, and keeps the process around for the
-        // NSStatusItem entry installed below.
+        // L1 + L2: pick activation policy BEFORE any window or
+        // main-menu installation. L1 introduced `.accessory` as the
+        // hard-coded default (menubar-agent / no Dock). L2 makes this
+        // user-controllable via a persisted "dock_icon_visible" setting.
+        //
+        // Order:
+        //   1. Apply the L1 default (`.accessory`) up front so a DB
+        //      open failure or a brand-new install still leaves us in
+        //      menubar-agent mode rather than briefly flashing a Dock
+        //      icon during init.
+        //   2. After the DB is open below, read the user's persisted
+        //      preference. If they have opted into a visible Dock, lift
+        //      activation policy to `.regular`. If reading fails, stay
+        //      with `.accessory` — the L1 default is the conservative
+        //      fallback.
         //
         // Why .accessory at runtime instead of `LSUIElement=true` in
         // Info.plist:
-        //   - L2 will introduce a "show Dock icon" preference; flipping
-        //     activation policy at runtime is the real lever, while a
-        //     baked-in LSUIElement key would force a repackage to undo.
+        //   - L2 needs the runtime lever; a baked-in LSUIElement key
+        //     would force users to repackage to flip Dock visibility.
         //   - `swift run SwiftSeek` (dev path) inherits the same
         //     behaviour with no plist edits — fewer dev/release drift
         //     traps.
         //   - ad-hoc / unsigned bundles see inconsistent LaunchServices
         //     caching behaviour around `LSUIElement` across macOS
         //     versions; the public AppKit API is the more predictable
-        //     path. We leave Info.plist `LSUIElement=false` intentionally;
-        //     runtime owns the actual policy.
+        //     path. Info.plist stays at `LSUIElement=false`; runtime
+        //     owns the actual policy.
+        //
+        // Why L2 applies the user preference at launch (not live):
+        //   - Live `.regular` ↔ `.accessory` transitions on unsigned
+        //     bundles can leave the main menu, Dock icon, and key
+        //     window in inconsistent states. Persisting intent + taking
+        //     effect on next launch is the honest contract; the
+        //     Settings UI tells the user to relaunch.
         NSApp.setActivationPolicy(.accessory)
 
         NSApp.mainMenu = MainMenu.build(target: self)
@@ -56,6 +72,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("SwiftSeek: database init failed: \(error)")
             presentFatal(error: error)
             return
+        }
+
+        // L2: lift to `.regular` only if the user has opted in. Errors
+        // are swallowed (logged) rather than fatal — the L1 default is
+        // already in effect, so a settings read failure leaves
+        // SwiftSeek as a menubar agent rather than crashing the app.
+        if let db = database {
+            do {
+                let dockVisible = try db.getDockIconVisible()
+                if dockVisible {
+                    NSApp.setActivationPolicy(.regular)
+                    NSLog("SwiftSeek: Dock icon visible (user preference); activation policy = .regular")
+                } else {
+                    NSLog("SwiftSeek: Dock icon hidden (L1 default); activation policy = .accessory")
+                }
+            } catch {
+                NSLog("SwiftSeek: getDockIconVisible failed, keeping L1 .accessory default: \(error)")
+            }
         }
 
         if let db = database {

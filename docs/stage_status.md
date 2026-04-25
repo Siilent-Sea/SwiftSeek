@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-menubar-agent`
 - 当前阶段：`L2`
-- 当前状态：L1 已通过 Codex 验收；L2 待 Claude 执行
+- 当前状态：L2 实现已就位，待 Codex 验收
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -136,6 +136,18 @@
 - no Dock 与 Dock visible 两种模式下的搜索、设置、退出、热键和窗口前置均通过。
 - 文档同步，不再把 Dock 显示开关写成未完成项。
 - 没有提前实现 L3/L4。
+
+### L2 实现已落地（待 Codex 验收）
+
+- `Sources/SwiftSeekCore/SettingsTypes.swift`：新增 `SettingsKey.dockIconVisible`（DB key `dock_icon_visible`），值 `"1"` = 显示 Dock，`"0"` / 缺失 = L1 默认 no Dock；`Database` extension 加 `getDockIconVisible() throws -> Bool` / `setDockIconVisible(_ visible: Bool) throws`，与 hidden / launch-at-login 等已有 settings 同模式。
+- `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 顺序固定为 — 先 `.accessory` 兜底 → DB 打开 → 读 `getDockIconVisible()` → 若为 true 切 `.regular` 并 NSLog `Dock icon visible (user preference)`，否则 NSLog `Dock icon hidden (L1 default)`；读失败保持 L1 默认 + NSLog 错误。声明实时切换不可靠：runtime `.regular` ↔ `.accessory` transition 在 ad-hoc 包上不稳定，因此 L2 是"持久化设置 + 重启生效"路径。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：新增 "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）" 复选框 + 多行 note；`reflectDockIconState()` 比较 intent 与 `NSApp.activationPolicy()`，未重启时显示 `⚠️` 警告，已对齐时显示 `✓` 确认；`onDockIconToggle(_:)` 持久化失败时弹 NSAlert + 复位复选框。GeneralPane root view 高度从 360 提到 440 容纳新行。
+- `Sources/SwiftSeekSmokeTest/main.swift`：3 个 L2 用例（默认 false / setter+getter round-trip / DB reopen 后 persist）。SmokeTest 总数 209 → 212。
+- `docs/install.md`：默认形态段补 "L2 让 Dock 图标重新显示" 子段，4 步流程 + "为什么需要重启而不是实时切" 解释。
+- `docs/release_checklist.md`：新增 §5c "L2 Dock 显示开关验证"（10 项必跑）。
+- `docs/known_issues.md` §7 改写为 L2 已落地，写明持久化 key、应用时机、为什么不做 live transition、release_checklist §5c 强制手测。
+- `docs/manual_test.md` §33z：8 节 L2 手测矩阵（全新 DB 默认 / 切到 Dock visible / Dock visible 入口 / 切回 no Dock / 反复切换稳定性 / DB 异常值 fallback / 与其他设置无干扰 / 边界）。
+- 受限沙箱下 build OK；SmokeTest 212/212；package-app 仍可重复跑通；GUI Dock visible/hidden 切换仍按 §33z 作为每次发布手测。
 
 ## 后续阶段索引
 

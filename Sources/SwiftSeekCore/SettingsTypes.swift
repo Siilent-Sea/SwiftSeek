@@ -79,6 +79,18 @@ public enum SettingsKey {
     // unsigned dev builds. "1" = user wants login launch, "0" /
     // missing = no.
     public static let launchAtLoginRequested = "launch_at_login_requested"
+
+    /// L2 (everything-menubar-agent): user-expressed intent for whether
+    /// SwiftSeek's Dock icon is visible. Default behaviour is L1
+    /// menubar-agent (no Dock); flipping this to "1" makes the next
+    /// launch call `NSApp.setActivationPolicy(.regular)` instead of
+    /// `.accessory`. We persist intent rather than live activation
+    /// policy because runtime `.regular` ↔ `.accessory` transitions on
+    /// ad-hoc / unsigned bundles are not reliable across macOS
+    /// versions; the setting takes effect on next launch and the UI
+    /// is responsible for telling the user that. "1" = show Dock,
+    /// "0" / missing = no Dock (L1 default).
+    public static let dockIconVisible = "dock_icon_visible"
 }
 
 /// G3 index modes defined in `docs/everything_footprint_v5_proposal.md` § 3/4.
@@ -259,6 +271,19 @@ public extension Database {
 
     func setLaunchAtLoginRequested(_ enabled: Bool) throws {
         try setSetting(SettingsKey.launchAtLoginRequested, value: enabled ? "1" : "0")
+    }
+
+    /// L2: read the persisted Dock-icon-visible intent. Default is
+    /// `false` (L1 menubar-agent / no Dock). The actual `NSApp`
+    /// activation policy is applied by `AppDelegate` in
+    /// `applicationDidFinishLaunching` based on this value.
+    func getDockIconVisible() throws -> Bool {
+        let raw = try getSetting(SettingsKey.dockIconVisible) ?? ""
+        return raw == "1"
+    }
+
+    func setDockIconVisible(_ visible: Bool) throws {
+        try setSetting(SettingsKey.dockIconVisible, value: visible ? "1" : "0")
     }
 
     /// J2: clear all persisted result-column widths so the next

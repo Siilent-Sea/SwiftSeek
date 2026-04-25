@@ -53,11 +53,14 @@
 - 菜单栏 agent 形态下，多开更难被用户注意到，可能出现多个菜单栏图标、hotkey 争用、DB 写竞争或操作到旧 build。
 - L4 需要单实例 / 多 bundle 防护与最终收口。
 
-### 7. 隐藏 Dock 的用户可配置性尚未完成
+### 7. Dock 显示开关（L2 已落地）
 
-- 当前设置中没有"显示 Dock 图标"或"菜单栏模式"开关。
-- L1 只要求默认隐藏 Dock；L2 才处理用户可恢复 Dock 的设置项。
-- 如果动态切换 activation policy 不稳定，应诚实提示"需重启生效"。
+- 设置 → 常规 → 最下方 "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）" 复选框。
+- 持久化字段：`SettingsKey.dockIconVisible`（DB key `dock_icon_visible`），默认 `"0"` = L1 menubar-agent / no Dock。
+- `AppDelegate.applicationDidFinishLaunching` 顺序：先调 `.accessory`（兜底），DB 打开后读设置；为 `true` 切到 `.regular`。读失败时保持 L1 默认。
+- **生效时机：重启 SwiftSeek 后生效**。UI note 在用户切换后会立即显示 "⚠️ 已勾选/已取消勾选，但当前进程仍是 ..."，提示菜单栏退出 + 重新打开。原因：runtime `.regular` ↔ `.accessory` 在 ad-hoc / 未签名 bundle 上的 transition 不稳定（主菜单 / key window / Dock 状态可能不一致）。
+- 切换时不会丢失菜单栏入口；两种模式下菜单栏 status item 都常驻。
+- macOS activation policy 在不同版本和 LaunchServices 缓存下表现可能有差异；release_checklist §5c 保留为每次发布必跑手测。
 
 ### 8. 菜单栏状态信息仍偏基础
 

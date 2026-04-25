@@ -4376,6 +4376,51 @@ reporter.check("J6 getLaunchAtLoginRequested default false + round-trip") {
                          "round-trip false")
 }
 
+// MARK: - L2 Dock visibility persistence
+
+reporter.check("L2 getDockIconVisible default false (L1 menubar-agent)") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(try !db.getDockIconVisible(),
+                         "fresh DB should default false (L1 no-Dock default)")
+}
+
+reporter.check("L2 setDockIconVisible / getDockIconVisible round-trip") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setDockIconVisible(true)
+    try reporter.require(try db.getDockIconVisible(),
+                         "round-trip true")
+    try db.setDockIconVisible(false)
+    try reporter.require(try !db.getDockIconVisible(),
+                         "round-trip false (back to L1 default)")
+}
+
+reporter.check("L2 dockIconVisible survives reopen") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    do {
+        let db = try Database.open(at: paths.databaseURL)
+        try db.migrate()
+        try db.setDockIconVisible(true)
+        db.close()
+    }
+    let db2 = try Database.open(at: paths.databaseURL)
+    defer { db2.close() }
+    try db2.migrate()
+    try reporter.require(try db2.getDockIconVisible(),
+                         "value should persist across DB reopen")
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {
