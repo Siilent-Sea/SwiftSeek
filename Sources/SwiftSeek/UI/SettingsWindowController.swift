@@ -8,7 +8,7 @@ import SwiftSeekCore
 /// Owned by `AppDelegate`; torn down on app exit. Each tab is its own
 /// `NSViewController` and reads from disk on `viewWillAppear` so switching back
 /// to a tab always reflects external changes (e.g. the smoke CLI edited excludes).
-final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
+final class SettingsWindowController: NSWindowController {
     private let database: Database
     private let rebuildCoordinator: RebuildCoordinator
     private let hotkeyReinstallHandler: (() -> Bool)?
@@ -17,6 +17,12 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
     private var bannerHeightConstraint: NSLayoutConstraint?
     // J6: owned tab controller ref for restore + tab-change observer
     private var tabViewController: NSTabViewController?
+    // J6 round 2: KVO token on tabVC.selectedTabViewItemIndex.
+    // NSTabView itself does not publish a "selection changed"
+    // notification, and we cannot reassign tabView.delegate
+    // (NSException). KVO on the controller's index property is the
+    // supported alternative.
+    private var tabIndexObservation: NSKeyValueObservation?
 
     init(database: Database,
          rebuildCoordinator: RebuildCoordinator,
@@ -92,22 +98,32 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
 
         window.contentViewController = host
         // J6: persist window frame across launches. Pairs with the
-        // J2 search-panel autosave — both windows now remember the
-        // user's last size / position.
+        // J2 search-panel autosave.
         window.setFrameAutosaveName("SwiftSeekSettingsWindow")
         super.init(window: window)
         self.bannerHeightConstraint = bh
         self.tabViewController = tabVC
-        // J6: restore last-used tab index. Integer stored in
-        // settings; out-of-range silently clamped.
+        // J6: restore last-used tab index.
         if let db = database as Database? {
             let idx = (try? db.getSettingsTabIndex()) ?? 0
             if idx >= 0 && idx < tabVC.tabViewItems.count {
                 tabVC.selectedTabViewItemIndex = idx
             }
         }
-        // J6: observe tab selection so the choice survives reopen.
-        tabVC.tabView.delegate = self
+        // J6 round 2: observe tab selection via KVO on
+        // `selectedTabViewItemIndex`. We cannot assign
+        // `tabVC.tabView.delegate = self` — NSTabViewController
+        // throws NSInternalInconsistencyException because it is
+        // already its own tabView's delegate. NSTabView itself
+        // does not publish a public selection notification, so
+        // KVO on the controller's index property is the supported
+        // observation path on macOS 13+.
+        self.tabIndexObservation = tabVC.observe(\.selectedTabViewItemIndex,
+                                                 options: [.new]) { [weak self] _, change in
+            guard let self = self, let idx = change.newValue else { return }
+            do { try self.database.setSettingsTabIndex(idx) }
+            catch { NSLog("SwiftSeek: setSettingsTabIndex(\(idx)) failed: \(error)") }
+        }
         // J1: own the window's delegate so clicking the red ×
         // (close button) hides the window rather than closing it.
         // Even though `isReleasedWhenClosed = false` keeps the
@@ -153,18 +169,11 @@ final class SettingsWindowController: NSWindowController, NSTabViewDelegate {
         bannerHeightConstraint?.isActive = !rootsEmpty
     }
 
-    // MARK: - J6 tab memory
-
-    /// Persist the user's last-open tab so subsequent reopens land
-    /// on the same place. NSTabViewDelegate is cheap to wire; the
-    /// DB write is an UPSERT with F1 settings-cache, sub-millisecond.
-    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
-        guard let tabVC = tabViewController, let item = tabViewItem else { return }
-        let idx = tabVC.tabViewItems.firstIndex(where: { $0 === item }) ?? -1
-        guard idx >= 0 else { return }
-        do { try database.setSettingsTabIndex(idx) }
-        catch { NSLog("SwiftSeek: setSettingsTabIndex(\(idx)) failed: \(error)") }
-    }
+    // J6 round 2: tab memory now via NotificationCenter observer
+    // installed in init (see comment there). NSTabViewController
+    // forbids reassigning its NSTabView's delegate — the
+    // NSTabView.didSelectTabViewItemNotification path is the
+    // supported alternative.
 
     required init?(coder: NSCoder) { fatalError("unused") }
 
