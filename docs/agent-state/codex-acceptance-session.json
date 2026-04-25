@@ -1,14 +1,14 @@
 {
-  "track": "everything-productization",
-  "stage": "K6",
-  "session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08",
+  "track": "everything-menubar-agent",
+  "stage": "L2",
+  "session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 passed on commit cc41750. K3 passed on commit 8eba98c. K4 passed on commit 0ebd033. K5 passed on commit a175880 after RootHealthReport, FDA recheck, diagnostics roots health, and permissions docs landed. K6 is now the next acceptance target.",
+  "purpose": "Current active track acceptance state for everything-menubar-agent. L1 passed in this session; next acceptance target is L2.",
   "last_verdict": "PASS",
-  "last_verdict_round": "K5 round 1",
+  "last_verdict_round": "L1 round 1",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "K5 delivered structured root health reporting, recheck/FDA UI, diagnostics roots health, and permissions docs; sandbox build, SmokeTest 209/209, and package-app.sh --sandbox passed on commit a175880.",
-  "passed_stages": ["K1", "K2", "K3", "K4", "K5"],
+  "last_verdict_reason": "L1 delivered runtime .accessory no-Dock behavior after build identity logs, kept LSUIElement=false with documented tradeoff, removed launch-time settings auto-show, updated release/install/known/manual docs, and passed build, 209/209 smoke, package, plist, codesign, and icon checks at HEAD d5cad2b. GUI Dock/menu click checks remain manual per docs/manual_test.md §33y.",
+  "passed_stages": ["L1"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -40,7 +40,13 @@
       "final_verdict": "PROJECT COMPLETE",
       "date": "2026-04-25",
       "previous_session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df"
+    },
+    {
+      "track": "everything-productization",
+      "final_verdict": "PROJECT COMPLETE",
+      "date": "2026-04-26",
+      "previous_session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08"
     }
   ],
-  "notes": "Active session for everything-productization track. K1 PASS round 1 on commit d890c81. K5 PASS round 1 on commit a175880. Current next target stage is K6. .txt file mirrors this session id."
+  "notes": "The .txt file mirrors this session id. Do not resume archived everything-productization session 019dc54e-017d-7de3-a24f-35c23f09ce08 for L-track acceptance."
 }

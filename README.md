@@ -2,7 +2,7 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity` 均已完成归档。`everything-ux-parity`（J1-J6）在 2026-04-25 `PROJECT COMPLETE`，收口了桌面 App 生命周期、Run Count 可见性、Everything 风格查询表达、搜索历史 / Saved Filters、上下文菜单、首次使用引导、Launch at Login 说明与窗口状态记忆。当前活跃轨道是 `everything-productization`，聚焦 `.app` 打包、版本标识、stale build 防护、安装/升级/回滚、诊断和 release QA。
+当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization` 均已完成归档。当前活跃轨道是 `everything-menubar-agent`，聚焦把 SwiftSeek 从普通 Dock App 推进为默认菜单栏常驻工具。
 
 ## 当前能力（截至 `everything-ux-parity` 完成）
 - **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
@@ -29,7 +29,7 @@ macOS 原生本地极速文件搜索器。
 - **UX parity**（J1-J6）：设置窗口 hide-only 生命周期、Dock / reopen 行为、搜索窗宽度与列恢复、wildcard / quote / OR / NOT、recent queries / Saved Filters、首次使用 banner、设置 tab 记忆、设置窗 frame 记忆、Launch at Login 公开 API 包装
 
 ## 当前限制
-SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-productization` 当前已落地 K1-K6：K1 build identity（version / commit / build date / bundle / binary）+ 设置窗口 release gate；K2 `scripts/package-app.sh` 一条命令重复打包 + ad-hoc codesign；K3 `Diagnostics.snapshot` 单一来源；K4 `docs/install.md` 安装 / 升级 / 回滚 / Launch at Login / stale bundle 文档；K5 root 权限四态徽标 + RootHealthReport tooltip + 重新检查权限 + 打开完全磁盘访问设置 按钮 + 诊断同源；K6 单页 [release checklist](docs/release_checklist.md)（15 步 release gate）+ [release notes 模板](docs/release_notes_template.md)（诚实写明 ad-hoc / 无签名 / 无公证 / 无 DMG / 无 auto updater 边界）+ architecture.md K1-K6 收口段。本轨道明确不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater。
+SwiftSeek 已完成 `everything-productization`，但当前 `scripts/package-app.sh` 仍写 `LSUIElement=false`，打包后的 `SwiftSeek.app` 仍是普通 Dock App。新轨道 `everything-menubar-agent` 会把默认隐藏 Dock、菜单栏主入口、退出路径、Dock 显示恢复策略和多实例风险作为后续重点。本轨道仍不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater。
 
 **确认是否运行最新构建**：设置 → 关于 → 看顶部一行 `SwiftSeek <version> commit=<hash> build=<date>`，下方诊断块的 `bundle:` / `binary:` 行和你正在编辑的源码路径对比；不一致就是 stale bundle。详细排查见 [docs/manual_test.md](docs/manual_test.md) §33s。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
@@ -39,8 +39,8 @@ SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-product
 ## 当前进度
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
-- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`
-- 当前活跃轨道：`everything-productization`（K1-K6 已落地，K6 等 Codex 验收 PROJECT COMPLETE）
+- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`
+- 当前活跃轨道：`everything-menubar-agent`（L1 待执行）
 - Release gate：[docs/release_checklist.md](docs/release_checklist.md) + [docs/release_notes_template.md](docs/release_notes_template.md)
 - everything-usage 500k 实测亮点：3+char 加 100k usage JOIN 中位 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs
 - everything-usage 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
@@ -87,7 +87,12 @@ swift run SwiftSeekSearch <query>
 ```
 
 ## Roadmap
-当前下一轨道是 `everything-productization`：
+当前下一轨道是 `everything-menubar-agent`：
+
+- 菜单栏 agent 差距清单：[docs/everything_menubar_agent_gap.md](docs/everything_menubar_agent_gap.md)
+- L1-L4 阶段任务书：[docs/everything_menubar_agent_taskbook.md](docs/everything_menubar_agent_taskbook.md)
+
+历史 productization 轨道文档仍保留归档参考：
 
 - 产品化差距清单：[docs/everything_productization_gap.md](docs/everything_productization_gap.md)
 - K1-K6 阶段任务书：[docs/everything_productization_taskbook.md](docs/everything_productization_taskbook.md)
@@ -139,6 +144,8 @@ docs/
   everything_ux_parity_taskbook.md
   everything_productization_gap.md
   everything_productization_taskbook.md
+  everything_menubar_agent_gap.md
+  everything_menubar_agent_taskbook.md
   agent-state/
 AGENTS.md / CLAUDE.md
 ```
@@ -146,4 +153,4 @@ AGENTS.md / CLAUDE.md
 ## 协作模式
 - Claude：主开发代理，负责实现、自检。
 - Codex：独立验收代理，负责 REJECT / PASS / 下一阶段任务书。
-- 当前继续推进的是 `everything-productization`，不得因历史轨道 `PROJECT COMPLETE` 而停止。
+- 当前继续推进的是 `everything-menubar-agent`，不得因历史轨道 `PROJECT COMPLETE` 而停止。

@@ -20,10 +20,11 @@ SwiftSeek 已不是“从 P0 开始的新项目”。
 - `everything-footprint`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 - `everything-usage`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 - `everything-ux-parity`：已完成，并在历史上拿到 `PROJECT COMPLETE`
+- `everything-productization`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 
 ### 当前继续推进的轨道
 - 当前活跃轨道由 `docs/stage_status.md` 决定
-- 如果 `docs/stage_status.md` 写的是 `everything-productization`，你就继续做该轨道
+- 如果 `docs/stage_status.md` 写的是 `everything-menubar-agent`，你就继续做该轨道
 - 历史 `PROJECT COMPLETE` 不是当前轨道的停止条件
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，你才允许停
 
@@ -84,12 +85,14 @@ SwiftSeek 已不是“从 P0 开始的新项目”。
 这是强约束，不允许退回旧版做法。
 
 ### 主路径：显式 session id 优先
-如果 `docs/agent-state/codex-acceptance-session.txt` 中已有 session id，优先这样继续：
+如果 `docs/agent-state/codex-acceptance-session.txt` 中已有真实 session id，优先这样继续：
 
 ```bash
 SESSION_ID="$(cat docs/agent-state/codex-acceptance-session.txt)"
 codex exec resume "$SESSION_ID" 'Continue SwiftSeek acceptance for the current active track. Read AGENTS.md and docs/stage_status.md, re-check the repository after the latest fixes, and return the exact verdict template required by AGENTS.md. Also refresh docs/codex_acceptance.md and docs/next_stage.md if appropriate.'
 ```
+
+如果该文件内容是 `PENDING_NEW_CODEX_ACCEPTANCE_SESSION`，它不是 session id，不允许传给 `codex exec resume`。这表示新轨道刚切换，必须为当前轨道创建新的正式验收会话，并在成功后写回真实 session id。
 
 ### 兜底：`resume --last`
 只有在项目内没有有效显式 session id 时，才允许：
@@ -118,8 +121,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 - `docs/agent-state/codex-acceptance-session.json`
 
 最低要求：
-- `.txt`：只写当前活跃轨道验收 session id
-- `.json`：至少写入 `track`、`stage`、`session_id`、`updated_at`、`purpose`
+- `.txt`：正常情况下只写当前活跃轨道验收 session id；新轨道未创建 session 时允许临时为 `PENDING_NEW_CODEX_ACCEPTANCE_SESSION`
+- `.json`：至少写入 `track`、`stage`、`session_id`、`updated_at`、`purpose`；新轨道未创建 session 时 `session_id` 允许为 `null`
 
 这些文件只服务于当前活跃轨道的验收会话：
 - 不能混入临时分析会话
@@ -135,8 +138,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 `VERDICT: PROJECT COMPLETE`
 
 注意：
-- 历史 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 与 `everything-ux-parity` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
-- 如果当前活跃轨道是 `everything-productization`，那就必须等 `everything-productization` 自己拿到新的 `PROJECT COMPLETE`
+- 历史 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity` 与 `everything-productization` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
+- 如果当前活跃轨道是 `everything-menubar-agent`，那就必须等 `everything-menubar-agent` 自己拿到新的 `PROJECT COMPLETE`
 
 除此之外，以下都不是允许停下的理由：
 - “历史上已经完成过”
@@ -173,6 +176,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 - `docs/everything_ux_parity_taskbook.md`
 - `docs/everything_productization_gap.md`
 - `docs/everything_productization_taskbook.md`
+- `docs/everything_menubar_agent_gap.md`
+- `docs/everything_menubar_agent_taskbook.md`
 - `docs/agent-state/README.md`
 
 ---

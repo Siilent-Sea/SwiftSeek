@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-menubar-agent`
-- 当前阶段：`L1`
-- 当前状态：L1 实现已就位，待 Codex 验收
+- 当前阶段：`L2`
+- 当前状态：L1 已通过 Codex 验收；L2 待 Claude 执行
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -43,7 +43,7 @@
 - 菜单栏状态足够表达当前索引 / 构建 / DB 简况
 - 菜单栏 agent 形态下的多实例 / stale bundle 风险可检测、可解释、可收口
 
-## 当前阶段：L1
+## 已通过阶段：L1
 
 ### 阶段目标
 
@@ -93,7 +93,7 @@
 - 文档明确隐藏 Dock 后的退出路径和限制。
 - 没有修改超出 L1 的业务能力。
 
-### L1 实现已落地（待 Codex 验收）
+### L1 Codex 验收结论：PASS
 
 - `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 在 NSLog build identity 三连之后立即调 `NSApp.setActivationPolicy(.accessory)`，再做 mainMenu / DB / status item / search window / hotkey 安装；删除原 `showSettings(nil)` 自动调用，让菜单栏成为 discovery 入口。`applicationShouldHandleReopen` comment 更新，说明 menubar-agent 形态下仅作为双击 fallback。
 - `scripts/package-app.sh`：`LSUIElement` 保留 `false`，附 12 行注释说明 L1 选择运行时 activation policy 而非 plist；改 plist 之前必须先撤运行时调用 + 更新 docs。
@@ -101,7 +101,41 @@
 - `docs/install.md`：新增"默认形态：菜单栏常驻工具（L1）"段，写清启动后看到什么、退出路径、找不到菜单栏图标的排查矩阵、双击已运行的 fallback 与 L4 单实例边界。升级流程的 "Dock 右键退出" 改为菜单栏退出。
 - `docs/known_issues.md` §1-§3 改写为 L1 已落地；§7-§8 仍标 L2/L3 待做；归档段说明 productization 已完成、L1 在其上切默认形态。
 - `docs/manual_test.md` §33y：L1 8 节手测矩阵（Dock 不显示、菜单栏图标、入口三连、热键独立、reopen fallback、反复起停、swift run 路径、Dock 出现 = ❌）。
-- 受限沙箱下 build / smoke / package 待跑（自检阶段同步）。
+- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 209/209 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=d5cad2b`，`codesign` 显示 ad-hoc 签名。
+- 受限沙箱不能执行真实 GUI Dock 可见性和菜单栏点击模拟；这些仍按 `docs/manual_test.md` §33y 作为每次发布必跑手测。
+
+## 当前阶段：L2
+
+### 阶段目标
+
+给用户恢复 Dock 图标的能力，并让隐藏 Dock / 显示 Dock 两种模式下的激活、前置、重启提示和设置持久化稳定。
+
+### L2 必须完成
+
+- 新增 Dock 可见性或菜单栏模式设置，默认仍保持 L1 no Dock。
+- 设置页增加清晰开关，并说明是否需要重启生效。
+- 启动早期根据设置应用 `.accessory` 或 `.regular` activation policy。
+- 验证 no Dock 与 Dock visible 两种模式下，菜单栏搜索、菜单栏设置、菜单栏退出、全局热键和窗口前置均可用。
+- 更新 install / manual test / release checklist / known issues。
+
+### L2 禁止事项
+
+- 不做单实例 / 多 bundle 防护
+- 不做菜单栏复杂状态增强
+- 不做正式签名 / notarization / DMG / auto updater
+- 不重写搜索窗口或设置窗口系统
+- 不修改搜索、索引、DB schema 或业务逻辑
+
+### L2 完成判定标准
+
+只有同时满足以下条件，L2 才能提交 Codex 验收：
+
+- 新安装默认仍是菜单栏 agent / no Dock。
+- 用户能在设置页看到并修改 Dock 可见性选项。
+- 设置持久化且重启后生效；如果实时切换被声明支持，真实行为必须匹配。
+- no Dock 与 Dock visible 两种模式下的搜索、设置、退出、热键和窗口前置均通过。
+- 文档同步，不再把 Dock 显示开关写成未完成项。
+- 没有提前实现 L3/L4。
 
 ## 后续阶段索引
 
