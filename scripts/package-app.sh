@@ -83,24 +83,26 @@ cp "$bin" "$app/Contents/MacOS/SwiftSeek"
 chmod +x "$app/Contents/MacOS/SwiftSeek"
 
 # --- icon -------------------------------------------------------------
-# iconutil requires the input directory name to literally end in
-# `.iconset`. mktemp gives us a random suffix, so we work inside it.
-echo "[package-app.sh] generate iconset"
+# K2 round 3: assemble .icns directly via make-icon.swift's --icns
+# output, bypassing `iconutil`. iconutil's strict iconset validator
+# was rejecting our generated iconset on Codex's macOS / iconutil
+# build (rounds 1-2) even after PNG pixel-dim correctness fixes.
+# The .icns binary format is documented; make-icon.swift now writes
+# it directly with all 10 standard PNG entries (ic04–ic14).
+echo "[package-app.sh] generate iconset + .icns directly (no iconutil)"
 work_tmp="$(mktemp -d -t swiftseek-pkg)"
 iconset_dir="$work_tmp/AppIcon.iconset"
 mkdir -p "$iconset_dir"
-swift "$repo_root/scripts/make-icon.swift" "$iconset_dir" >/dev/null
+swift "$repo_root/scripts/make-icon.swift" "$iconset_dir" \
+    --icns "$app/Contents/Resources/AppIcon.icns" >/dev/null
 
-# K2 round 2 verify: every PNG must have pixel dimensions matching
-# its filename declaration (icon_NxN.png == NxN px,
-# icon_NxN@2x.png == 2N×2N px). iconutil rejects the entire
-# iconset on any mismatch with "Invalid Iconset" — round 1 hit
-# this on Codex sandbox where lockFocus produced wrong-sized PNGs.
-echo "[package-app.sh] verify iconset PNG dimensions"
+# Verify the iconset PNGs still match dimension declarations even
+# though we no longer feed them to iconutil — caught any future
+# regression in make-icon.swift's render path.
+echo "[package-app.sh] verify iconset PNG dimensions (defensive)"
 icon_fail=0
 for png in "$iconset_dir"/icon_*.png; do
     fname="$(basename "$png")"
-    # Parse expected base size + @2x flag from filename.
     base="$(echo "$fname" | sed -E 's/^icon_([0-9]+)x[0-9]+(@2x)?\.png$/\1/')"
     is_2x=0
     case "$fname" in *@2x.png) is_2x=1 ;; esac
@@ -114,13 +116,26 @@ for png in "$iconset_dir"/icon_*.png; do
     fi
 done
 if [[ "$icon_fail" == "1" ]]; then
-    echo "[package-app.sh] iconset pixel dimensions invalid; iconutil would reject" >&2
+    echo "[package-app.sh] iconset pixel dimensions invalid; aborting before bundle finalize" >&2
     rm -rf "$work_tmp"
     exit 1
 fi
 
-echo "[package-app.sh] iconutil -c icns"
-iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$iconset_dir"
+# Verify the resulting .icns at least has the magic header + non-zero size.
+icns="$app/Contents/Resources/AppIcon.icns"
+if [[ ! -f "$icns" ]]; then
+    echo "[package-app.sh] AppIcon.icns missing after make-icon.swift" >&2
+    rm -rf "$work_tmp"
+    exit 1
+fi
+icns_magic="$(head -c 4 "$icns" 2>/dev/null)"
+if [[ "$icns_magic" != "icns" ]]; then
+    echo "[package-app.sh] AppIcon.icns magic header bad: '$icns_magic' (expected 'icns')" >&2
+    rm -rf "$work_tmp"
+    exit 1
+fi
+icns_bytes="$(stat -f%z "$icns")"
+echo "[package-app.sh] AppIcon.icns OK: $icns_bytes bytes"
 rm -rf "$work_tmp"
 
 # --- Info.plist -------------------------------------------------------

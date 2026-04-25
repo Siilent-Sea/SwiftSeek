@@ -6,12 +6,14 @@
 
 ### 1. K2 打包脚本已接入，但当前还没验收通过
 - `scripts/package-app.sh` 已存在，目标是：`swift build -c release` + lay out `dist/SwiftSeek.app` + 写 `Info.plist` + 生成 `AppIcon.icns` + ad-hoc `codesign` + 自检。
-- 但 K2 round 1 验收时，主路径在 `iconutil -c icns` 处失败，错误是 `Invalid Iconset`。
+- K2 round 2 已修掉 PNG 像素尺寸不匹配的问题，`icon_*.png` 的 `sips` 尺寸现在和文件名声明一致。
+- 但 K2 round 2 复验时，主路径在 `iconutil -c icns` 处仍然失败，错误还是 `Invalid Iconset`。
 - 这意味着当前还不能把 `dist/SwiftSeek.app` 视为已经验收通过的稳定本地交付物。
 - `scripts/build.sh` 仍专注 `.build/release` CLI 二进制；K2 的 `.app` 路径存在，但还需要修复后再次验收。
 
 ### 2. icon 流水线仍有真实 blocker
-- `scripts/make-icon.swift` 已被 package 脚本调用，但当前生成出的 `AppIcon.iconset` 仍会被 `iconutil` 拒绝。
+- `scripts/make-icon.swift` 已被 package 脚本调用，且 round 2 新增了像素尺寸自检；这一层已经通过。
+- 但当前生成出的 `AppIcon.iconset` 仍会被 `iconutil` 拒绝，说明 iconset 还存在除尺寸之外的合法性问题。
 - 验收失败时 `dist/SwiftSeek.app` 只生成到：
   - `Contents/MacOS/SwiftSeek`
   - 空的 `Contents/Resources`

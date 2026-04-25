@@ -1,21 +1,47 @@
-// Generate SwiftSeek app icon (.iconset PNGs).
+// Generate SwiftSeek app icon (.iconset PNGs + optional direct .icns).
 //
 // Usage:
 //   swift scripts/make-icon.swift /tmp/AppIcon.iconset
-//   iconutil -c icns -o SwiftSeek.app/Contents/Resources/AppIcon.icns /tmp/AppIcon.iconset
+//       — emit only the 10 .iconset PNGs (legacy iconutil flow)
+//   swift scripts/make-icon.swift /tmp/AppIcon.iconset --icns /path/AppIcon.icns
+//       — also assemble an .icns directly without iconutil
 //
-// Renders a rounded-square gradient background with a centered
-// SF Symbol "magnifyingglass" glyph in white. All required Apple
-// .iconset sizes generated (16-1024 + @2x).
+// Round 3 fix: K2 round 1/2 hit "Invalid Iconset" from `iconutil`
+// despite all PNG dimensions being correct. Codex sandbox iconutil
+// rejects what local iconutil accepts (toolchain version drift).
+// Direct .icns assembly bypasses iconutil entirely; the .icns
+// binary format is documented and we already have all 10 PNGs in
+// memory.
 
 import AppKit
 import Foundation
 
-guard CommandLine.arguments.count >= 2 else {
-    FileHandle.standardError.write(Data("usage: make-icon.swift <out-iconset-dir>\n".utf8))
+let argv = CommandLine.arguments
+guard argv.count >= 2 else {
+    FileHandle.standardError.write(Data("usage: make-icon.swift <out-iconset-dir> [--icns <out-icns-path>]\n".utf8))
     exit(2)
 }
-let outDir = CommandLine.arguments[1]
+let outDir = argv[1]
+
+// Optional --icns flag for direct .icns output.
+var icnsPath: String? = nil
+var i = 2
+while i < argv.count {
+    let a = argv[i]
+    if a == "--icns" {
+        i += 1
+        guard i < argv.count else {
+            FileHandle.standardError.write(Data("--icns requires a path arg\n".utf8))
+            exit(2)
+        }
+        icnsPath = argv[i]
+    } else {
+        FileHandle.standardError.write(Data("unknown arg: \(a)\n".utf8))
+        exit(2)
+    }
+    i += 1
+}
+
 let fm = FileManager.default
 try? fm.removeItem(atPath: outDir)
 try fm.createDirectory(atPath: outDir, withIntermediateDirectories: true)
@@ -112,13 +138,98 @@ func renderIcon(pixels: Int) -> Data? {
     return rep.representation(using: .png, properties: [:])
 }
 
+// Cache rendered PNG data per pixel size so the .icns assembler
+// doesn't re-render the same size twice (e.g. 32 appears as both
+// icon_16x16@2x and icon_32x32).
+var pngBySize: [Int: Data] = [:]
 for spec in specs {
-    guard let data = renderIcon(pixels: spec.pixels) else {
-        FileHandle.standardError.write(Data("failed: \(spec.name)\n".utf8))
-        exit(1)
+    let data: Data
+    if let cached = pngBySize[spec.pixels] {
+        data = cached
+    } else {
+        guard let rendered = renderIcon(pixels: spec.pixels) else {
+            FileHandle.standardError.write(Data("failed: \(spec.name)\n".utf8))
+            exit(1)
+        }
+        data = rendered
+        pngBySize[spec.pixels] = rendered
     }
     let path = (outDir as NSString).appendingPathComponent(spec.name)
     try data.write(to: URL(fileURLWithPath: path))
     print("wrote \(spec.name) (\(spec.pixels)px) \(data.count) bytes")
 }
 print("done — \(specs.count) PNGs in \(outDir)")
+
+// --- Round 3: direct .icns assembly --------------------------------------
+//
+// Apple .icns container format (documented at
+// https://en.wikipedia.org/wiki/Apple_Icon_Image_format and Apple
+// Developer archive). Layout:
+//
+//   File header:
+//     4 bytes  magic = "icns"
+//     4 bytes  total file size in bytes (big-endian uint32),
+//              including this 8-byte header.
+//   Repeated entries:
+//     4 bytes  OSType code (e.g. "ic07" for 128x128 PNG)
+//     4 bytes  entry length including this 8-byte header (BE uint32)
+//     N bytes  payload (PNG data for modern entries)
+//
+// OSType -> pixel size mapping for PNG entries:
+//   ic04  16x16
+//   ic05  32x32
+//   ic07  128x128
+//   ic08  256x256
+//   ic09  512x512
+//   ic10  1024x1024 (also accepted as 512@2x source)
+//   ic11  16x16@2x   (32x32 PNG, marked as retina)
+//   ic12  32x32@2x   (64x64 PNG, retina)
+//   ic13  128x128@2x (256x256 PNG, retina)
+//   ic14  256x256@2x (512x512 PNG, retina)
+//
+// We emit all 10 to maximize the chance Finder / Dock pick a sharp
+// representation at every display scale.
+if let icnsOut = icnsPath {
+    struct IcnsEntry { let type: String; let pixels: Int }
+    let icnsEntries: [IcnsEntry] = [
+        IcnsEntry(type: "ic04", pixels: 16),
+        IcnsEntry(type: "ic05", pixels: 32),
+        IcnsEntry(type: "ic07", pixels: 128),
+        IcnsEntry(type: "ic08", pixels: 256),
+        IcnsEntry(type: "ic09", pixels: 512),
+        IcnsEntry(type: "ic10", pixels: 1024),
+        IcnsEntry(type: "ic11", pixels: 32),
+        IcnsEntry(type: "ic12", pixels: 64),
+        IcnsEntry(type: "ic13", pixels: 256),
+        IcnsEntry(type: "ic14", pixels: 512),
+    ]
+
+    /// Big-endian UInt32 -> 4-byte Data.
+    func be32(_ value: UInt32) -> Data {
+        var v = value.bigEndian
+        return withUnsafeBytes(of: &v) { Data($0) }
+    }
+
+    var body = Data()
+    for entry in icnsEntries {
+        guard let png = pngBySize[entry.pixels] else {
+            FileHandle.standardError.write(Data("missing PNG for \(entry.type) (\(entry.pixels)px)\n".utf8))
+            exit(1)
+        }
+        guard let typeBytes = entry.type.data(using: .ascii), typeBytes.count == 4 else {
+            FileHandle.standardError.write(Data("bad OSType: \(entry.type)\n".utf8))
+            exit(1)
+        }
+        body.append(typeBytes)
+        body.append(be32(UInt32(8 + png.count))) // 8-byte header + payload
+        body.append(png)
+    }
+
+    var file = Data()
+    file.append("icns".data(using: .ascii)!)
+    file.append(be32(UInt32(8 + body.count)))
+    file.append(body)
+
+    try file.write(to: URL(fileURLWithPath: icnsOut))
+    print("wrote \(icnsOut) (\(file.count) bytes, \(icnsEntries.count) entries)")
+}
