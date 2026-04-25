@@ -4,20 +4,21 @@
 
 ## 当前活跃轨道相关限制
 
-### 1. K2 打包脚本已接入，但当前还没验收通过
-- `scripts/package-app.sh` 已存在，目标是：`swift build -c release` + lay out `dist/SwiftSeek.app` + 写 `Info.plist` + 生成 `AppIcon.icns` + ad-hoc `codesign` + 自检。
-- K2 round 2 已修掉 PNG 像素尺寸不匹配的问题，`icon_*.png` 的 `sips` 尺寸现在和文件名声明一致。
-- 但 K2 round 2 复验时，主路径在 `iconutil -c icns` 处仍然失败，错误还是 `Invalid Iconset`。
-- 这意味着当前还不能把 `dist/SwiftSeek.app` 视为已经验收通过的稳定本地交付物。
-- `scripts/build.sh` 仍专注 `.build/release` CLI 二进制；K2 的 `.app` 路径存在，但还需要修复后再次验收。
+### 1. K2 已建立可重复 .app 打包流水线
+- `scripts/package-app.sh` 现在能一条命令完成：`swift build -c release` + lay out `dist/SwiftSeek.app` + 写 `Info.plist` + 生成 `AppIcon.icns` + ad-hoc `codesign` + 自检。
+- `.icns` 由 `scripts/make-icon.swift` 直接写出，不再依赖 `iconutil`，规避了本地与 Codex 沙箱之间的 `iconutil` 漂移。
+- 当前可验证产物：
+  - `dist/SwiftSeek.app/Contents/Info.plist`
+  - `dist/SwiftSeek.app/Contents/MacOS/SwiftSeek`
+  - `dist/SwiftSeek.app/Contents/Resources/AppIcon.icns`
+  - `dist/SwiftSeek.app/Contents/_CodeSignature/CodeResources`
+- `scripts/build.sh` 仍专注 `.build/release` CLI 二进制；`.app` 正式本地交付路径是 `scripts/package-app.sh`。
 
-### 2. icon 流水线仍有真实 blocker
-- `scripts/make-icon.swift` 已被 package 脚本调用，且 round 2 新增了像素尺寸自检；这一层已经通过。
-- 但当前生成出的 `AppIcon.iconset` 仍会被 `iconutil` 拒绝，说明 iconset 还存在除尺寸之外的合法性问题。
-- 验收失败时 `dist/SwiftSeek.app` 只生成到：
-  - `Contents/MacOS/SwiftSeek`
-  - 空的 `Contents/Resources`
-- 在 `AppIcon.icns` 真实生成并进入 bundle 之前，K2 不能算完成。
+### 2. 仍未做正式发行级签名 / 公证
+- 当前是 ad-hoc `codesign`，不是 Apple Developer ID 签名。
+- 当前没有 notarization。
+- 当前没有 DMG、auto updater、`/Applications` 安装/升级/回滚流程。
+- 因此 K2 证明的是“本地可重复 bundle 流水线成立”，不是“正式发行链路完成”。
 
 ### 3. 旧 bundle / stale binary 风险
 - 用户可能同时拥有：

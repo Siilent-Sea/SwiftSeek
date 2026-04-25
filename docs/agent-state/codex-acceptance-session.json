@@ -1,14 +1,14 @@
 {
   "track": "everything-productization",
-  "stage": "K2",
+  "stage": "K3",
   "session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08",
-  "updated_at": "2026-04-25",
-  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 round 2 on commit 5bbb071 was re-tested after fixing PNG dimensions, but package-app.sh still fails at iconutil -> Invalid Iconset, so the repeatable .app pipeline is not accepted yet.",
-  "last_verdict": "REJECT",
-  "last_verdict_round": "K2 round 2",
-  "last_verdict_date": "2026-04-25",
-  "last_verdict_reason": "Round 2 fixed PNG pixel dimensions and smoke now passes under the sandbox env, but `scripts/package-app.sh --sandbox` still fails at `iconutil -c icns` with `Invalid Iconset`. `dist/SwiftSeek.app/Contents/Resources/AppIcon.icns` is still missing, so K2 does not yet satisfy the accepted bundle pipeline criteria.",
-  "passed_stages": ["K1"],
+  "updated_at": "2026-04-26",
+  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 passed on commit cc41750 after removing iconutil from the critical path and proving package-app.sh --sandbox can generate a complete signed dist/SwiftSeek.app. K3 is now the next acceptance target.",
+  "last_verdict": "PASS",
+  "last_verdict_round": "K2 round 3",
+  "last_verdict_date": "2026-04-26",
+  "last_verdict_reason": "scripts/make-icon.swift now assembles AppIcon.icns directly, package-app.sh --sandbox passed end-to-end in the Codex sandbox, bundle structure/plutil/codesign all verified, and SmokeTest remained 201/201.",
+  "passed_stages": ["K1", "K2"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {

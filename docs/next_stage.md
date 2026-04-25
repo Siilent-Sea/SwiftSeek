@@ -1,86 +1,82 @@
-# 下一阶段任务书：K2
+# 下一阶段任务书：K3
 
 当前活跃轨道：`everything-productization`
-当前阶段：`K2`
-阶段名称：可重复生成 `.app` bundle 的打包流水线
+当前阶段：`K3`
+阶段名称：版本信息 / About / diagnostics / 日志导出
 
 ## 交给 Claude 的任务
 
-你现在只做 K2。目标是把 SwiftSeek 从“有源码、有本地 app 痕迹”推进到“fresh clone 后可重复生成 `.app` bundle”。K1 已经完成 build identity 与 settings release gate；K2 不要重复做诊断 UI，也不要提前写 K4-K6 的安装、权限或最终 release 收口。
+你现在只做 K3。目标不是继续修 `.app` 打包，而是把当前已有的 build identity、About 面板和 diagnostics 收口成用户可复制、开发者可定位问题的完整诊断面。
 
-K2 不做 DMG，不做 notarization，不做 Apple Developer ID 签名，不做 auto updater。
+K3 不做安装/升级/回滚，不做权限引导，不做正式签名/公证，不做 auto updater。
 
 ## 必须先审计的代码路径
 
-- `scripts/package-app.sh`（如不存在则新增）
 - `Sources/SwiftSeek/App/AppDelegate.swift`
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
+- `Sources/SwiftSeekCore/DatabaseStats.swift`
 - `Sources/SwiftSeekCore/BuildInfo.swift`
+- `Sources/SwiftSeekCore/SettingsTypes.swift`
+- `Sources/SwiftSeekCore/BuildInfo.swift`
+- `scripts/package-app.sh`
 - `scripts/build.sh`
-- `scripts/make-icon.swift`
-- `.gitignore`
 - `README.md`
 - `docs/manual_test.md`
 - `docs/known_issues.md`
 
 重点确认：
-- 当前 bundle 生成链路哪里还是手工的：`Info.plist`、`AppIcon.icns`、binary copy、codesign。
-- `BuildInfo` 依赖的键是否能由 package 脚本自动写入。
-- `scripts/build.sh` 与新 package 脚本的边界是否清晰。
-- `.gitignore` 是否把生成物和模板边界写清。
+- 当前 About / diagnostics 已经展示了哪些字段，哪些还缺。
+- 当前 DB stats、schema、DB path、bundle/binary path 是否能统一口径输出。
+- 启动日志是否已经带够 build identity + schema。
+- “复制诊断信息” 导出的文本是否足够让别人复盘问题。
 
 ## 必须做
 
-1. 新增或重写 `scripts/package-app.sh`，一条命令完成：
-   - `swift build -c release`
-   - 生成 `SwiftSeek.app/Contents/MacOS/SwiftSeek`
-   - 写入 `Info.plist`
-   - 生成或复制 `AppIcon.icns`
-   - 写入 `CFBundleIdentifier`
-   - 写入 `CFBundleVersion`
-   - 写入 `CFBundleShortVersionString`
-   - 写入 `GitCommit`
-   - 写入 `BuildDate`
-   - 做 ad-hoc codesign
-2. 明确输出目录，例如 `dist/SwiftSeek.app`；重复执行时旧产物清理策略要明确。
-3. `scripts/build.sh` 要么调用 package 脚本，要么继续只负责 CLI build，但两者边界必须写清。
-4. `scripts/make-icon.swift` 接入 package 流程，不允许继续要求手工 `iconutil` 作为主路径。
-5. 更新 README / manual test / known issues，说明：
-   - 怎样从 fresh clone 生成 `.app`
-   - 怎样检查 bundle 结构、Info.plist 和 codesign
-   - 当前仍然只是 ad-hoc，本阶段不承诺正式签名 / 公证
-6. 保持 K1 的 build identity、settings release gate、J1/J6 生命周期修复不回退。
+1. 扩充 About / diagnostics，至少覆盖：
+   - app version
+   - build commit
+   - build date
+   - schema version
+   - database path
+   - index mode
+   - root count
+   - DB size
+   - usage rows
+   - query history rows
+   - package path / executable path
+   - Launch at Login 意图与系统状态
+2. 保留并强化“复制诊断信息”按钮，确保复制出的文本是一份完整诊断快照，而不是零散字段。
+3. 统一 diagnostics 与真实数据源口径，避免 About 面板与 `SwiftSeekDBStats`、数据库现状互相矛盾。
+4. 启动日志继续保留 build identity，并补足 schema 维度，保证用户贴前几行日志就能看出当前构建和数据库版本。
+5. 更新 README / manual_test / known_issues，写清用户反馈 bug 时需要提供什么诊断信息。
+6. 保持 K1 build identity、K2 package 流水线、J1/J6 生命周期路径不回退。
 
 ## 明确不做
 
-- 不做 DMG。
-- 不做 notarization。
-- 不做 Apple Developer ID 签名。
-- 不做 auto updater。
-- 不做安装 / 升级 / 回滚文档收口，那是 K4。
-- 不做 Full Disk Access / 权限引导，那是 K5。
+- 不做 K4 的安装 / 升级 / 回滚流程。
+- 不做 K5 的 Full Disk Access / 权限引导收口。
+- 不做 K6 的 release note / 最终 QA 收口。
+- 不做遥测、日志上传、云端收集。
 - 不新增搜索 / ranking / 索引功能。
 
 ## 验收标准
 
-1. fresh clone 后一条命令能生成 `.app`。
-2. `.app/Contents/MacOS/SwiftSeek` 存在且可执行。
-3. `Info.plist` 字段完整，且 `BuildInfo` 读到的字段来自 package 流程而非手工编辑。
-4. `AppIcon.icns` 自动生成或复制进 bundle。
-5. `codesign -dv --verbose=2` 可见 ad-hoc 签名。
-6. `open dist/SwiftSeek.app` 或等价命令可启动。
-7. `scripts/build.sh` / `scripts/package-app.sh` / README 的边界一致，不互相打架。
+1. About / diagnostics 一屏能复制完整诊断信息。
+2. 诊断信息包含 build identity、schema、DB path、bundle/executable path。
+3. DB stats 与真实数据库统计不矛盾。
+4. 启动日志包含 build identity 和 schema。
+5. 文档写清用户反馈时应提供的诊断内容。
 
 ## 必须补的验证
 
 ```text
-1. shell: package 脚本 fresh 运行一次，确认产物落到预期目录。
-2. shell: `plutil -lint` 与 `plutil -p` 检查 Info.plist。
-3. shell: `codesign -dv --verbose=2 dist/SwiftSeek.app`。
-4. shell: 检查 `Contents/MacOS/SwiftSeek` 与 `Contents/Resources/AppIcon.icns`。
-5. GUI: `open dist/SwiftSeek.app` 启动后，About 仍显示正确 build identity。
-6. 回归: K1 的设置窗口 reopen / 10x close-show / 20x tab switch 不回退。
+1. shell: `swift run --disable-sandbox SwiftSeekSmokeTest` 继续通过。
+2. GUI: 启动 `dist/SwiftSeek.app`，About 顶部 summary 与启动日志一致。
+3. GUI: 点“复制诊断信息”，`pbpaste` 内容包含 version / commit / build / schema / DB path / bundle / binary。
+4. shell: 用仓库内现有 DB stats 命令或等价路径核对 About 里的统计值。
+5. 回归: K1 的设置窗口 reopen / 10x close-show / 20x tab switch 不回退；K2 的 package 脚本仍可成功生成 `.app`。
 ```
 
 ## 验收后文档
 
-K2 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 K3 任务书；如果 REJECT，按 blocker 修复。
+K3 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 K4 任务书；如果 REJECT，按 blocker 修复。
