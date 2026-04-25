@@ -4,16 +4,16 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K6`
+- 当前阶段：`PROJECT COMPLETE`
 - 当前轨道目标：把 SwiftSeek 从“功能轨道已完成的开发者可运行项目”推进到“可重复打包、可安装、可诊断、可回归验证、权限边界诚实的 macOS 工具”。重点不再是新增搜索功能，而是发布链路、`.app` bundle、图标/Info.plist/codesign、版本标识、stale build 防护、窗口生命周期 release gate、安装/升级/回滚、权限与最终 release QA。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage` / `everything-ux-parity`
 
-## 当前阶段：K6
+## 当前阶段：PROJECT COMPLETE
 
 ### 阶段目标
-建立最终 release QA checklist、release notes 模板和产品化轨道收口文档，让 Codex 能基于实证判断 `everything-productization` 是否可以 `PROJECT COMPLETE`。
+`everything-productization` 已完成。K1-K6 已全部通过验收，当前轨道可以停止。
 
-K6 必须把 K1-K5 已落地内容串成一条可执行验收路径：fresh build、package、launch、settings release gate、search/open/run-count、DB stats、diagnostics copy、install / upgrade / rollback docs、权限/FDA 说明、最终 README / known issues / manual test 同步。
+后续如果开启新轨道，必须重新定义 gap / taskbook / stage_status；历史 `PROJECT COMPLETE` 只代表当前轨道已归档，不自动覆盖后续目标。
 
 ### 当前代码审计依据
 - K1 已通过：BuildInfo / About / diagnostics / startup log 现在能暴露 version、commit、build date、bundle path、binary path。
@@ -23,7 +23,7 @@ K6 必须把 K1-K5 已落地内容串成一条可执行验收路径：fresh buil
 - K3 已通过：`Diagnostics.snapshot` 已成为 About / diagnostics / copy 的单一来源，SmokeTest 203/203 覆盖 K3 字段与设置翻转。
 - K4 已通过：`docs/install.md` 已写清安装、升级、回滚、卸载、Launch at Login 边界，以及 stale bundle / 多实例 / schema forward-only 风险。
 - K5 已通过：RootHealthReport / diagnostics roots block / recheck permissions / Full Disk Access jump / K5 docs 已落地；受限沙箱下 build、SmokeTest 209/209、package-app 均通过。
-- K6 实现已就位（待 Codex 验收）：
+- K6 已通过：
   - `docs/release_checklist.md` 单页 15 步 release gate（fresh build / smoke / package / bundle 元数据 / 启动 build identity / 设置生命周期 10× / 热键 / add root → search → open / 诊断复制 / K5 root health / Launch at Login / icon / 安装升级回滚 dry-run / release notes / 文档一致性）。
   - `docs/release_notes_template.md` 诚实发布说明模板，"已知边界"段强制保留 ad-hoc / 无 Developer ID / 无 notarization / 无 DMG / 无 auto updater / FDA / 外接盘 / schema forward-only。
   - `docs/architecture.md` 末尾新增 K1-K6 productization 收口段，作为代码 ↔ 文档锚点。
@@ -31,24 +31,21 @@ K6 必须把 K1-K5 已落地内容串成一条可执行验收路径：fresh buil
   - `docs/manual_test.md` 新增 §33x：指向 release_checklist + release_notes_template，包含干净 workspace 验证命令与文档一致性清单。
   - `README.md` "当前限制" 与"当前进度" 都提到 K6 已落地并链到 release checklist + release notes。
   - 受限沙箱下 `swift build --disable-sandbox` + SmokeTest 209/209 + `./scripts/package-app.sh --sandbox` 仍通过。
+  - 最终 package 产物的 `GitCommit = 9e4e686`，与当前 HEAD 一致；`plutil -lint`、`codesign -dv`、AppIcon 检查均通过。
 
-### 当前阶段禁止事项
+### 当前完成边界
 - 不做 DMG，除非用户明确改变 K6 范围。
 - 不做 Apple Developer ID 签名或 notarization。
 - 不做 auto updater。
-- 不新增 K7 或继续拆无限任务书。
 - 不新增搜索 / ranking / 索引业务功能。
 - 不把 ad-hoc bundle 写成正式签名发行版。
 
-### 当前阶段完成判定标准
-K6 只有同时满足以下条件才可验收通过：
-1. release checklist 可从 clean workspace 实际跑通。
-2. `.app` 产物可重复生成并启动。
-3. app icon、Info.plist、bundle id、version、build identity 可验证。
-4. 设置窗口生命周期 release gate 通过。
-5. About / diagnostics 可复制，且包含 K3/K5 关键字段。
-6. README / known issues / manual test / architecture 与最终代码一致。
-7. 未签名 / 未公证 / ad-hoc 边界诚实，不夸大交付能力。
+### 当前轨道完成判定
+`everything-productization` 满足 `PROJECT COMPLETE` 条件：
+1. K1-K6 全部阶段已验收通过。
+2. `.app` 打包、build identity、diagnostics、install / upgrade / rollback、permissions / FDA、release QA checklist 已形成闭环。
+3. 没有阻塞级问题。
+4. 文档已达到非作者本人也能按步骤执行的程度。
 
 ## 已通过阶段
 
@@ -98,6 +95,16 @@ K6 只有同时满足以下条件才可验收通过：
   - `Diagnostics.snapshot` 新增 `roots 健康（K5）：` 同源诊断块
   - `docs/install.md`、`docs/manual_test.md`、`docs/known_issues.md`、`README.md` 已同步 FDA / root coverage / recheck 文档
   - 受限沙箱变量下 `swift build --disable-sandbox`、`SwiftSeekSmokeTest` 209/209、`./scripts/package-app.sh --sandbox` 继续通过，package 注入 `GitCommit = a175880`
+
+### `K6`
+- 结论：`PROJECT COMPLETE`，日期 2026-04-26，验收提交 `9e4e686`。
+- 已落地：
+  - `docs/release_checklist.md` 单页 15 步 release gate
+  - `docs/release_notes_template.md` 诚实 release notes 模板，强制保留已知边界
+  - `docs/architecture.md`、`docs/known_issues.md`、`docs/manual_test.md`、`README.md` 已同步 K1-K6 productization 收口状态
+  - 受限沙箱变量下 `swift build --disable-sandbox`、`SwiftSeekSmokeTest` 209/209、`./scripts/package-app.sh --sandbox` 通过
+  - `dist/SwiftSeek.app/Contents/Info.plist` 的 `GitCommit = 9e4e686`，与当前 HEAD 一致
+  - `plutil -lint`、`codesign -dv`、AppIcon 检查通过
 
 ## 已归档轨道
 
