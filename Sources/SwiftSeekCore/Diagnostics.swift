@@ -71,6 +71,17 @@ public enum Diagnostics {
         let rootsEnabled = rootsAll.filter { $0.enabled }.count
         let rootsTotal = rootsAll.count
         let excludesCount = safe("listExcludes", default: 0) { try database.listExcludes().count }
+        // K5: per-root health detail so bug reports identify which
+        // specific root has permission / volume / missing-path
+        // issues, not just an aggregate count. Caps at 20 lines so
+        // mega-multi-root setups don't drown the diagnostics block.
+        let rootHealthLines: [String] = rootsAll.prefix(20).map { row in
+            let report = database.computeRootHealthReport(for: row)
+            return "  \(report.health.uiLabel)  \(row.path)  — \(report.detail)"
+        }
+        let rootHealthOverflowSuffix = rootsAll.count > 20
+            ? "\n  …（截断；共 \(rootsAll.count) 个 root，仅显示前 20）"
+            : ""
 
         // --- last rebuild ------------------------------------------
         let lastAt = safe("getSetting(lastRebuildAt)", default: "—") {
@@ -121,6 +132,8 @@ public enum Diagnostics {
         query history 记录开关：\(queryHistoryEnabled ? "开" : "关")
 
         roots：总 \(rootsTotal)，启用 \(rootsEnabled)
+        roots 健康（K5）：
+        \(rootHealthLines.isEmpty ? "  （无 root）" : rootHealthLines.joined(separator: "\n"))\(rootHealthOverflowSuffix)
         excludes：\(excludesCount)
 
         Launch at Login 用户意图：\(lalIntent)

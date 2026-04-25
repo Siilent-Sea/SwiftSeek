@@ -22,14 +22,14 @@ macOS 原生本地极速文件搜索器。
   - 右键菜单、结果拖出、substring 高亮
   - 右键菜单扩展：Open With、Copy Name、Copy Full Path、Copy Parent Folder、Move to Trash（二次确认）
   - 0 结果空态标注 offline / unavailable / paused 的 root
-- **设置页**：索引目录、排除目录、隐藏文件开关、热键预设、结果上限、索引模式、重建索引、DB 维护、诊断信息、搜索历史 / Saved Filters 管理、Launch at Login 状态
-- **RootHealth**：ready / indexing / paused / offline / unavailable，设置页 badge + 搜索空态双重暴露
+- **设置页**：索引目录、排除目录、隐藏文件开关、热键预设、结果上限、索引模式、重建索引、DB 维护、诊断信息、搜索历史 / Saved Filters 管理、Launch at Login 状态、K5 权限重检 + 完全磁盘访问跳转
+- **RootHealth**（K5 已细化）：ready / indexing / paused / offline（路径不存在）/ volumeOffline（卷未挂载）/ unavailable（无访问权限），设置页 badge + 鼠标悬停 detail tooltip + 诊断块 + 搜索空态四重暴露
 - **Footprint**：500k 实测 compact 1.07 GB vs fullpath 3.46 GB；首次索引 44.87s vs 197.62s
 - **Usage**（H1-H5）：`file_usage` 表记录 SwiftSeek 内部 `.open` 次数；结果表"打开次数" / "最近打开"两列；同 score tie-break (openCount → lastOpenedAt)；`recent:` / `frequent:` 查询前缀；设置 → 维护 tab 的记录开关 + 清空入口；500k+100k usage bench：3+char(+usage) 94.33ms 中位，`recent:` 89.44ms，`recordOpen` 8μs
 - **UX parity**（J1-J6）：设置窗口 hide-only 生命周期、Dock / reopen 行为、搜索窗宽度与列恢复、wildcard / quote / OR / NOT、recent queries / Saved Filters、首次使用 banner、设置 tab 记忆、设置窗 frame 记忆、Launch at Login 公开 API 包装
 
 ## 当前限制
-SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-productization` 当前已落地 K1：About / 诊断 / 启动日志显示 build identity（version / commit / build date / bundle / binary），设置窗口生命周期写成 release gate。仍未完成的：`.app` bundle 打包流水线（K2）、稳定 Launch at Login（K4）、安装/升级/回滚文档（K4）、权限引导（K5）、release QA 收口（K6）。`scripts/build.sh` 仍只交付 `.build/release` 二进制。
+SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-productization` 当前已落地 K1-K5：K1 build identity（version / commit / build date / bundle / binary）+ 设置窗口 release gate；K2 `scripts/package-app.sh` 一条命令重复打包 + ad-hoc codesign；K3 `Diagnostics.snapshot` 单一来源；K4 `docs/install.md` 安装 / 升级 / 回滚 / Launch at Login / stale bundle 文档；K5 root 权限四态徽标 + RootHealthReport tooltip + "重新检查权限" + "打开完全磁盘访问设置" 按钮 + 诊断同源。仍未完成：release QA 收口（K6）。本轨道明确不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater。
 
 **确认是否运行最新构建**：设置 → 关于 → 看顶部一行 `SwiftSeek <version> commit=<hash> build=<date>`，下方诊断块的 `bundle:` / `binary:` 行和你正在编辑的源码路径对比；不一致就是 stale bundle。详细排查见 [docs/manual_test.md](docs/manual_test.md) §33s。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 

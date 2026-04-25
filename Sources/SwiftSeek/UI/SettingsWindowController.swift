@@ -727,7 +727,13 @@ private final class IndexingPane: NSViewController {
         let addRootBtn = NSButton(title: "新增目录…", target: self, action: #selector(onAddRoot))
         let removeRootBtn = NSButton(title: "移除所选", target: self, action: #selector(onRemoveRoot))
         let toggleRootBtn = NSButton(title: "启用/停用所选", target: self, action: #selector(onToggleRoot))
-        let rootsBar = NSStackView(views: [addRootBtn, removeRootBtn, toggleRootBtn])
+        // K5: explicit "recheck permissions" + "open Full Disk Access pane"
+        // entries so a user who fixed permissions in System Settings can
+        // confirm without restarting SwiftSeek, and a user who has not yet
+        // granted FDA can jump straight to the right pane.
+        let recheckBtn = NSButton(title: "重新检查权限", target: self, action: #selector(onRecheckPermissions))
+        let fdaBtn = NSButton(title: "打开完全磁盘访问设置", target: self, action: #selector(onOpenFullDiskAccess))
+        let rootsBar = NSStackView(views: [addRootBtn, removeRootBtn, toggleRootBtn, recheckBtn, fdaBtn])
         rootsBar.orientation = .horizontal
         rootsBar.spacing = 8
         rootsBar.translatesAutoresizingMaskIntoConstraints = false
@@ -850,9 +856,11 @@ private final class IndexingPane: NSViewController {
         }
         let enabledCount = roots.filter { $0.enabled }.count
         if !rootsStatus.stringValue.hasPrefix("读取") {
-            // E4: note the new state vocabulary. 状态标签包含就绪/索引中/停用/未挂载/不可访问，
-            // 便于用户自解释“这个 root 为什么没结果”。
-            rootsStatus.stringValue = "共 \(roots.count) 项，启用 \(enabledCount) · 新增目录后自动后台索引；状态列展示 就绪 / 索引中 / 停用 / 未挂载 / 不可访问"
+            // K5: status vocabulary now matches the four explicit failure
+            // modes — 卷未挂载（external volume offline）/ 路径不存在
+            // （path missing）/ 无访问权限（FDA-style permission denied）/
+            // 其他错误。鼠标悬停每行会看到 RootHealthReport.detail 的解释。
+            rootsStatus.stringValue = "共 \(roots.count) 项，启用 \(enabledCount) · 新增目录后自动后台索引；状态列：就绪 / 索引中 / 停用 / 卷未挂载 / 路径不存在 / 无访问权限"
         }
         if !excludesStatus.stringValue.hasPrefix("读取") {
             excludesStatus.stringValue = "共 \(excludes.count) 项 · 新增立即清理已索引子树（无需重建）"
@@ -961,6 +969,37 @@ private final class IndexingPane: NSViewController {
         }
     }
 
+    /// K5: re-evaluate every root's health badge + detail tooltip without
+    /// touching DB state. After the user grants Full Disk Access in System
+    /// Settings (or remounts a /Volumes drive), they come back here, click
+    /// this button, and the rootsTable cells immediately re-classify.
+    @objc private func onRecheckPermissions() {
+        reload()
+        if let wc = view.window?.windowController as? SettingsWindowController {
+            wc.refreshBanner()
+        }
+    }
+
+    /// K5: jump straight to the macOS "Full Disk Access" privacy pane so the
+    /// user doesn't have to navigate System Settings hierarchy. Falls back to
+    /// the generic Privacy pane if the deep-link URL is rejected.
+    @objc private func onOpenFullDiskAccess() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy"
+        ]
+        for raw in urls {
+            if let url = URL(string: raw), NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+        let alert = NSAlert()
+        alert.messageText = "无法打开“完全磁盘访问”面板"
+        alert.informativeText = "请手动打开 系统设置 → 隐私与安全性 → 完全磁盘访问，将 SwiftSeek 加入并启用。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "好")
+        alert.runModal()
+    }
 
     @objc private func onAddExclude() {
         let panel = NSOpenPanel()
@@ -1012,21 +1051,28 @@ extension IndexingPane: NSTableViewDataSource, NSTableViewDelegate {
                    viewFor tableColumn: NSTableColumn?,
                    row: Int) -> NSView? {
         let label: String
+        var tooltip: String? = nil
         if tableView === rootsTable {
             let r = roots[row]
-            // E4: replace raw enabled flag with a computed health badge so
-            // the user can tell paused vs offline vs unavailable apart.
-            let health = database.computeRootHealth(
+            // K5: switch from the raw RootHealth badge to the structured
+            // RootHealthReport so we can attach a per-row tooltip explaining
+            // *why* a root is offline / unavailable / volumeOffline. The
+            // visible label still uses the same uiLabel; the detail string
+            // lives in the tooltip so users hovering each row see the
+            // FDA / mount / path-existence reason without crowding the cell.
+            let report = database.computeRootHealthReport(
                 for: r,
                 currentlyIndexingPath: rebuildCoordinator.currentlyIndexingPath
             )
-            label = "\(health.uiLabel)  \(r.path)"
+            label = "\(report.health.uiLabel)  \(r.path)"
+            tooltip = report.detail
         } else {
             label = "🚫 " + excludes[row].pattern
         }
         let text = NSTextField(labelWithString: label)
         text.lineBreakMode = .byTruncatingMiddle
         text.usesSingleLineMode = true
+        text.toolTip = tooltip
         return text
     }
 

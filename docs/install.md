@@ -157,6 +157,62 @@ SwiftSeek 数据库 schema 一直在演进：
 
 ---
 
+## 权限 / Full Disk Access / Root 覆盖（K5）
+
+SwiftSeek 不绕过 macOS 权限模型。一个目录是否能被索引，取决于它对 SwiftSeek 进程是否可读。当一个 root 不能正常索引时，先在 设置 → 索引 的 roots 表里看右侧状态徽标，再决定如何处理。
+
+### 四种状态徽标含义
+
+| 徽标 | 含义 | 典型场景 | 恢复路径 |
+|---|---|---|---|
+| ✅ 就绪 | 目录可读、已纳入索引 | 普通子目录 | 无需操作 |
+| ⏳ 索引中 | 后台正在扫描该 root | 刚 add root / 重建后 | 等扫描完成 |
+| ⏸ 已停用 | 用户主动停用了该 root | 设置里点过"启用/停用所选" | 再次点击恢复 |
+| 💾 卷未挂载 | 路径前缀是 `/Volumes/<X>`，但 `<X>` 不在 `/Volumes` 下 | 外接盘拔了 / 网络盘掉线 | 接回设备或重连网络 |
+| 🔌 路径不存在 | 目录被删 / 移动 / 重命名 | 用户在 Finder 删了该目录 | 移除该 root，或在原位置重建目录 |
+| ⚠️ 无访问权限 | 目录存在但当前权限不允许 SwiftSeek 读取 | 缺 Full Disk Access、目录权限是 700 且属于其他用户、TCC 拦截 Desktop/Documents/Downloads | 见下文 FDA 引导 |
+
+把鼠标停在 roots 表的某一行，会弹出**详细原因**（K5 的 RootHealthReport.detail），告诉你当前判定的依据。这条 detail 也会出现在 设置 → 关于 → 复制诊断信息 的输出里，便于贴给协作者排查。
+
+### 给 SwiftSeek 授予 Full Disk Access
+
+一些目录（`~/Desktop` / `~/Documents` / `~/Downloads` / 外接盘 / iCloud / 第三方应用沙盒目录）在未授权前对所有第三方进程都返回 EPERM，外观与"目录不存在"一致但底层是 TCC 拒绝。处理：
+
+1. 设置 → 索引 → 点击底部 **"打开完全磁盘访问设置"** 按钮（K5 新增）
+   - 直接跳到 系统设置 → 隐私与安全性 → 完全磁盘访问。
+   - 失败时回退到通用隐私面板；仍失败会弹 NSAlert 给出手动路径。
+2. 在右侧列表中**加入 `SwiftSeek.app`**（点 `+`，从 `/Applications` 选 `SwiftSeek.app`）。
+3. 确认开关**已打开**（绿色）。
+4. 回到 SwiftSeek，设置 → 索引 → 点击 **"重新检查权限"** 按钮。
+   - 这是 K5 的 recheck / refresh 入口。
+   - 它**不重启 app、不动 DB**，只重新读取每个 root 的当前权限并刷新徽标 + tooltip。
+5. 如果原来 `⚠️ 无访问权限` 的行变成 `✅ 就绪`，说明授权生效；可手动触发一次 重建索引 让该目录的内容真正进入 DB。
+
+如果某些目录授权后仍是 `⚠️ 无访问权限`：
+- 检查目录所有者：`ls -ld <path>`，权限 700 且 owner 不是当前用户时，SwiftSeek 也读不了。
+- 通过 系统设置 → 隐私与安全性 → 文件与文件夹 给 SwiftSeek 授权对应类别（Desktop / Documents / Downloads 等）；Full Disk Access 是更高一级的总授权，但部分 macOS 版本两者并行存在。
+- 重新登录或重启偶尔可让 TCC 数据库重新生效。
+
+### 外接盘 / 网络盘的边界
+
+- **K5 严格区分**：`💾 卷未挂载` 表示设备不在（路径在 `/Volumes/<X>` 下，但 `<X>` 卷未挂载），与权限不足是两件事。
+- 卷重新挂载后，可点 "重新检查权限" 让状态更新；不需要移除 root。
+- 网络盘断线表现为 `💾 卷未挂载`（macOS 自动从 `/Volumes` 移除挂载点）。
+- 网络盘 / 云盘的实时一致性 SwiftSeek 不承诺，详见 `docs/known_issues.md`。
+
+### Diagnostics 同步显示
+
+设置 → 关于 → 复制诊断信息（或 `Diagnostics.snapshot`）输出里 K5 增加 `roots 健康（K5）：` 段：
+```
+roots 健康（K5）：
+  ✅ 就绪  /Users/me/Documents  — 可读且已纳入索引
+  💾 卷未挂载  /Volumes/MyDrive/photos  — 卷 /Volumes/MyDrive 当前未挂载
+  ⚠️ 无访问权限  /Users/me/Desktop  — 目录存在但当前权限不允许读取（可能需要 Full Disk Access）
+```
+最多列 20 个 root，超出时显示总数。bug-report 模板（`docs/manual_test.md` §33u）保持不变，直接复制即可。
+
+---
+
 ## 多实例 / Stale Bundle 风险
 
 ### 风险来源

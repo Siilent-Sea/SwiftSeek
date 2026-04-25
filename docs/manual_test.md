@@ -1119,6 +1119,79 @@ codesign -dv --verbose=2 dist/SwiftSeek.app
 - 按 §33t 跑 K2 package-app.sh 流程
 - 按 §33u 跑 K3 完整诊断字段
 
+### 33w. K5 root 权限 / FDA / recheck 状态矩阵
+
+K5 把 root 不可访问拆成四种显式状态。手测时按矩阵走，每项都要在 设置 → 索引 的 roots 表里看到对应徽标 + tooltip。
+
+#### 准备
+- 启动一遍 SwiftSeek（用 §33t 打的 `dist/SwiftSeek.app`）
+- 设置 → 索引 → 看到 roots 表底栏新增两个按钮：**"重新检查权限"** 与 **"打开完全磁盘访问设置"**
+
+#### 状态 1：✅ 就绪（基线）
+1. 添加一个普通可读目录作为 root（例：`mkdir /tmp/k5-ready && touch /tmp/k5-ready/a.txt` 然后从 UI 添加 `/tmp/k5-ready`）
+2. 等"索引中"消失 → 行徽标变 `✅ 就绪`
+3. 鼠标悬停该行 → tooltip 出现"可读且已纳入索引"或类似肯定描述
+4. 检查诊断（设置 → 关于 → 复制诊断信息）`roots 健康（K5）：` 段有这一行
+
+#### 状态 2：🔌 路径不存在（offline）
+1. `mkdir /tmp/k5-gone && open /tmp/k5-gone`
+2. 在 UI 添加 `/tmp/k5-gone`，等"索引中"消失变 ✅ 就绪
+3. `rm -rf /tmp/k5-gone`
+4. 在 UI 点 **"重新检查权限"**
+5. 验证：行徽标变 `🔌 路径不存在`，tooltip 含"目录不存在"或等价表述
+6. 验证：诊断里同步出现 `🔌 路径不存在  /tmp/k5-gone  — ...`
+
+#### 状态 3：💾 卷未挂载（volumeOffline）
+1. 准备一个外接盘 `/Volumes/MyDrive`（U 盘 / 硬盘 / DMG mount 都行）
+2. 在外接盘上 `mkdir /Volumes/MyDrive/k5-vol`
+3. 在 UI 添加 `/Volumes/MyDrive/k5-vol`，等 ✅ 就绪
+4. **退出外接盘**（Finder 推出 / `umount /Volumes/MyDrive` / 物理拔掉）
+5. 在 UI 点 **"重新检查权限"**
+6. 验证：行徽标变 `💾 卷未挂载`，tooltip 提到"卷 /Volumes/MyDrive 当前未挂载"或等价
+7. 重新连接 / 挂载该外接盘 → 再点 "重新检查权限" → 行恢复 `✅ 就绪`
+8. **关键边界**：这一项不能与 `🔌 路径不存在` 混淆。如果你看到 `/Volumes/X/...` 路径显示"路径不存在"而不是"卷未挂载"，说明回归。
+
+#### 状态 4：⚠️ 无访问权限（unavailable）
+方案 A — 通过权限位制造（最快）：
+1. `mkdir /tmp/k5-locked && touch /tmp/k5-locked/x.txt`
+2. UI 添加 `/tmp/k5-locked`，等 ✅ 就绪
+3. `chmod 000 /tmp/k5-locked`
+4. UI 点 "重新检查权限"
+5. 验证：行徽标变 `⚠️ 无访问权限`，tooltip 含"权限不允许读取"或"Full Disk Access"提示
+6. `chmod 700 /tmp/k5-locked` → 再点 "重新检查权限" → 恢复 ✅ 就绪
+
+方案 B — 通过 Full Disk Access（更贴近真实场景）：
+1. 系统设置 → 隐私与安全性 → 完全磁盘访问 → 移除 SwiftSeek（如已加入）或确认未加入
+2. UI 添加 `~/Desktop` 或 `~/Documents` 作为 root
+3. 验证：行徽标 `⚠️ 无访问权限`，tooltip 提示可能需要 FDA
+4. UI 点 **"打开完全磁盘访问设置"** → 系统设置应跳到 完全磁盘访问 面板
+5. 加入 SwiftSeek.app 并打开开关
+6. 回 SwiftSeek，UI 点 **"重新检查权限"**
+7. 验证：行恢复 ✅ 就绪
+
+#### 状态 5：⏸ 已停用（paused，覆盖 disk state）
+1. 用任何上述失败状态的 root（`/tmp/k5-locked` chmod 000 时最直观）
+2. 选中该行，点 "启用/停用所选" 把它停用
+3. 验证：行徽标变成 `⏸ 已停用`，**不**显示 `⚠️` / `🔌` / `💾`，因为 paused 覆盖磁盘状态
+4. 再次点 "启用/停用所选" 启用 → 徽标回到对应磁盘状态
+
+#### 按钮 fallback 测试
+1. 在虚拟机或较旧的 macOS 上点 **"打开完全磁盘访问设置"**
+2. 如果 deep-link URL 失败 → 应自动回退到通用隐私面板
+3. 如果两个都失败 → 应弹 NSAlert 给出手动路径"系统设置 → 隐私与安全性 → 完全磁盘访问"
+
+#### 诊断同源校验
+1. 在每个状态变化后，点 设置 → 关于 → "复制诊断信息"
+2. 粘贴到文本编辑器，检查 `roots 健康（K5）：` 段
+3. 每行格式：`  <徽标>  <路径>  — <detail>`
+4. UI 显示什么徽标，诊断就该是什么徽标 — 三处口径必须一致
+
+#### J1/J6/K1/K2/K3/K4 不回退（K5 release gate 复用）
+- §33s 设置窗口生命周期
+- §33t K2 package-app.sh 流程
+- §33u K3 完整诊断字段
+- §33v K4 安装 / 升级 / 回滚 dry-run
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

@@ -70,14 +70,18 @@
 - README 快速上手段已加入 install.md 链接，让用户从首页进入即可找到完整流程。
 - 当前 schema 已是 v7（H2 引入 query_history / saved_filters）。回滚到 K1 之前的 binary 必须先备份 DB；`Database.migrate()` 永远 forward-only。
 
-### 8. 权限 / Full Disk Access / root 覆盖引导仍需产品化
-- J6 已有首次使用 banner，RootHealth 已能显示 offline / unavailable / paused。
-- 但权限诊断仍没有形成统一产品流程：
-  - root 可访问性复查。
-  - Full Disk Access 指引。
-  - external volume offline 与 permission denied 的区分。
-  - “重新检查权限”入口。
-- 用户仍可能把权限问题误判为搜索或索引问题。
+### 8. 权限 / Full Disk Access / root 覆盖引导（K5 已落地）
+- **K5 已收口**：
+  - **RootHealth 状态从 3 类细化到 4+ 类**：`.ready` / `.indexing` / `.paused` / `.offline`（路径不存在）/ `.volumeOffline`（`/Volumes/<X>` 卷未挂载）/ `.unavailable`（权限不足）。
+  - **每行带详细原因 tooltip**：`Database.computeRootHealthReport(for:)` 返回结构化 `RootHealthReport { health, detail }`，UI 把 detail 挂到 NSTextField.toolTip，鼠标停留即可看到判定依据。
+  - **设置 → 索引 → "重新检查权限" 按钮**：不重启 app、不动 DB，重新评估每个 root 的当前状态。补完 Full Disk Access 后即用即检。
+  - **设置 → 索引 → "打开完全磁盘访问设置" 按钮**：直接 `NSWorkspace.open` 到 `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`，授权失败回退通用隐私面板，再失败弹 NSAlert 手动指引。
+  - **诊断块同步**：`Diagnostics.snapshot` 增加 `roots 健康（K5）：` 段，最多列 20 个 root，每行格式 `<徽标>  <路径>  — <详细原因>`，与 UI 完全同源。
+  - **文档同步**：`docs/install.md` 新增"权限 / Full Disk Access / Root 覆盖（K5）"段，列出四种状态徽标的含义与恢复路径。
+- 仍存在的边界：
+  - macOS 权限模型本身不绕过：未签名 / ad-hoc bundle 在某些 macOS 版本下即使加了 Full Disk Access 也可能被 TCC 二次拦截。
+  - 网络盘 / 云盘的实时一致性不承诺。
+  - K5 不重做 K4 的安装文档，只补与权限恢复直接相关的交叉说明。
 
 ### 9. 缺少 release QA checklist
 - 历史 `docs/manual_test.md` 很长，但不是面向最终 release artifact 的一页 checklist。

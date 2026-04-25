@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6 + K1 + K3)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6 + K1 + K3 + K5)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -1868,12 +1868,17 @@ reporter.check("E4 RootHealth.indexing: pinned via currentlyIndexingPath paramet
 }
 
 reporter.check("E4 RootHealth.uiLabel contains the right keyword per case") {
+    // K5 retitled `.offline` → "路径不存在" (since volume-offline now
+    // splits into its own case `.volumeOffline` → "卷未挂载"), and
+    // `.unavailable` → "无访问权限" (was "不可访问"). Keywords here
+    // track the post-K5 phrasing.
     let cases: [(RootHealth, String)] = [
         (.ready, "就绪"),
         (.indexing, "索引中"),
         (.paused, "停用"),
-        (.offline, "未挂载"),
-        (.unavailable, "不可访问"),
+        (.volumeOffline, "卷未挂载"),
+        (.offline, "路径不存在"),
+        (.unavailable, "无访问权限"),
     ]
     for (h, needle) in cases {
         try reporter.require(h.uiLabel.contains(needle),
@@ -4070,6 +4075,131 @@ reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     _ = try engine.search("!!foo")
     // Empty OR + filter combo.
     _ = try engine.search("alpha|| ext:md")
+}
+
+// MARK: - K5 root health: 4-way split (ready / offline / volumeOffline / unavailable)
+
+reporter.check("K5 RootHealth: ready for an existing readable directory") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let real = try makeTempDir()
+    defer { cleanup(real) }
+    let id = try db.registerRoot(path: real.path)
+    let row = RootRow(id: id, path: real.path, enabled: true)
+    let report = db.computeRootHealthReport(for: row)
+    try reporter.require(report.health == .ready,
+                         "expected .ready for existing dir, got \(report.health)")
+    try reporter.require(report.detail.contains("可访问"),
+                         "ready detail should mention 可访问: \(report.detail)")
+}
+
+reporter.check("K5 RootHealth: offline for a missing non-/Volumes path") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let bogus = "/tmp/swiftseek-k5-missing-\(UUID().uuidString)"
+    let id = try db.registerRoot(path: bogus)
+    let row = RootRow(id: id, path: bogus, enabled: true)
+    let report = db.computeRootHealthReport(for: row)
+    try reporter.require(report.health == .offline,
+                         "expected .offline for missing path, got \(report.health)")
+    try reporter.require(report.detail.contains("路径不存在"),
+                         "offline detail should mention 路径不存在: \(report.detail)")
+}
+
+reporter.check("K5 RootHealth: volumeOffline for /Volumes path with mount point missing") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Pick a /Volumes/<bogus> name that almost certainly doesn't
+    // exist on the test host.
+    let bogus = "/Volumes/SwiftSeekK5BogusVolume\(UUID().uuidString.prefix(8))/some/path"
+    let id = try db.registerRoot(path: bogus)
+    let row = RootRow(id: id, path: bogus, enabled: true)
+    let report = db.computeRootHealthReport(for: row)
+    try reporter.require(report.health == .volumeOffline,
+                         "expected .volumeOffline for unmounted /Volumes path, got \(report.health) detail=\(report.detail)")
+    try reporter.require(report.detail.contains("外接卷"),
+                         "volumeOffline detail should mention 外接卷: \(report.detail)")
+}
+
+reporter.check("K5 RootHealth: unavailable for an unreadable directory") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Create dir, chmod 000.
+    let secret = try makeTempDir()
+    defer {
+        // Restore perms so cleanup can remove it.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                               ofItemAtPath: secret.path)
+        cleanup(secret)
+    }
+    try FileManager.default.setAttributes([.posixPermissions: 0o000],
+                                          ofItemAtPath: secret.path)
+    let id = try db.registerRoot(path: secret.path)
+    let row = RootRow(id: id, path: secret.path, enabled: true)
+    let report = db.computeRootHealthReport(for: row)
+    // On macOS, root user (uid=0) bypasses POSIX perms — under that
+    // edge case the dir would still appear readable. Smoke runs as
+    // owner of the temp dir; chmod 000 should make even owner
+    // unreadable.
+    try reporter.require(report.health == .unavailable || report.health == .ready,
+                         "expected .unavailable (or .ready if running as root); got \(report.health)")
+    if report.health == .unavailable {
+        try reporter.require(report.detail.contains("完全磁盘访问"),
+                             "unavailable detail should reference 完全磁盘访问: \(report.detail)")
+    }
+}
+
+reporter.check("K5 RootHealth: paused trumps disk state") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let real = try makeTempDir()
+    defer { cleanup(real) }
+    let id = try db.registerRoot(path: real.path)
+    try db.setRootEnabled(id: id, enabled: false)
+    let row = RootRow(id: id, path: real.path, enabled: false)
+    let report = db.computeRootHealthReport(for: row)
+    try reporter.require(report.health == .paused,
+                         "paused should win even when path is OK; got \(report.health)")
+}
+
+reporter.check("K5 Diagnostics.snapshot includes per-root health line") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let real = try makeTempDir()
+    defer { cleanup(real) }
+    _ = try db.registerRoot(path: real.path)
+    _ = try db.registerRoot(path: "/tmp/swiftseek-k5-snap-missing-\(UUID().uuidString)")
+    let snap = Diagnostics.snapshot(database: db)
+    try reporter.require(snap.contains("roots 健康（K5）"),
+                         "snapshot missing K5 root health header: \(snap.prefix(500))")
+    try reporter.require(snap.contains("✅ 就绪"),
+                         "snapshot missing ready row")
+    try reporter.require(snap.contains("🔌 路径不存在"),
+                         "snapshot missing offline row: \(snap.prefix(800))")
 }
 
 // MARK: - K3 diagnostics snapshot

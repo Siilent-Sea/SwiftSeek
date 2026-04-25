@@ -318,10 +318,15 @@ public extension Database {
 
 // MARK: - E4 root health
 
-/// Stage-E4 health classification for a registered root. The UI uses this
-/// to replace the pure enabled/disabled flag with a richer state so the
-/// user can tell the difference between "I paused this" and "the volume
-/// is not mounted right now".
+/// Stage-E4 + K5 health classification for a registered root.
+///
+/// K5 split: the original `.offline` lumped "volume ejected" together
+/// with "path was deleted/renamed". Diagnostics + recovery steps are
+/// different, so K5 separates `.volumeOffline` (under `/Volumes/X`
+/// where `/Volumes/X` itself is gone) from `.offline` (path missing
+/// elsewhere on disk). `.unavailable` (permission denied) stays
+/// distinct from both — the recovery is "grant Full Disk Access in
+/// System Settings", not "remount" or "recreate the path".
 public enum RootHealth: String, Equatable, Sendable {
     /// Path exists, is readable, and the root is enabled by the user.
     case ready
@@ -330,11 +335,16 @@ public enum RootHealth: String, Equatable, Sendable {
     /// User-disabled via the enable toggle. Data may still exist in the
     /// index but search is filtered out.
     case paused
-    /// Path does not exist on disk (e.g. external volume ejected,
-    /// directory moved or deleted).
+    /// External volume mount point itself is missing (e.g. `/Volumes/Backup`
+    /// where `/Volumes/Backup` doesn't exist on disk). Recovery: reconnect
+    /// the drive.
+    case volumeOffline
+    /// Path doesn't exist on disk (directory moved / renamed / deleted).
+    /// Recovery: re-add the new path or remove the entry.
     case offline
-    /// Path exists but is not readable (permission denied). Typically
-    /// macOS privacy / full-disk-access constraints.
+    /// Path exists but isn't readable. Typically macOS privacy / Full
+    /// Disk Access. Recovery: System Settings → 隐私与安全性 → 完全
+    /// 磁盘访问 → 添加 SwiftSeek → 回 SwiftSeek 点 "重新检查权限"。
     case unavailable
 
     /// Short human-facing marker for the roots table. The emoji carries
@@ -342,12 +352,25 @@ public enum RootHealth: String, Equatable, Sendable {
     /// accessibility / screen readers.
     public var uiLabel: String {
         switch self {
-        case .ready:       return "✅ 就绪"
-        case .indexing:    return "⏳ 索引中"
-        case .paused:      return "⏸ 已停用"
-        case .offline:     return "🔌 未挂载"
-        case .unavailable: return "⚠️ 不可访问"
+        case .ready:         return "✅ 就绪"
+        case .indexing:      return "⏳ 索引中"
+        case .paused:        return "⏸ 已停用"
+        case .volumeOffline: return "💾 卷未挂载"
+        case .offline:       return "🔌 路径不存在"
+        case .unavailable:   return "⚠️ 无访问权限"
         }
+    }
+}
+
+/// K5 — full health report for a registered root. Adds an explanatory
+/// `detail` string keyed off the active `RootHealth` so the UI tooltip,
+/// `Diagnostics.snapshot`, and CLI output share one phrasing.
+public struct RootHealthReport: Equatable, Sendable {
+    public let health: RootHealth
+    public let detail: String
+    public init(health: RootHealth, detail: String) {
+        self.health = health
+        self.detail = detail
     }
 }
 
@@ -357,18 +380,63 @@ public extension Database {
     /// by `RebuildCoordinator` without doing its own matching.
     func computeRootHealth(for row: RootRow,
                            currentlyIndexingPath: String? = nil) -> RootHealth {
-        if !row.enabled { return .paused }
-        if let busy = currentlyIndexingPath, busy == row.path { return .indexing }
+        return computeRootHealthReport(for: row,
+                                       currentlyIndexingPath: currentlyIndexingPath).health
+    }
+
+    /// K5 — full root health report with explanatory detail. The
+    /// detail string is suitable for tooltips and copyable
+    /// diagnostics; never empty.
+    func computeRootHealthReport(for row: RootRow,
+                                 currentlyIndexingPath: String? = nil) -> RootHealthReport {
+        if !row.enabled {
+            return .init(health: .paused, detail: "用户已停用此 root；搜索结果不会包含它，但已索引数据仍保留。")
+        }
+        if let busy = currentlyIndexingPath, busy == row.path {
+            return .init(health: .indexing, detail: "正在重新索引此 root；扫描完成后状态会变 ready。")
+        }
         let fm = FileManager.default
         var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: row.path, isDirectory: &isDir) else {
-            return .offline
+        let exists = fm.fileExists(atPath: row.path, isDirectory: &isDir)
+        if !exists {
+            // K5: distinguish external-volume-offline from
+            // generic path-missing. macOS mounts external volumes
+            // at /Volumes/<name>; if the path is `/Volumes/Foo/...`
+            // and `/Volumes/Foo` itself doesn't exist, the drive
+            // is unmounted (not deleted).
+            if let volRoot = volumeMountPoint(for: row.path),
+               !fm.fileExists(atPath: volRoot) {
+                return .init(health: .volumeOffline,
+                             detail: "外接卷 \(volRoot) 当前未挂载。重新连接驱动器后回到 SwiftSeek 点 '重新检查权限' 即可恢复索引。")
+            }
+            return .init(health: .offline,
+                         detail: "路径不存在：可能被移动 / 重命名 / 删除。请重新添加正确路径或在索引范围里移除此 root。")
         }
-        // A file-as-root is still "offline-shaped" from the user's
-        // perspective: we can't walk it. Treat the same as a missing dir.
-        if !isDir.boolValue { return .offline }
-        guard fm.isReadableFile(atPath: row.path) else { return .unavailable }
-        return .ready
+        if !isDir.boolValue {
+            return .init(health: .offline,
+                         detail: "路径指向的不是目录（可能是文件或符号链接）。请改为目录路径。")
+        }
+        if !fm.isReadableFile(atPath: row.path) {
+            return .init(health: .unavailable,
+                         detail: "路径存在但 SwiftSeek 没有读权限。常见原因：未授予完全磁盘访问。系统设置 → 隐私与安全性 → 完全磁盘访问 → 添加 SwiftSeek，然后回到 SwiftSeek 点 '重新检查权限'。")
+        }
+        return .init(health: .ready,
+                     detail: "路径可访问，索引正常。")
+    }
+
+    /// K5 helper — returns the `/Volumes/<name>` mount point for a path
+    /// rooted under `/Volumes/`, else nil. `/Volumes/Foo/sub` → `/Volumes/Foo`.
+    /// `/Volumes/Foo` (volume root itself) → `/Volumes/Foo`. Anything not
+    /// under `/Volumes/` → nil. Trims trailing slashes; returns nil for
+    /// `/Volumes` alone (no actual volume name component).
+    private func volumeMountPoint(for path: String) -> String? {
+        guard path.hasPrefix("/Volumes/") else { return nil }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        // After trim: "Volumes/Foo/sub" or "Volumes/Foo" or "Volumes".
+        let parts = trimmed.split(separator: "/", maxSplits: 2).map(String.init)
+        // parts[0] = "Volumes", parts[1] = volume name (required), tail ignored
+        guard parts.count >= 2, !parts[1].isEmpty else { return nil }
+        return "/Volumes/\(parts[1])"
     }
 }
 
