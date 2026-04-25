@@ -1,14 +1,14 @@
 {
   "track": "everything-productization",
-  "stage": "K3",
+  "stage": "K4",
   "session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 passed on commit cc41750 after removing iconutil from the critical path and proving package-app.sh --sandbox can generate a complete signed dist/SwiftSeek.app. K3 is now the next acceptance target.",
+  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 passed on commit cc41750. K3 passed on commit 8eba98c after Diagnostics.snapshot became the single source of truth for About/copy diagnostics and the smoke suite reached 203/203. K4 is now the next acceptance target.",
   "last_verdict": "PASS",
-  "last_verdict_round": "K2 round 3",
+  "last_verdict_round": "K3 round 1",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "scripts/make-icon.swift now assembles AppIcon.icns directly, package-app.sh --sandbox passed end-to-end in the Codex sandbox, bundle structure/plutil/codesign all verified, and SmokeTest remained 201/201.",
-  "passed_stages": ["K1", "K2"],
+  "last_verdict_reason": "Diagnostics.snapshot is now the single source of truth for About/copy diagnostics, K3 smoke coverage landed and passed 203/203 under sandbox env, and K2 package-app.sh --sandbox still passes with the new diagnostics code.",
+  "passed_stages": ["K1", "K2", "K3"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -42,5 +42,5 @@
       "previous_session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df"
     }
   ],
-  "notes": "Active session for everything-productization track. K1 PASS round 1 on commit d890c81. Next target stage is K2. .txt file mirrors this session id."
+  "notes": "Active session for everything-productization track. K1 PASS round 1 on commit d890c81. Current next target stage is K4. .txt file mirrors this session id."
 }

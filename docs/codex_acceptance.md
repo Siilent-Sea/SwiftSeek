@@ -4,43 +4,45 @@
 
 ## 当前有效状态
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K3`
-- 当前阶段验收结论：K2 已 `PASS`，等待 K3 实现
+- 当前阶段：`K4`
+- 当前阶段验收结论：K3 已 `PASS`，等待 K4 实现
 - 当前正式验收 session：`019dc54e-017d-7de3-a24f-35c23f09ce08`
 - 日期：2026-04-26
 
 ### 当前审计结论
-K2 round 3 基于提交 `cc41750` 复验，结论为 `PASS`。
+K3 round 1 基于提交 `8eba98c` 验收，结论为 `PASS`。
 
 本轮确认成立的事实：
-- `scripts/make-icon.swift` 已不再依赖 `iconutil`，而是直接按 `.icns` 容器格式写出 `AppIcon.icns`。
-- `scripts/package-app.sh --sandbox` 在当前 Codex 沙箱内真实通过，完整日志里已出现：
-  - `AppIcon.icns OK: 273908 bytes`
-  - `plutil -lint: ... OK`
-  - `codesign -dv` 显示 `Signature=adhoc`
-  - bundle 结构包含 `Contents/Info.plist`、`Contents/MacOS/SwiftSeek`、`Contents/Resources/AppIcon.icns`、`Contents/_CodeSignature/CodeResources`
-- 同一套沙箱变量下：
+- `Sources/SwiftSeekCore/Diagnostics.swift` 新增 `Diagnostics.snapshot(database:launchAtLoginIntent:launchAtLoginSystemStatus:)`，并且是 AppKit-free 的单一来源实现。
+- `SettingsWindowController.AboutPane.buildDiagnostics()` 已收口到 `Diagnostics.snapshot(...)`，复制诊断信息按钮沿用现有剪贴板路径，因此 GUI 面和 smoke 使用同一份文本生成逻辑。
+- 受限沙箱变量下：
+  - `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox`
+  - 通过。
   - `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox SwiftSeekSmokeTest`
-  - 结果 `201/201` 通过。
-- `Info.plist` 自动写入的值与当前提交一致：
+  - 结果 `203/203` 通过。
+- K3 smoke 已覆盖：
+  - build identity 字段
+  - DB / rows / settings / Launch at Login 字段
+  - 设置翻转后的 diagnostics 文本变化
+- `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox` 继续通过，说明 K2 package 流水线没有被 K3 回归破坏。
+- package 自检输出里 `Info.plist` 字段与当前提交一致：
   - `BuildDate = 2026-04-26`
   - `CFBundleIdentifier = com.local.swiftseek`
   - `CFBundleShortVersionString = 1.0-K2`
-  - `GitCommit = cc41750`
+  - `GitCommit = 8eba98c`
 
 结论：
-- K2 的“fresh clone 后一条命令稳定生成 `.app` bundle”目标已在当前沙箱中被实际验证成立。
-- K1 的 build identity / settings release gate 没有回退。
+- K3 的“完整诊断单一来源 + 可复制 diagnostics + smoke 可验证”目标已落地。
+- K1 build identity、K2 package 流水线、J1/J6 生命周期路径都没有回退。
 
 ## 当前验收要求
-K3 完成后，Codex 才能给出下一轮 `PASS` 或 `REJECT`。当前不允许因为 K2 已通过就把后续产品化阶段视为自动完成。
+K4 完成后，Codex 才能给出下一轮 `PASS` 或 `REJECT`。当前不允许因为 K3 已通过就把后续产品化阶段视为自动完成。
 
 验收时必须检查：
-- About / diagnostics 一屏能复制完整诊断信息。
-- 诊断信息包含 build identity、schema、DB path、bundle/executable path。
-- 启动日志包含 build identity 和 schema。
-- DB stats 与真实数据库统计不矛盾。
-- 用户反馈模板或诊断说明写入文档。
+- 本地安装 / 升级 / 回滚流程写清并可执行。
+- Launch at Login 的用户意图与系统状态继续诚实呈现。
+- unsigned / ad-hoc 环境下的限制写清，不假装正式发行。
+- 至少给出多实例 / 旧 app / schema 回滚的风险说明。
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23

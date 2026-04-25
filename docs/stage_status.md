@@ -4,24 +4,24 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K3`
+- 当前阶段：`K4`
 - 当前轨道目标：把 SwiftSeek 从“功能轨道已完成的开发者可运行项目”推进到“可重复打包、可安装、可诊断、可回归验证的 macOS 工具”。重点不再是新增搜索功能，而是发布链路、`.app` bundle、图标/Info.plist/codesign、版本标识、stale build 防护、窗口生命周期 release gate、安装/升级/回滚、权限与最终 release QA。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage` / `everything-ux-parity`
 
-## 当前阶段：K3
+## 当前阶段：K4
 
 ### 阶段目标
-补齐版本信息 / About / diagnostics / 日志导出，让用户反馈问题时能提供完整诊断信息。
+补齐安装、升级、回滚与 Launch at Login 稳定化，让当前本地 bundle 真正可长期使用。
 
-K3 必须把 K1 的基础 build identity 和 K2 的稳定 `.app` 产物继续收口成“可复制、可导出、可定位问题”的完整诊断面，而不是只停留在最小版本号显示。
+K4 必须把 K2 的 `.app` 和 K3 的 diagnostics 继续收口成可安装、可替换、可回滚、边界诚实的本地工具交付路径。
 
 ### 当前代码审计依据
 - K1 已通过：BuildInfo / About / diagnostics / startup log 现在能暴露 version、commit、build date、bundle path、binary path。
 - K1 的 settings release gate 已写入 `docs/manual_test.md` §33s，J1/J6 生命周期修复作为长期回归门禁保留。
 - K2 已通过：`scripts/package-app.sh --sandbox` 现在能在当前 Codex 沙箱内稳定生成 `dist/SwiftSeek.app`。
 - 当前 K2 产物已包含 `Info.plist`、`MacOS/SwiftSeek`、`Resources/AppIcon.icns` 和 ad-hoc `_CodeSignature`。
-- `BuildInfo`、About 顶部 summary、复制诊断信息按钮和启动日志三连都仍保留。
-- 当前 About / diagnostics 仍主要聚焦基础 build identity + DB path / roots / files / hidden / last rebuild；K3 需要把诊断面扩到更完整、可反馈问题的层级。
+- K3 已通过：`Diagnostics.snapshot` 已成为 About / diagnostics / copy 的单一来源，SmokeTest 203/203 覆盖 K3 字段与设置翻转。
+- 当前 bundle、build identity、diagnostics 都已具备，但安装到 `/Applications`、升级替换、回滚限制和 Launch at Login 的长期稳定使用路径还没文档化收口。
 
 ### 当前阶段禁止事项
 - 不做 DMG。
@@ -33,14 +33,14 @@ K3 必须把 K1 的基础 build identity 和 K2 的稳定 `.app` 产物继续收
 - 不把本轮文档立项写成已经完成产品化。
 
 ### 当前阶段完成判定标准
-K3 只有同时满足以下条件才可验收通过：
-1. About / diagnostics 一屏能复制完整诊断信息。
-2. 诊断信息包含 build identity、schema、DB path、bundle/executable path。
-3. DB stats 与 `SwiftSeekDBStats` 或等价真实数据源不矛盾。
-4. 启动日志包含 build identity 和 schema。
-5. 用户反馈所需信息写入文档。
-6. 不提前实现 K4-K6。
-7. `swift run SwiftSeekSmokeTest` 与必要手测通过，或明确记录环境阻塞原因。
+K4 只有同时满足以下条件才可验收通过：
+1. 本地安装流程写清：构建、放置、首次打开、Gatekeeper 边界。
+2. 升级流程写清：退出旧 app、替换、启动后确认 build identity。
+3. 回滚流程写清：保留旧 app、schema 限制、旧版兼容边界。
+4. Launch at Login 的用户意图与系统状态仍诚实呈现，未签名 / ad-hoc 限制写清。
+5. 至少有多实例 / 旧 app / DB schema 混用风险提示。
+6. 不提前实现 K5-K6。
+7. 必要手测和文档验证通过，或明确记录环境阻塞原因。
 
 ## 已通过阶段
 
@@ -62,6 +62,15 @@ K3 只有同时满足以下条件才可验收通过：
   - `dist/SwiftSeek.app` 完整包含 `Info.plist`、`MacOS/SwiftSeek`、`Resources/AppIcon.icns`、`_CodeSignature`
   - `plutil -lint`、`codesign -dv`、bundle 结构检查全部通过
   - 受限沙箱变量下 `SwiftSeekSmokeTest` 仍为 `201/201`
+
+### `K3`
+- 结论：`PASS`，日期 2026-04-26，验收提交 `8eba98c`。
+- 已落地：
+  - `Diagnostics.snapshot` 成为 diagnostics 单一来源
+  - About 面板与“复制诊断信息”接到同一份快照文本
+  - Diagnostics 扩到 build identity、DB、rows、settings、Launch at Login、last rebuild
+  - 受限沙箱变量下 `swift build --disable-sandbox` 通过
+  - 受限沙箱变量下 `SwiftSeekSmokeTest` 升到 `203/203`
 
 ## 已归档轨道
 
