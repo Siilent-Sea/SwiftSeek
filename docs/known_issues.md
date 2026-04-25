@@ -59,15 +59,16 @@
 - `LaunchAtLogin.swift` 使用公开 `SMAppService.mainApp`，但未签名 / 未公证构建可能失败、需要用户在系统设置批准，或登录后行为不稳定。
 - 当前轨道可以做 ad-hoc 本地包和诚实提示，不应假装已完成正式签名发行。
 
-### 7. 缺少正式安装 / 升级 / 回滚流程
-- 当前没有清晰文档说明：
-  - 如何生成 app bundle。
-  - 如何安装到 `/Applications`。
-  - 升级前如何退出旧 App。
-  - 如何确认替换成功。
-  - 如何保留旧版本回滚。
-  - 新 DB schema 与旧 App 的兼容限制。
-- 对 SwiftSeek 这种 SQLite schema 持续演进的工具，回滚限制必须写清。
+### 7. 安装 / 升级 / 回滚流程已在 K4 文档化
+- `docs/install.md` 是 K4 的单一入口，覆盖：
+  - **安装**：`./scripts/package-app.sh` → `cp -R dist/SwiftSeek.app /Applications/` → 首次打开 / Gatekeeper / xattr quarantine 处理
+  - **升级**：退出旧 → 重新打包 → 替换 → 用 build identity 核对 commit hash 是否匹配
+  - **回滚**：备份 DB → 替换 binary → schema forward-only 边界（Schema v1→v7 表对照表）→ 旧 binary 打开新 schema DB 的风险与建议（删 DB / 重命名让旧 binary 重建）
+  - **Launch at Login 边界**：未签名 / ad-hoc 可能需手动批准；`dist/` 直接跑通常注册不上
+  - **多实例 / stale bundle**：通过 About → 顶部 summary + bundle/binary 行 + Console 启动头三行判断；替换失败常见原因（旧进程没退、LaunchServices 缓存、`cp -R` 残留）
+  - **卸载**：bundle / DB / preferences / 登录项的清单
+- README 快速上手段已加入 install.md 链接，让用户从首页进入即可找到完整流程。
+- 当前 schema 已是 v7（H2 引入 query_history / saved_filters）。回滚到 K1 之前的 binary 必须先备份 DB；`Database.migrate()` 永远 forward-only。
 
 ### 8. 权限 / Full Disk Access / root 覆盖引导仍需产品化
 - J6 已有首次使用 banner，RootHealth 已能显示 offline / unavailable / paused。

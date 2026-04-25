@@ -1069,6 +1069,56 @@ codesign -dv --verbose=2 dist/SwiftSeek.app
 按 §33s 步骤跑 — 设置窗 × 关 → 三路径重开 + 10× 压力 + 20× tab 切换。
 按 §33t 步骤验证 K2 package-app.sh 仍能 fresh 跑通。
 
+### 33v. K4 安装 / 升级 / 回滚 dry-run
+前置：fresh git clone 或干净工作目录；可写 `/Applications`（管理员或 sudo 可豁免）。
+
+#### 安装 dry-run
+1. `./scripts/package-app.sh` 完成
+2. `cp -R dist/SwiftSeek.app /Applications/`
+3. **首次打开 Gatekeeper 路径之一**：
+   - Finder 右键 SwiftSeek.app → 打开 → 弹窗点 "打开"
+   - 或系统设置 → 隐私与安全性 → "仍要打开"
+   - 或 CLI `open /Applications/SwiftSeek.app`
+4. 设置 → 关于 → 顶部 summary 应显示当前 commit；`bundle:` 行应是 `/Applications/SwiftSeek.app`
+5. 启动日志（Console.app SwiftSeek 过滤）三连匹配
+
+#### 升级 dry-run
+1. `pkill -f SwiftSeek` → `pgrep -fl SwiftSeek` 应空
+2. 改一行注释 + commit
+3. `./scripts/package-app.sh` 重打包（commit hash 应跟随 git）
+4. `rm -rf /Applications/SwiftSeek.app && cp -R dist/SwiftSeek.app /Applications/`
+5. `open /Applications/SwiftSeek.app`
+6. 关于 → commit 应是新 hash；启动日志同步
+
+#### 回滚 dry-run（不真删数据）
+1. 升级前重命名旧版：`mv /Applications/SwiftSeek.app /Applications/SwiftSeek-prev.app`
+2. 安装新版（按上面 install dry-run）
+3. 备份 DB：`cp ~/Library/Application\ Support/SwiftSeek/index.sqlite3{,.bak}`
+4. 模拟回滚：`pkill -f SwiftSeek && rm -rf /Applications/SwiftSeek.app && mv /Applications/SwiftSeek-prev.app /Applications/SwiftSeek.app && open /Applications/SwiftSeek.app`
+5. 关于 → commit 应回到旧值
+6. 如旧 binary 启动出错（schema 太新），按 install.md 步骤删 DB 让其重建
+
+#### Launch at Login 双视角验证
+1. 设置 → 常规 → 滚到底 "随 macOS 登录自动启动 SwiftSeek"
+2. 勾选：note 应反映系统状态（"已注册" / "未注册"），不应假装成功
+3. 系统设置 → 通用 → 登录项 中应能看到 SwiftSeek（或 Codex sandbox 限制下显示需批准）
+4. 取消勾选 → note 显示 "未启用"
+5. 设置 → 关于 → 复制诊断信息 → 文本应有：
+   - `Launch at Login 用户意图：已勾选 / 未勾选`
+   - `Launch at Login 系统状态：已注册（...）/ 未注册（...）/ —（headless / unsupported）`
+   - 两面状态一致或有清楚解释
+
+#### 多实例 / stale bundle 自检
+1. 同时安装 `dist/` 和 `/Applications/` 两份；确认它们分别启动后 About 显示不同 `bundle:` 行
+2. 修改源码 + commit，重新 `package-app.sh`，但不替换 `/Applications/SwiftSeek.app`
+3. 启动 `/Applications/SwiftSeek.app` → About commit 应是旧 hash（说明这是 stale bundle）
+4. 替换后重启 → About commit 应是新 hash
+
+#### J1/J6/K1/K2/K3 不回退（K4 release gate 复用）
+- 按 §33s 跑设置窗口生命周期
+- 按 §33t 跑 K2 package-app.sh 流程
+- 按 §33u 跑 K3 完整诊断字段
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

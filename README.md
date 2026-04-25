@@ -55,6 +55,8 @@ SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-product
 # 受限沙箱：./scripts/package-app.sh --sandbox
 ```
 
+**完整安装 / 升级 / 回滚 / Launch at Login / stale bundle 排查** → [docs/install.md](docs/install.md)
+
 **只要 CLI 二进制（开发迭代）**：
 
 ```bash
