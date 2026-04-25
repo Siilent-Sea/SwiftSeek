@@ -45,9 +45,14 @@ SwiftSeek 不再是“一次性做完即停止”的单轨项目，后续按 tra
 - 状态：历史上已经拿到 `PROJECT COMPLETE`
 - 结论边界：不覆盖设置窗口生命周期、Dock/Menu Bar reopen、Run Count 可见性复核、搜索历史、Saved Filters、高级查询语法和上下文菜单体验
 
+### 已归档轨道：`everything-ux-parity`
+- 含义：桌面 App 生命周期、Run Count 可见性、Everything 风格查询表达、搜索历史 / Saved Filters、上下文菜单、首次使用引导、Launch at Login 说明与窗口状态记忆（J1 ~ J6）
+- 状态：历史上已经拿到 `PROJECT COMPLETE`
+- 结论边界：不覆盖稳定 `.app` 打包流水线、Info.plist / icon / codesign 自动化、build identity、stale bundle 防护、安装/升级/回滚和 release QA
+
 ### 当前活跃轨道
 - 一律以 `docs/stage_status.md` 为准
-- 本轮如果 `docs/stage_status.md` 指向 `everything-ux-parity`，你就按该轨道验收
+- 本轮如果 `docs/stage_status.md` 指向 `everything-productization`，你就按该轨道验收
 - 不允许因为历史上出现过一次 `PROJECT COMPLETE`，就让新轨道直接停止
 
 ---
@@ -72,7 +77,7 @@ SwiftSeek 是一个面向 macOS 的本地极速文件搜索器。
 
 ### 当前后续轨道目标
 当前主线由 `docs/stage_status.md` 与对应轨道任务书定义。
-如果当前活跃轨道是 `everything-ux-parity`，其目标是在不读取 macOS 全局隐私数据、不使用 private API 的前提下，补齐 SwiftSeek 的桌面 App 生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单和首次使用引导，让实际使用体验更接近 Everything-like 工具，但仍保持：
+如果当前活跃轨道是 `everything-productization`，其目标是在不承诺正式签名 / 公证、不使用 private API 的前提下，补齐 SwiftSeek 的 `.app` 打包、安装/升级/回滚、build identity、stale build 防护、诊断能力、权限引导和 release QA，让项目从功能完成走向可长期交付的 macOS 工具，但仍保持：
 - 本地
 - 原生 macOS
 - 文件名 / 路径搜索为主
@@ -182,7 +187,7 @@ Codex 验收会话必须优先使用项目内显式 session id。
 4. 文档齐全到“不是只有作者自己会用”的程度
 
 注意：
-- `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
+- `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，该轨道才允许停止
 
 ---
@@ -191,8 +196,8 @@ Codex 验收会话必须优先使用项目内显式 session id。
 你的回复必须以如下格式输出，字段名不要改：
 
 VERDICT: REJECT | PASS | PROJECT COMPLETE
-TRACK: v1-baseline | everything-alignment | everything-performance | everything-footprint | everything-usage | everything-ux-parity | <docs/stage_status.md 当前轨道名>
-STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | G1 | G2 | G3 | G4 | G5 | H1 | H2 | H3 | H4 | H5 | J1 | J2 | J3 | J4 | J5 | J6 | <当前阶段名>
+TRACK: v1-baseline | everything-alignment | everything-performance | everything-footprint | everything-usage | everything-ux-parity | everything-productization | <docs/stage_status.md 当前轨道名>
+STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | G1 | G2 | G3 | G4 | G5 | H1 | H2 | H3 | H4 | H5 | J1 | J2 | J3 | J4 | J5 | J6 | K1 | K2 | K3 | K4 | K5 | K6 | <当前阶段名>
 SUMMARY:
 - ...
 
@@ -250,6 +255,8 @@ NEXT_STAGE_TASKBOOK:
 - `docs/everything_usage_taskbook.md`
 - `docs/everything_ux_parity_gap.md`
 - `docs/everything_ux_parity_taskbook.md`
+- `docs/everything_productization_gap.md`
+- `docs/everything_productization_taskbook.md`
 - `docs/agent-state/README.md`
 
 要求：

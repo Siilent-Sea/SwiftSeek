@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6 + K1)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -4070,6 +4070,51 @@ reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     _ = try engine.search("!!foo")
     // Empty OR + filter combo.
     _ = try engine.search("alpha|| ext:md")
+}
+
+// MARK: - K1 build identity surface
+
+reporter.check("K1 BuildInfo: version / commit / date never empty (fallback path)") {
+    // Smoke binary has no Info.plist with the K2 keys, so the
+    // accessor falls back to the static defaults. The contract is
+    // "always non-empty so About / startup log always have
+    // something printable" — this asserts that contract directly.
+    try reporter.require(!BuildInfo.appVersion.isEmpty,
+                         "appVersion empty")
+    try reporter.require(!BuildInfo.gitCommit.isEmpty,
+                         "gitCommit empty")
+    try reporter.require(!BuildInfo.buildDate.isEmpty,
+                         "buildDate empty")
+    try reporter.require(BuildInfo.appVersion == BuildInfo.fallbackAppVersion,
+                         "smoke binary should hit fallbackAppVersion, got \(BuildInfo.appVersion)")
+    try reporter.require(BuildInfo.gitCommit == BuildInfo.fallbackGitCommit,
+                         "smoke binary should hit fallbackGitCommit, got \(BuildInfo.gitCommit)")
+    try reporter.require(BuildInfo.buildDate == BuildInfo.fallbackBuildDate,
+                         "smoke binary should hit fallbackBuildDate, got \(BuildInfo.buildDate)")
+}
+
+reporter.check("K1 BuildInfo: bundlePath / executablePath always non-empty") {
+    try reporter.require(!BuildInfo.bundlePath.isEmpty,
+                         "bundlePath empty")
+    try reporter.require(!BuildInfo.executablePath.isEmpty,
+                         "executablePath empty")
+}
+
+reporter.check("K1 BuildInfo.summary + multilineSummary contain the three core fields") {
+    let s = BuildInfo.summary
+    try reporter.require(s.contains(BuildInfo.appVersion),
+                         "summary missing version: \(s)")
+    try reporter.require(s.contains(BuildInfo.gitCommit),
+                         "summary missing commit: \(s)")
+    try reporter.require(s.contains(BuildInfo.buildDate),
+                         "summary missing build date: \(s)")
+    let m = BuildInfo.multilineSummary
+    try reporter.require(m.contains(BuildInfo.appVersion)
+                         && m.contains(BuildInfo.gitCommit)
+                         && m.contains(BuildInfo.buildDate)
+                         && m.contains(BuildInfo.bundlePath)
+                         && m.contains(BuildInfo.executablePath),
+                         "multilineSummary missing fields: \(m)")
 }
 
 // MARK: - J6 settings tab memory + launch-at-login intent

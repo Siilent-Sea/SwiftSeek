@@ -938,6 +938,36 @@ chmod a-w /tmp/readonly.sqlite3
 7. **状态同步**：手动到 系统设置 → 通用 → 登录项 关掉 SwiftSeek，回到 Settings 常规 tab note 应下次 `viewWillAppear` 时反映为 false；再勾可重注册
 8. **持久化不相互干扰**：J2 列宽/F3 排序/J6 tab/窗口 frame 各走不同键；执行 J2 "重置列宽" 不该影响 tab/frame；执行 J6 切 tab 不影响列宽
 
+### 33s. K1 设置窗口 release gate + build identity
+前置：用 K1 构建过的 `.app`（Info.plist 含 `GitCommit` / `BuildDate`），或直接 `swift run SwiftSeek`（fallback "dev" 标识）。
+
+#### Build identity
+1. **启动日志三连**（Console.app 过滤 SwiftSeek，或 `tail -f` 重定向）应包含按顺序：
+   - `SwiftSeek: SwiftSeek <version> commit=<hash> build=<date>`
+   - `SwiftSeek: bundle=<path>`
+   - `SwiftSeek: binary=<path>`
+   - 然后才是 `database ready at ... schema=N`
+2. **About 面板**（设置 → 关于）应显示：
+   - 标题下方一行 summary：`SwiftSeek <version> commit=<hash> build=<date>`
+   - 诊断块顶端有 build identity 五行（版本 / commit / build date / bundle / binary）
+   - 然后才是 DB / roots / files 等业务诊断
+3. **复制诊断信息**按钮：点击后 `pbpaste` 应得到完整诊断文本（含 build identity）。
+4. **Stale bundle 自检**：对比 About 显示的 `binary=` 路径与 `which SwiftSeek` / Activity Monitor 中的进程路径；不匹配说明跑的是旧 bundle。
+
+#### 设置窗口 release gate（每次 release 必跑）
+1. 启动 App，设置窗口自动出现。
+2. **× 关闭 → 菜单栏 SwiftSeek 图标 → 设置…**：必须重开同一窗口（J1 hide-only + applicationShouldHandleReopen 路径）。
+3. **× 关闭 → 主菜单 SwiftSeek → 设置…**（⌘,）：必须重开。
+4. **× 关闭 → 隐藏搜索窗（ESC）→ 点 Dock 图标**：无可见窗口时点 Dock 必须重开设置（applicationShouldHandleReopen）。
+5. **压力 10 次**：×关 → 菜单栏重开，循环 10 次，不崩溃、不丢 controller、菜单入口不失效。
+6. **设置 tab 切换 20 次**：常规 / 索引范围 / 维护 / 关于 之间反复切；不崩溃，KVO 正常持久化（关窗重开应停在最后切到的 tab）。
+7. **搜索窗回归**：⌥Space 呼出搜索窗，ESC / 失焦隐藏，再 ⌥Space 呼出 — 行为应与 J1 前一致。
+
+#### 失败处置
+- 任何步骤无反应 → 看 Console SwiftSeek 日志：可能 `tabView.delegate` 非法重置（J6 hotfix 应避免）或 windowShouldClose 未实现 hide-only。
+- 复制按钮粘贴为空 → 检查 NSPasteboard 调用点未异常。
+- 启动日志缺 `SwiftSeek: SwiftSeek ... commit=...` → AppDelegate 未调 `BuildInfo.summary`。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

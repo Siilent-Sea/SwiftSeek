@@ -14,6 +14,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotkeyAlertedKey = "SwiftSeek.hotkey_fail_alerted_v1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // K1: log build identity FIRST so stale-bundle / wrong-binary
+        // bug reports always include version, commit, and the actual
+        // executable / bundle path. Users pasting the first ~5 lines
+        // of Console output is enough to triage "is this the right
+        // build?" without further questions.
+        NSLog("SwiftSeek: \(BuildInfo.summary)")
+        NSLog("SwiftSeek: bundle=\(BuildInfo.bundlePath)")
+        NSLog("SwiftSeek: binary=\(BuildInfo.executablePath)")
+
         NSApp.mainMenu = MainMenu.build(target: self)
         NSApp.activate(ignoringOtherApps: true)
 

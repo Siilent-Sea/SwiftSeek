@@ -1729,9 +1729,16 @@ private final class MaintenancePane: NSViewController {
 private final class AboutPane: NSViewController {
     private let database: Database
     private let titleLabel = NSTextField(labelWithString: "SwiftSeek")
-    private let versionLabel = NSTextField(labelWithString: "v1 开发中")
+    /// K1: now sourced from BuildInfo (Info.plist + fallback). Old
+    /// hard-coded "v1 开发中" was the canonical example of stale
+    /// build identity — replaced.
+    private let versionLabel = NSTextField(labelWithString: "")
     private let diagnosticsLabel = NSTextField(wrappingLabelWithString: "")
     private let refreshButton = NSButton(title: "刷新诊断", target: nil, action: nil)
+    /// K1: copy diagnostics to clipboard. Bug-report friendly —
+    /// users can paste version + commit + DB path + roots + last
+    /// rebuild without screenshots.
+    private let copyButton = NSButton(title: "复制诊断信息", target: nil, action: nil)
 
     init(database: Database) {
         self.database = database
@@ -1756,7 +1763,11 @@ private final class AboutPane: NSViewController {
         refreshButton.action = #selector(onRefresh)
         refreshButton.translatesAutoresizingMaskIntoConstraints = false
 
-        [titleLabel, versionLabel, diagnosticsLabel, refreshButton].forEach { root.addSubview($0) }
+        copyButton.target = self
+        copyButton.action = #selector(onCopyDiagnostics)
+        copyButton.translatesAutoresizingMaskIntoConstraints = false
+
+        [titleLabel, versionLabel, diagnosticsLabel, refreshButton, copyButton].forEach { root.addSubview($0) }
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -1764,6 +1775,7 @@ private final class AboutPane: NSViewController {
 
             versionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             versionLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            versionLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
 
             diagnosticsLabel.topAnchor.constraint(equalTo: versionLabel.bottomAnchor, constant: 20),
             diagnosticsLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
@@ -1771,6 +1783,9 @@ private final class AboutPane: NSViewController {
 
             refreshButton.topAnchor.constraint(equalTo: diagnosticsLabel.bottomAnchor, constant: 16),
             refreshButton.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            copyButton.centerYAnchor.constraint(equalTo: refreshButton.centerYAnchor),
+            copyButton.leadingAnchor.constraint(equalTo: refreshButton.trailingAnchor, constant: 12),
         ])
         self.view = root
     }
@@ -1782,7 +1797,18 @@ private final class AboutPane: NSViewController {
 
     @objc private func onRefresh() { reload() }
 
+    @objc private func onCopyDiagnostics() {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(buildDiagnostics(), forType: .string)
+    }
+
     private func reload() {
+        // K1: header line shows version/commit/build at a glance.
+        // Detail block adds bundle/exec path so users with multiple
+        // SwiftSeek installs (`/Applications`, `~/code/...`,
+        // `.build/release`) can see exactly which one launched.
+        versionLabel.stringValue = BuildInfo.summary
         diagnosticsLabel.stringValue = buildDiagnostics()
     }
 
@@ -1807,7 +1833,16 @@ private final class AboutPane: NSViewController {
         let lastAt = safe("getSetting(lastRebuildAt)", default: "—") { (try database.getSetting(SettingsKey.lastRebuildAt)) ?? "—" }
         let lastResult = safe("getSetting(lastRebuildResult)", default: "—") { (try database.getSetting(SettingsKey.lastRebuildResult)) ?? "—" }
         let lastStats = safe("getSetting(lastRebuildStats)", default: "—") { (try database.getSetting(SettingsKey.lastRebuildStats)) ?? "—" }
+        // K1 build identity block — always first so pasted bug reports
+        // start with "what build is this?".
         var out = """
+SwiftSeek 诊断信息
+版本：\(BuildInfo.appVersion)
+build commit：\(BuildInfo.gitCommit)
+build date：\(BuildInfo.buildDate)
+bundle：\(BuildInfo.bundlePath)
+binary：\(BuildInfo.executablePath)
+
 数据库：\(dbPath)
 schema 版本：\(schema)
 roots：总 \(rootsAll.count)，启用 \(rootsEnabled)

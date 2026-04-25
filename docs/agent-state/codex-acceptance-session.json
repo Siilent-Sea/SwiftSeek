@@ -1,13 +1,13 @@
 {
-  "track": null,
-  "stage": null,
+  "track": "everything-productization",
+  "stage": "K1",
   "session_id": null,
   "updated_at": "2026-04-25",
-  "purpose": "No active track. everything-ux-parity completed on 2026-04-25 (J1-J6 PROJECT COMPLETE in session 019dc07b-55f0-7712-9d7f-74441d7c81df). Future tracks must use a new Codex acceptance session and must not reuse any archived session id.",
-  "last_verdict": "PROJECT COMPLETE",
-  "last_verdict_round": 1,
-  "last_verdict_date": "2026-04-25",
-  "last_verdict_reason": "everything-ux-parity J6 round 1 PROJECT COMPLETE on commit 8c5f327: first-run banner, tab memory, Launch at Login via public SMAppService API, window frame autosave, smoke 198/198, and docs aligned.",
+  "purpose": "Current active track acceptance state. A new Codex acceptance session must be created for everything-productization K1; do not reuse archived everything-ux-parity or earlier track sessions.",
+  "last_verdict": null,
+  "last_verdict_round": null,
+  "last_verdict_date": null,
+  "last_verdict_reason": null,
   "passed_stages": [],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
@@ -42,6 +42,5 @@
       "previous_session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df"
     }
   ],
-  "commit_at_review": "8c5f327",
-  "notes": "No active track. New track to be initiated by owner."
+  "notes": "codex-acceptance-session.txt is intentionally absent until a real everything-productization acceptance session id exists."
 }

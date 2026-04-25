@@ -1,115 +1,113 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前用户真实会感知到的限制。`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage` 都已归档；当前活跃轨道是 `everything-ux-parity`，重点是桌面 App 行为、Run Count 可见性和 Everything-like UX parity。
+本文档记录当前用户真实会感知到的限制。`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity` 均已归档；当前活跃轨道是 `everything-productization`，重点是产品化、安装、打包、生命周期回归门禁和诊断能力。
 
 ## 当前活跃轨道相关限制
 
-### 1. 设置窗口关闭后可重新打开（J1 已解决）
-- 用户报告：设置窗口点左上角关闭后再次无法打开，只能 Dock 右键退出重启。
-- J1 修复：
-  - `SettingsWindowController` conform `NSWindowDelegate`，在 init 末尾 `window.delegate = self`。
-  - `windowShouldClose(_:)` 只 `orderOut` 并返回 `false` —— 窗口从不进入 "closed" 状态，下一次 `makeKeyAndOrderFront` 是确定性的重排序到前。
-  - 保留 `isReleasedWhenClosed = false`。
-- 验证：菜单栏"设置…"、主菜单 `SwiftSeek → 设置…` 和 Dock reopen 均能重新打开；smoke 覆盖 10 次关闭/打开循环。
+### 1. 当前构建链路仍不是完整安装包
+- `scripts/build.sh` 当前只构建 `.build/release/SwiftSeek*` 可执行文件，并运行 smoke / startup check。
+- 脚本注释仍明确“不做签名 / notarization / .app bundle”。
+- README 当前也主要描述 `.build/release` 二进制交付。
+- 这意味着 SwiftSeek 当前更像开发者本地运行产物，不是成熟的“下载 / 拖入 Applications / 启动 / 升级 / 回滚”工具。
 
-### 2. Dock / Menu Bar / 主菜单生命周期已成熟（J1 已解决）
-- `AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)` 在无可见窗口时调 `showSettings`，覆盖 Dock 点击。
-- `AppDelegate.showSettings(_:)`：`NSApp.activate(ignoringOtherApps:)` 提前调用；若 `settingsWindowController?.window == nil` 防御性重建。
-- 菜单栏 `NSStatusItem` 的"设置…" + 主菜单 `SwiftSeek → 设置…` 均挂 `showSettings` selector。
-- `applicationShouldTerminateAfterLastWindowClosed` 保持 `false` 确保关窗不退 App。
+### 2. `.app` / icon / Info.plist / codesign 仍存在手工或半手工环节
+- `scripts/make-icon.swift` 只生成 iconset PNG，并要求手工 `iconutil -c icns`。
+- 本地存在 `SwiftSeek.app/Contents/Info.plist` 和 `AppIcon.icns`，但 `SwiftSeek.app/` 被 `.gitignore` 忽略。
+- 本地 app 当前是 ad-hoc signed，`codesign -dv` 可见 `Signature=adhoc`、`TeamIdentifier=not set`。
+- Info.plist / icon / codesign 还没有纳入可重复 package 脚本。
+- 因此当前不能把本地 `.app` 当作稳定交付流水线产物。
 
-### 3. Run Count 统计范围仅限 SwiftSeek 内部 open
+### 3. 旧 bundle / stale binary 风险
+- 用户可能同时拥有：
+  - 最新源码
+  - `.build/release/SwiftSeek`
+  - 本地被忽略的 `SwiftSeek.app`
+  - `/Applications` 中的旧 SwiftSeek.app
+- 当前 About / diagnostics 还没有稳定显示 git commit、build timestamp、bundle path 或 executable path。
+- 用户容易遇到“源码已经修了，但运行的 App 行为没变”的情况。
+- K1 必须补 build identity 和文档化 stale build 排查路径。
+
+### 4. 设置窗口 bug 已修，但必须进入 release gate
+- J1 已修设置窗口关闭后不可重开：
+  - `SettingsWindowController.windowShouldClose(_:)` hide-only close。
+  - `AppDelegate.applicationShouldHandleReopen` 支持 Dock reopen。
+  - 主菜单 / menu bar 设置入口指向 `showSettings`。
+- J6 后设置菜单无反应又出现过一次，后续 hotfix 用 KVO 观察 `selectedTabViewItemIndex`，避免非法 `tabView.delegate`。
+- 这类生命周期问题必须作为每次 release 的门禁，不应只依赖历史 `PROJECT COMPLETE`。
+
+### 5. Build identity 已在 K1 落地
+- `Sources/SwiftSeekCore/BuildInfo.swift` 提供运行时 build identity surface：从 `Bundle.main.infoDictionary` 读 `CFBundleShortVersionString` / `GitCommit` / `BuildDate`，dev 路径回落到静态 fallback ("1.0-dev" / "dev" / "unknown")。
+- `AppDelegate.applicationDidFinishLaunching` 启动头三行日志：`SwiftSeek: SwiftSeek <version> commit=<hash> build=<date>` / `bundle=<path>` / `binary=<path>`。
+- About 面板顶部 versionLabel 显示 `BuildInfo.summary`；诊断块以五行 build identity 起始（版本 / commit / build date / bundle / binary）；新加 "复制诊断信息" 按钮一键写剪贴板。
+- 当前 `.app` bundle Info.plist 已手动添加 `GitCommit` / `BuildDate` 键；K2 的 `scripts/package-app.sh` 会自动写入。
+- 用户反馈 bug 时贴 About → 复制诊断信息 即给出完整 build identity，不再需要靠截图猜版本。
+
+### 6. 未签名 / 未公证带来的 macOS 行为边界
+- 当前没有 Apple Developer ID 签名。
+- 当前没有 notarization。
+- Gatekeeper、Launch Services、Launch at Login、登录项批准等行为会受到未签名 / ad-hoc bundle 影响。
+- `LaunchAtLogin.swift` 使用公开 `SMAppService.mainApp`，但未签名 / 未公证构建可能失败、需要用户在系统设置批准，或登录后行为不稳定。
+- 当前轨道可以做 ad-hoc 本地包和诚实提示，不应假装已完成正式签名发行。
+
+### 7. 缺少正式安装 / 升级 / 回滚流程
+- 当前没有清晰文档说明：
+  - 如何生成 app bundle。
+  - 如何安装到 `/Applications`。
+  - 升级前如何退出旧 App。
+  - 如何确认替换成功。
+  - 如何保留旧版本回滚。
+  - 新 DB schema 与旧 App 的兼容限制。
+- 对 SwiftSeek 这种 SQLite schema 持续演进的工具，回滚限制必须写清。
+
+### 8. 权限 / Full Disk Access / root 覆盖引导仍需产品化
+- J6 已有首次使用 banner，RootHealth 已能显示 offline / unavailable / paused。
+- 但权限诊断仍没有形成统一产品流程：
+  - root 可访问性复查。
+  - Full Disk Access 指引。
+  - external volume offline 与 permission denied 的区分。
+  - “重新检查权限”入口。
+- 用户仍可能把权限问题误判为搜索或索引问题。
+
+### 9. 缺少 release QA checklist
+- 历史 `docs/manual_test.md` 很长，但不是面向最终 release artifact 的一页 checklist。
+- 当前需要把以下项目固定为 release gate：
+  - fresh clone build
+  - package app
+  - launch app
+  - settings reopen
+  - search hotkey
+  - add root
+  - search
+  - open file
+  - Run Count update
+  - DB stats
+  - Launch at Login note
+  - app icon
+  - About build identity
+  - install / upgrade / rollback docs
+
+## 已归档能力与仍保留边界
+
+### UX parity 已完成但不等于产品化完成
+- `everything-ux-parity` 已完成设置窗口 hide-only close、Dock reopen、Run Count 可见性、wildcard / quote / OR / NOT、搜索历史 / Saved Filters、上下文菜单、首次使用 banner、窗口状态记忆和 Launch at Login 公开 API 包装。
+- 这些是功能与体验闭环，不是 release packaging 闭环。
+
+### Run Count 统计范围
 - `Run Count` / `打开次数` 只表示通过 SwiftSeek 成功触发 `.open` 的次数。
 - 不读取 macOS 全局启动次数。
 - 不读取系统最近项目。
 - 不扫描系统隐私数据。
 - 不使用 private API。
-- Reveal in Finder / Copy Path 不计入 Run Count。
 
-### 4. Run Count 用户可见性已在 J2 落地
-- 根因：搜索窗默认宽度 680px，但 H2 六列默认宽度总和 ~980px，新增的"打开次数 / 最近打开"被挤出视野。
-- J2 修复：
-  - `SearchWindowController` 面板默认宽 680 → 1020，并 `setFrameAutosaveName("SwiftSeekSearchPanel")` 持久化用户调整。
-  - 结果表 header 右键菜单新增"重置列宽"：调 `Database.resetResultColumnWidths()` 清所有 6 个 `result_col_width_*` 键并立即把现有列宽恢复程序默认；若窗口比默认总宽更窄还会自动拉宽。
-  - "打开次数" header tooltip："通过 SwiftSeek 成功打开该文件的次数（Run Count）。不包含 Reveal in Finder / Copy Path，不代表 macOS 全局启动次数。"
-  - "最近打开" header tooltip 说明只来自 SwiftSeek 内部 `.open` 历史。
-- 数据链路 H1-H5 未改：`file_usage` / `Database.recordOpen(path:)` / `SearchResult.openCount/lastOpenedAt` / `LEFT JOIN file_usage` / `recent:` / `frequent:` / 隐私开关都与之前一致。
-
-### 5. Everything-like 查询语法已在 J3 完整扩展
-- 当前已实现（J3 round 3 收口）：
-  - `*` / `?` wildcard（可在 plain 与 OR 中使用；phrase 内不识别）
-  - quoted phrase `"foo bar"`（空格字面，不切分）
-  - OR `foo|bar`（≥2 非空替换，替换中不能含 filter key）
-  - NOT `!foo` / `-foo` / `!"foo bar"`（否定 plain 或 phrase）
-- **纯 OR 完整检索**（J3 round 2）：`alpha|beta` 每个 alt 单独走 gram 检索 + union（`orUnionCandidates`），不再落回 bounded scan；大库尾部命中不会漏掉。
-- **OR + wildcard alt 语义**（J3 round 3）：`*|foo` / `*|?` 这类 OR 组中出现纯 wildcard alt 时，`orUnionCandidates` 除了各 alt 的 gram 检索，还会 union 一次 bounded scan（`filterOnlyCandidates`），post-filter `tokenMatchesWildcard` 确认每行是否匹配任一 alt。`*` 语义上匹配所有文件，因此 bounded scan 会补齐无 anchor alt 覆盖的行。
-- 兼容既有：`ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:` 仍工作；J3 负向 token 不与 filter key 合并（`!ext:md` 会回落为字面 substring，不按 "排除 ext" 处理）。
-- 容错：
-  - 未闭合 `"` → 自动补闭合
-  - 裸 `!` / `-` → 忽略
-  - 空 `""` → 忽略
-  - 只含 `*` 等纯 wildcard → 回落到 bounded scan，不崩
-- 仍不支持：括号表达式、regex、全文内容搜索（J3 明确不做）。
-- GUI 与 CLI 共用 `SearchEngine.search`，语义一致。
-
-### 6. 搜索历史 / Saved Filters 已在 J4 落地
-- Schema v7 新增 `query_history(query PK, last_used_at, use_count)` 与 `saved_filters(name PK, query, created_at, updated_at)`。
-- **记录语义**：用户在结果列表上执行 `.open` 时，当前查询被写入 `query_history`（UPSERT by query）。这锚定于"用户意图成立"的信号，避免 typo 污染。
-- **隐私开关**：`SettingsKey.queryHistoryEnabled` 默认 on；设置 → 维护 tab "搜索历史与 Saved Filters" 段复选框控制。关闭后 `Database.recordQueryHistory` 直接 `NSLog` + 返 false，不写。
-- **清空**：维护 tab + 搜索窗口"最近/收藏"菜单都可触发 `Database.clearQueryHistory()`；二次确认。清空不改开关。
-- **搜索窗入口**：底部动作栏加 "最近/收藏" 按钮 → NSMenu 下拉：
-  - 最近 10 条（按 last_used_at DESC，🕒 前缀，点即填入搜索框并触发搜索）
-  - Saved Filters（按 name 字典序，★ 前缀）
-  - "保存当前查询…" / "清空搜索历史…"
-- **Saved Filters 管理**：设置 → 维护 tab 有下拉列表 + "新建 Saved Filter…"（双栏对话框：name + query）+ "删除所选…"（二次确认）。
-- **本地边界**：所有数据保存在 SwiftSeek 的 SQLite DB；不上传、不同步、不遥测、不读取系统级搜索历史。
-
-### 7. 上下文菜单已在 J5 扩展
-- 结果右键菜单当前包含：
-  - 打开（`.open`，仅此项累加 Run Count / H1 recordOpen）
-  - 使用其他应用打开…（NSOpenPanel 选择 app，调 `NSWorkspace.open(_:withApplicationAt:configuration:completionHandler:)` 公开 API；**不**计入 Run Count）
-  - 在 Finder 中显示（`revealInFinder`；不计入 Run Count）
-  - 复制名称（`PathHelpers.fileName(of:)`；不计入 Run Count）
-  - 复制完整路径（原"复制路径"，更明确文案；不计入 Run Count）
-  - 复制所在文件夹路径（`PathHelpers.parentFolder(of:)`；不计入 Run Count）
-  - 移到废纸篓（**二次确认**弹窗；成功/失败 toast 明确反馈；不计入 Run Count）
-- 纯字符串 helper 放在 `Sources/SwiftSeekCore/PathHelpers.swift`，smoke 覆盖 7 个场景（中文、trailing slash、root、相对路径、空串等）。
-- **推迟**：Rename 未在 J5 做。成本考虑：需要先 `FileManager.moveItem` + 同步更新 `files`/`file_grams`/`file_bigrams`/`file_name_*`/`file_path_segments`/`file_usage`（file_id 不变，但 path/name 变），以及与 FSEvents / IncrementalWatcher 的竞争规避。J6 或后续轨道可考虑。
-
-### 8. 首次使用 / Launch 行为 / 窗口状态记忆已在 J6 收口
-- **首次使用引导**（roots 空时弹出的设置窗口顶部 banner）现覆盖：
-  - 先在「索引范围」加 root
-  - Documents / Desktop / Downloads / 外置卷可能被 macOS 询问权限；同意 or 到 系统设置 → 隐私与安全性 → 完全磁盘访问补授权
-  - Compact / Full path 索引模式含义 + 切换位置
-  - Run Count / 最近打开只来自 SwiftSeek 内部 `.open`，不读系统全局
-  - ⌥Space 呼出搜索
-- **Launch at Login**（设置 → 常规底部复选框，`Sources/SwiftSeek/App/LaunchAtLogin.swift`）：
-  - 使用公开 `SMAppService.mainApp` API（macOS 13+）；不用 private API
-  - 失败弹 NSAlert 显示真实错误 + 常见原因：未签名 / 未公证、需去 系统设置 → 通用 → 登录项 批准、从 `.build` 直接跑的裸二进制无法注册
-  - UI 展示"意图"（DB 持久化 `launch_at_login_requested`） + "系统实际状态"（实时查 `SMAppService.mainApp.status`）两面，避免复选框骗人
-  - 未签名 / 未公证构建可能需要手动批准登录项 —— 这是 macOS 行为，不是假实现
-- **窗口状态记忆**：
-  - 搜索窗已在 J2 `setFrameAutosaveName("SwiftSeekSearchPanel")`
-  - 设置窗 J6 加 `setFrameAutosaveName("SwiftSeekSettingsWindow")` + tab 选中记忆（`SettingsKey.settingsTabIndex`）
-  - 不影响 F3 列宽 / 排序持久化，各走各的键
-
-## 已归档轨道后的保留限制
+### 查询和搜索边界
+- 已支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:`。
+- 已支持 J3 的 wildcard / quote / OR / NOT。
+- 仍不做全文内容搜索、OCR、AI 语义搜索、regex、括号表达式。
 
 ### DB footprint
 - Compact 模式已将 500k 实测 main DB 从 fullpath 3.46 GB 降到 1.07 GB。
 - Full path substring 模式仍可选，但体积更大。
 - VACUUM / checkpoint 是维护入口，不是替代 compact 的根治方案。
-- 500k 下 warm 3+char 会超出 F1 在 10k 规模时设定的旧目标，这是已记录的规模效应事实。
-
-### 搜索相关性
-- 当前已有 plain token AND、basename / token boundary / path segment / extension bonus。
-- 当前已有 usage-based tie-break：同 score 下按 openCount DESC -> lastOpenedAt DESC 排序。
-- 它仍是启发式相关性，不是成熟 Everything ranking 模型；learning-to-rank / 统计模型不在当前 UX parity 主线范围。
-
-### RootHealth
-- 已有 ready / indexing / paused / offline / unavailable。
-- 设置页 roots 列表和搜索 0 结果空态会暴露部分状态。
-- UX parity 只会在 J6 补权限 / 首次使用引导，不重新打开 RootHealth 数据模型。
 
 ## 环境约束
 
@@ -120,10 +118,6 @@
 ### 无 Xcode.app 时只能 SwiftPM 构建
 - 仓库未提供 `.xcodeproj` / `.xcworkspace`。
 - 仅安装 Command Line Tools 的机器可用 `swift build` / `swift run ...`。
-
-### 无 code signing / notarization / .app bundle
-- 当前交付路径是 `scripts/build.sh` 到 `.build/release/SwiftSeek`。
-- 正式 `.app` bundle + 签名 + 公证不在当前范围内。
 
 ### 受限沙箱下的构建约束
 ```bash
@@ -145,14 +139,4 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 - macOS 全局启动次数读取
 - 系统隐私数据扫描
 - private API
-
-## 运行时补充说明
-
-### disable root 语义
-- 停用：保留已索引数据，但搜索不返回。
-- 启用：无需重建，搜索立即恢复。
-- 移除：级联清理该 root 下记录。
-
-### Gatekeeper 首次运行拦截
-- release 可执行首次运行可能被 Gatekeeper 拦截。
-- 这属于未签名交付的预期限制。
+- 在没有证书与明确要求时承诺正式签名 / 公证
