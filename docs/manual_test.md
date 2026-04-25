@@ -968,6 +968,65 @@ chmod a-w /tmp/readonly.sqlite3
 - 复制按钮粘贴为空 → 检查 NSPasteboard 调用点未异常。
 - 启动日志缺 `SwiftSeek: SwiftSeek ... commit=...` → AppDelegate 未调 `BuildInfo.summary`。
 
+### 33t. K2 可重复 .app 打包流水线
+前置：fresh git clone（或干净工作目录）；macOS 13+；CLT 或 Xcode 已装。
+
+#### 一条命令打包
+1. `cd <repo>`
+2. `./scripts/package-app.sh`
+   - 输出末尾应有 `=== done ===` + bundle 路径 `dist/SwiftSeek.app`
+   - `plutil -lint` 必须 `OK`
+   - `codesign -dv` 必须显示 `Signature=adhoc` + `TeamIdentifier=not set`
+
+#### bundle 结构验证
+```bash
+find dist/SwiftSeek.app -maxdepth 4 -type f -o -type d
+```
+应有：
+- `dist/SwiftSeek.app/Contents/Info.plist`
+- `dist/SwiftSeek.app/Contents/MacOS/SwiftSeek` （可执行）
+- `dist/SwiftSeek.app/Contents/Resources/AppIcon.icns`
+- `dist/SwiftSeek.app/Contents/_CodeSignature/CodeResources`
+
+#### Info.plist 字段验证
+```bash
+plutil -p dist/SwiftSeek.app/Contents/Info.plist
+```
+应含：
+- `CFBundleIdentifier` = `com.local.swiftseek`
+- `CFBundleShortVersionString` = `1.0-K2`（脚本默认；可 `SWIFTSEEK_APP_VERSION=...` 覆盖）
+- `GitCommit` = 当前 `git rev-parse --short HEAD`
+- `BuildDate` = 打包当天日期
+- `CFBundleIconFile` = `AppIcon`
+
+#### codesign 验证
+```bash
+codesign -dv --verbose=2 dist/SwiftSeek.app
+```
+- `Format=app bundle with Mach-O`
+- `Signature=adhoc`
+- `Sealed Resources version=2`
+
+#### GUI 启动 + build identity 自检
+1. `open dist/SwiftSeek.app` 启动（Gatekeeper 拦截 → 右键 → 打开）
+2. Console.app 过滤 SwiftSeek，启动头三行应为：
+   ```
+   SwiftSeek: SwiftSeek 1.0-K2 commit=<hash> build=<date>
+   SwiftSeek: bundle=/<...>/dist/SwiftSeek.app
+   SwiftSeek: binary=/<...>/dist/SwiftSeek.app/Contents/MacOS/SwiftSeek
+   ```
+3. 设置 → 关于 → 顶部 summary 应与启动日志一致；诊断块 `bundle:` / `binary:` 行指向 `dist/SwiftSeek.app`
+4. 点 "复制诊断信息" → `pbpaste` 应得到完整诊断（含 build identity）
+
+#### 重复打包验证（每次 wipe + 重建）
+1. 改一行注释 commit 一次
+2. 再跑 `./scripts/package-app.sh`
+3. About → 顶部 commit 哈希应变成新值
+4. `dist/SwiftSeek.app/Contents/Info.plist` 的 `GitCommit` 同步更新
+
+#### J1/J6 lifecycle 不回退（K1 release gate 复用）
+按 §33s 步骤跑 — 设置窗 × 关 → 菜单栏 / 主菜单 / Dock 三路径重开 + 10× 压力 + 20× tab 切换。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

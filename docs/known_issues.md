@@ -4,18 +4,17 @@
 
 ## 当前活跃轨道相关限制
 
-### 1. 当前构建链路仍不是完整安装包
-- `scripts/build.sh` 当前只构建 `.build/release/SwiftSeek*` 可执行文件，并运行 smoke / startup check。
-- 脚本注释仍明确“不做签名 / notarization / .app bundle”。
-- README 当前也主要描述 `.build/release` 二进制交付。
-- 这意味着 SwiftSeek 当前更像开发者本地运行产物，不是成熟的“下载 / 拖入 Applications / 启动 / 升级 / 回滚”工具。
+### 1. K2 已建立可重复 .app 打包流水线
+- `scripts/package-app.sh` 一条命令完成：`swift build -c release` + 创建 bundle + Info.plist（含 `CFBundleIdentifier` / `CFBundleVersion` / `CFBundleShortVersionString` / `GitCommit` / `BuildDate` / `CFBundleIconFile`） + AppIcon.icns（自动调 `make-icon.swift` + `iconutil`） + ad-hoc codesign + 自检（`plutil -lint` / `codesign -dv` / 文件结构）。
+- 产物落到 `dist/SwiftSeek.app`，每次 fresh 运行 wipe + 重建。
+- `scripts/build.sh` 仍专注 `.build/release` CLI 二进制 + smoke + startup check，结尾显式提示 K2 打包路径，边界写清。
+- 仍未做：DMG、Apple Developer ID 签名、notarization、auto updater、`/Applications` 安装流（K4）。
+- 因此当前可以把 `dist/SwiftSeek.app` 作为稳定本地交付，但**未签名 / 未公证**的 macOS 行为边界仍存在（见 §6）。
 
-### 2. `.app` / icon / Info.plist / codesign 仍存在手工或半手工环节
-- `scripts/make-icon.swift` 只生成 iconset PNG，并要求手工 `iconutil -c icns`。
-- 本地存在 `SwiftSeek.app/Contents/Info.plist` 和 `AppIcon.icns`，但 `SwiftSeek.app/` 被 `.gitignore` 忽略。
-- 本地 app 当前是 ad-hoc signed，`codesign -dv` 可见 `Signature=adhoc`、`TeamIdentifier=not set`。
-- Info.plist / icon / codesign 还没有纳入可重复 package 脚本。
-- 因此当前不能把本地 `.app` 当作稳定交付流水线产物。
+### 2. K2 之前的手工 `.app` 已退役
+- 旧路径：仓库根 `SwiftSeek.app/`（K1 期间手工维护，被 `.gitignore` 忽略）。
+- 现路径：`dist/SwiftSeek.app/`，由 `scripts/package-app.sh` 生成。`.gitignore` 已加 `dist/`。
+- icon 生成：`make-icon.swift` 现在只是 package 流水线内部依赖；用户不再需要手动 `iconutil -c icns`。
 
 ### 3. 旧 bundle / stale binary 风险
 - 用户可能同时拥有：

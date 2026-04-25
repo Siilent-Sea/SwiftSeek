@@ -46,18 +46,22 @@ SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-product
 
 ## 快速上手（本地交付）
 
-最简一条龙：
+**只想用 `.app`（推荐）— 一条命令打包出可启动 bundle**：
 
 ```bash
-./scripts/build.sh
+./scripts/package-app.sh
+# 产物 dist/SwiftSeek.app，含 Info.plist + AppIcon.icns + ad-hoc codesign
+# 双击或 open dist/SwiftSeek.app 启动
+# 受限沙箱：./scripts/package-app.sh --sandbox
 ```
 
-受限沙箱用：
+**只要 CLI 二进制（开发迭代）**：
 
 ```bash
+./scripts/build.sh                                # 标准
 HOME=/tmp/swiftseek-home \
 CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
-./scripts/build.sh --sandbox
+./scripts/build.sh --sandbox                       # 受限沙箱
 ```
 
 构建完成后二进制在 `.build/release/` 下：

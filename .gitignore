@@ -6,8 +6,11 @@ Package.resolved
 # macOS
 .DS_Store
 
-# Local app bundle (built by scripts/build.sh + codesign)
+# Local app bundle. K1 era: hand-maintained SwiftSeek.app at repo
+# root. K2 onward: scripts/package-app.sh outputs the canonical
+# product to dist/SwiftSeek.app. Both are build artifacts.
 SwiftSeek.app/
+dist/
 
 # Xcode (if ever opened with Xcode.app)
 *.xcodeproj/xcuserdata/
