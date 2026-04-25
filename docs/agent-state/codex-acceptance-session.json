@@ -1,14 +1,14 @@
 {
   "track": "everything-menubar-agent",
-  "stage": "L4",
+  "stage": "PROJECT_COMPLETE",
   "session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state for everything-menubar-agent. L1, L2, and L3 passed in this session; next acceptance target is L4 final track wrap.",
-  "last_verdict": "PASS",
-  "last_verdict_round": "L3 round 1",
+  "purpose": "Final acceptance state for everything-menubar-agent. L1-L4 passed in this session; track reached PROJECT COMPLETE.",
+  "last_verdict": "PROJECT COMPLETE",
+  "last_verdict_round": "L4 round 1",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "L3 delivered AppKit-free MenubarStatus formatter, 5-line tooltip, disabled menu status rows, menuNeedsUpdate refresh, rebuild-state tooltip refresh, 5 smoke tests, and docs/manual/release gates. Build, 217/217 smoke, package, plist, codesign, and icon checks passed at HEAD 75d3a79. GUI tooltip/menu/indexing-state checks remain manual per docs/manual_test.md §33aa.",
-  "passed_stages": ["L1", "L2", "L3"],
+  "last_verdict_reason": "L4 delivered AppKit-free SingleInstance helpers, AppDelegate early duplicate deferral, DistributedNotification show-settings handoff, 6 smoke tests, and docs/manual/release gates. Build, 223/223 smoke, package, plist, codesign, and icon checks passed at HEAD 73cac42. GUI multi-process and Launch at Login checks remain manual per docs/manual_test.md §33ab.",
+  "passed_stages": ["L1", "L2", "L3", "L4"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -48,5 +48,5 @@
       "previous_session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08"
     }
   ],
-  "notes": "The .txt file mirrors this session id. Do not resume archived everything-productization session 019dc54e-017d-7de3-a24f-35c23f09ce08 for L-track acceptance."
+  "notes": "The .txt file mirrors this session id. everything-menubar-agent is complete; do not resume archived everything-productization session 019dc54e-017d-7de3-a24f-35c23f09ce08 for L-track acceptance."
 }

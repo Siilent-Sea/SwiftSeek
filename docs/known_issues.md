@@ -86,7 +86,7 @@
 
 - `everything-productization` 已完成可重复 `.app` 打包、Info.plist / icon / ad-hoc codesign、build identity、diagnostics、install / rollback 文档、Full Disk Access / root 覆盖引导和 release checklist。
 - L1 在 productization 之上把默认 activation policy 切成 `.accessory`，Dock 不再常驻；菜单栏 status item 是主入口；release_checklist §5b 把 no-Dock 验证写成强制项。
-- L2 已补 Dock 显示开关与重启生效策略；L3 已补菜单栏只读状态可见性。L4 仍未完成：单实例与多 bundle 防护、最终 release 收口。
+- L2 已补 Dock 显示开关与重启生效策略；L3 已补菜单栏只读状态可见性；L4 已补单实例与多 bundle 防护。`everything-menubar-agent` 已完成，仍保留的边界是 ad-hoc / 未公证 / 无 DMG / 无 auto updater。
 
 ### Run Count 统计范围
 

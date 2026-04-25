@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-menubar-agent`
 - 当前阶段：`L4`
-- 当前状态：L4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）
+- 当前状态：`PROJECT COMPLETE`
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -19,9 +19,9 @@
 - `everything-ux-parity`：J1-J6，已归档，历史上已拿到 `PROJECT COMPLETE`
 - `everything-productization`：K1-K6，已归档，历史上已拿到 `PROJECT COMPLETE`
 
-## 新轨道立项依据
+## 轨道立项依据（历史）
 
-`everything-productization` 已补齐可重复 `.app` 打包、build identity、安装/升级/回滚文档、诊断与 release gate。但当前真实代码和脚本仍显示 SwiftSeek 的产品形态是普通 Dock App：
+`everything-menubar-agent` 立项时，`everything-productization` 已补齐可重复 `.app` 打包、build identity、安装/升级/回滚文档、诊断与 release gate。但当时代码和脚本仍显示 SwiftSeek 的产品形态是普通 Dock App：
 
 - `scripts/package-app.sh` 写入 `LSUIElement=false`，打包出的 `SwiftSeek.app` 会常驻 Dock。
 - `AppDelegate.installStatusItem()` 已安装 `NSStatusItem`，菜单栏已有"搜索…"、"设置…"、"索引状态"、"退出 SwiftSeek"，但它仍是辅助入口，不是主入口。
@@ -30,7 +30,7 @@
 - 隐藏 Dock 后，退出路径必须从 Dock 右键迁移到菜单栏 Quit / 热键 / 文档化 fallback。
 - 当前没有单实例保护；菜单栏 agent 形态下，多 bundle / stale bundle / 多实例更容易造成用户混淆。
 
-因此新轨道命名为 `everything-menubar-agent`：目标是把 SwiftSeek 从"带 Dock 的普通 App"推进到"菜单栏常驻工具 / tray-like agent"，而不是继续扩展搜索功能。
+因此该轨道命名为 `everything-menubar-agent`：目标是把 SwiftSeek 从"带 Dock 的普通 App"推进到"菜单栏常驻工具 / tray-like agent"，而不是继续扩展搜索功能。L1-L4 已完成这些收口。
 
 ## 当前轨道目标
 
@@ -229,7 +229,7 @@
 - 文档足够让非作者执行安装、升级、回滚、排查和 release QA。
 - 没有越界到正式发行机制或新搜索能力。
 
-### L4 实现已落地（待 Codex 最终验收 / PROJECT COMPLETE 候选）
+### L4 Codex 验收结论：PASS
 
 - `Sources/SwiftSeekCore/SingleInstance.swift`（新文件，纯函数 / AppKit-free）：`Sibling { pid, bundlePath, executablePath }`、`chooseSibling(myPid:candidates:)`（过滤掉自己 + 选最低 pid 作 canonical owner）、`conflictLogLine(...)`（一行 NSLog 文本，包含两 pid + 两 bundle path + 两 executable path + "deferring to sibling and exiting"）、`showSettingsNotificationName = "com.local.swiftseek.menubar-agent.show-settings"`（DistributedNotification name）。
 - `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 在 K1 build identity 三连之后立即跑 `maybeDeferToExistingInstance()`：用 `NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier!)` 拉同 bundle id 进程列表 → `SingleInstance.chooseSibling` → 命中时 NSLog `conflictLogLine`，调 `older.activate(options: [.activateAllWindows])` 直接前置旧实例，`DistributedNotificationCenter.default().postNotificationName(...)` 广播让旧实例弹设置窗口，然后 `DispatchQueue.main.async { NSApp.terminate(nil) }` 自杀；返回 true 后整个 `applicationDidFinishLaunching` early return，不安装 statusItem / hotkey / DB。Bundle id 为 nil（`swift run` 直跑）时 NSLog 跳过提示并 fall through 到正常启动。`installShowSettingsObserver()` 注册 DistributedNotification 监听把后续 "show settings" 请求接到现有 `showSettings(_:)` 路径（J1 顺序保留）。
@@ -238,9 +238,20 @@
 - `docs/release_checklist.md`：header 改成 "K6 + L1-L4"；新增 §5e "L4 单实例 / 多 bundle 防护验证"，覆盖场景 A-D + dev 路径降级。
 - `docs/known_issues.md` §6 改写为 L4 已落地，列触发路径 / NSLog 行 / 不防护边界 / 排查路径。
 - `docs/manual_test.md` §33ab：8 节 L4 手测矩阵（同 .app 双击 / dist+/Applications 并存 / Launch at Login + 手动 / 旧实例不回归 L1/L2/L3 / swift run 降级 / 重启稳定性 / 不防护边界 / 失败处置）。
-- 受限沙箱 build OK；SmokeTest 223/223；package-app 仍可重复跑通。GUI 多实例 / Launch at Login 场景仍按 §33ab 与 release_checklist §5e 作为每次发布手测。
+- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 223/223 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false`、`GitCommit=73cac42`、`CFBundleIdentifier=com.local.swiftseek`，`codesign` 显示 ad-hoc 签名。
+- 受限沙箱不能执行真实 GUI 多实例、DistributedNotification round-trip、菜单栏图标去重、Launch at Login + 手动启动 race；这些仍按 `docs/manual_test.md` §33ab 与 `docs/release_checklist.md` §5e 作为每次发布必跑手测。
 
-如 Codex 接受 L4，本轨道 `everything-menubar-agent` 满足 `PROJECT COMPLETE` 条件：L1 默认 no Dock、L2 Dock 可选、L3 菜单栏状态可见、L4 单实例防护，全 4 阶段完成；K1-K6 不回退；文档同源；release gate 完整。
+## 轨道最终结论
+
+`everything-menubar-agent` 达到 `PROJECT COMPLETE`：
+
+- L1 默认 no Dock + 菜单栏主入口通过。
+- L2 Dock 显示开关与重启生效策略通过。
+- L3 菜单栏状态可见性通过。
+- L4 单实例 / 多 bundle 防护通过。
+- K1-K6 productization 能力没有回退。
+- 文档已同步到 install / release checklist / known issues / manual test / acceptance / stage status / agent-state。
+- 未承诺正式签名、公证、DMG、auto updater、跨用户单实例、private API 或新搜索能力。
 
 ## 后续阶段索引
 

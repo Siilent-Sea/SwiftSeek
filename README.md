@@ -2,9 +2,9 @@
 
 macOS 原生本地极速文件搜索器。
 
-当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization` 均已完成归档。当前活跃轨道是 `everything-menubar-agent`，聚焦把 SwiftSeek 从普通 Dock App 推进为默认菜单栏常驻工具。
+当前仓库不是空项目：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent` 均已完成归档。
 
-## 当前能力（截至 `everything-ux-parity` 完成）
+## 当前能力（截至 `everything-menubar-agent` 完成）
 - **技术栈**：Swift + AppKit + SQLite + FSEvents + Carbon 热键，macOS 13+
 - **索引**：首次全量扫描 + FSEvents / polling 双 backend 增量；Schema v5 compact index 默认模式；Full path substring 高级模式保留
 - **搜索**：
@@ -27,9 +27,10 @@ macOS 原生本地极速文件搜索器。
 - **Footprint**：500k 实测 compact 1.07 GB vs fullpath 3.46 GB；首次索引 44.87s vs 197.62s
 - **Usage**（H1-H5）：`file_usage` 表记录 SwiftSeek 内部 `.open` 次数；结果表"打开次数" / "最近打开"两列；同 score tie-break (openCount → lastOpenedAt)；`recent:` / `frequent:` 查询前缀；设置 → 维护 tab 的记录开关 + 清空入口；500k+100k usage bench：3+char(+usage) 94.33ms 中位，`recent:` 89.44ms，`recordOpen` 8μs
 - **UX parity**（J1-J6）：设置窗口 hide-only 生命周期、Dock / reopen 行为、搜索窗宽度与列恢复、wildcard / quote / OR / NOT、recent queries / Saved Filters、首次使用 banner、设置 tab 记忆、设置窗 frame 记忆、Launch at Login 公开 API 包装
+- **菜单栏 agent**（L1-L4）：默认 no Dock 菜单栏常驻；设置里可选择下次启动显示 Dock；菜单栏 tooltip / menu 显示 build、索引、模式、roots、DB 简况；同 bundle id 重复启动会 defer 到旧实例并退出新实例
 
 ## 当前限制
-SwiftSeek 已完成 `everything-productization`，但当前 `scripts/package-app.sh` 仍写 `LSUIElement=false`，打包后的 `SwiftSeek.app` 仍是普通 Dock App。新轨道 `everything-menubar-agent` 会把默认隐藏 Dock、菜单栏主入口、退出路径、Dock 显示恢复策略和多实例风险作为后续重点。本轨道仍不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater。
+SwiftSeek 已完成 `everything-menubar-agent`：打包出的 `SwiftSeek.app` 默认是菜单栏常驻工具，不显示 Dock 图标；`Info.plist` 仍保持 `LSUIElement=false`，实际形态由 runtime activation policy 控制。本项目仍不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater；跨用户多实例、不同 bundle id 的自定义构建、系统全局最近项目 / Finder 历史也不在当前承诺范围。
 
 **确认是否运行最新构建**：设置 → 关于 → 看顶部一行 `SwiftSeek <version> commit=<hash> build=<date>`，下方诊断块的 `bundle:` / `binary:` 行和你正在编辑的源码路径对比；不一致就是 stale bundle。详细排查见 [docs/manual_test.md](docs/manual_test.md) §33s。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
@@ -39,8 +40,8 @@ SwiftSeek 已完成 `everything-productization`，但当前 `scripts/package-app
 ## 当前进度
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
-- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`
-- 当前活跃轨道：`everything-menubar-agent`（L1 待执行）
+- 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent`
+- 当前活跃轨道：无；`everything-menubar-agent` 已拿到 `PROJECT COMPLETE`
 - Release gate：[docs/release_checklist.md](docs/release_checklist.md) + [docs/release_notes_template.md](docs/release_notes_template.md)
 - everything-usage 500k 实测亮点：3+char 加 100k usage JOIN 中位 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs
 - everything-usage 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
@@ -87,7 +88,7 @@ swift run SwiftSeekSearch <query>
 ```
 
 ## Roadmap
-当前下一轨道是 `everything-menubar-agent`：
+最新完成轨道是 `everything-menubar-agent`：
 
 - 菜单栏 agent 差距清单：[docs/everything_menubar_agent_gap.md](docs/everything_menubar_agent_gap.md)
 - L1-L4 阶段任务书：[docs/everything_menubar_agent_taskbook.md](docs/everything_menubar_agent_taskbook.md)
@@ -153,4 +154,4 @@ AGENTS.md / CLAUDE.md
 ## 协作模式
 - Claude：主开发代理，负责实现、自检。
 - Codex：独立验收代理，负责 REJECT / PASS / 下一阶段任务书。
-- 当前继续推进的是 `everything-menubar-agent`，不得因历史轨道 `PROJECT COMPLETE` 而停止。
+- 当前没有进行中的轨道；后续如果开启新 track，必须重新写 gap / taskbook / stage_status，历史 `PROJECT COMPLETE` 不自动传递。
