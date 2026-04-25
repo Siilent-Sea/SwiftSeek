@@ -90,6 +90,35 @@ work_tmp="$(mktemp -d -t swiftseek-pkg)"
 iconset_dir="$work_tmp/AppIcon.iconset"
 mkdir -p "$iconset_dir"
 swift "$repo_root/scripts/make-icon.swift" "$iconset_dir" >/dev/null
+
+# K2 round 2 verify: every PNG must have pixel dimensions matching
+# its filename declaration (icon_NxN.png == NxN px,
+# icon_NxN@2x.png == 2N×2N px). iconutil rejects the entire
+# iconset on any mismatch with "Invalid Iconset" — round 1 hit
+# this on Codex sandbox where lockFocus produced wrong-sized PNGs.
+echo "[package-app.sh] verify iconset PNG dimensions"
+icon_fail=0
+for png in "$iconset_dir"/icon_*.png; do
+    fname="$(basename "$png")"
+    # Parse expected base size + @2x flag from filename.
+    base="$(echo "$fname" | sed -E 's/^icon_([0-9]+)x[0-9]+(@2x)?\.png$/\1/')"
+    is_2x=0
+    case "$fname" in *@2x.png) is_2x=1 ;; esac
+    expected=$base
+    [[ "$is_2x" == "1" ]] && expected=$((base * 2))
+    actual_w="$(sips -g pixelWidth "$png" 2>/dev/null | awk '/pixelWidth/ {print $2}')"
+    actual_h="$(sips -g pixelHeight "$png" 2>/dev/null | awk '/pixelHeight/ {print $2}')"
+    if [[ "$actual_w" != "$expected" || "$actual_h" != "$expected" ]]; then
+        echo "[package-app.sh] BAD: $fname declares ${expected}x${expected} but is ${actual_w}x${actual_h}" >&2
+        icon_fail=1
+    fi
+done
+if [[ "$icon_fail" == "1" ]]; then
+    echo "[package-app.sh] iconset pixel dimensions invalid; iconutil would reject" >&2
+    rm -rf "$work_tmp"
+    exit 1
+fi
+
 echo "[package-app.sh] iconutil -c icns"
 iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$iconset_dir"
 rm -rf "$work_tmp"

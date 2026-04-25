@@ -4,17 +4,18 @@
 
 ## 当前活跃轨道相关限制
 
-### 1. K2 已建立可重复 .app 打包流水线
-- `scripts/package-app.sh` 一条命令完成：`swift build -c release` + 创建 bundle + Info.plist（含 `CFBundleIdentifier` / `CFBundleVersion` / `CFBundleShortVersionString` / `GitCommit` / `BuildDate` / `CFBundleIconFile`） + AppIcon.icns（自动调 `make-icon.swift` + `iconutil`） + ad-hoc codesign + 自检（`plutil -lint` / `codesign -dv` / 文件结构）。
-- 产物落到 `dist/SwiftSeek.app`，每次 fresh 运行 wipe + 重建。
-- `scripts/build.sh` 仍专注 `.build/release` CLI 二进制 + smoke + startup check，结尾显式提示 K2 打包路径，边界写清。
-- 仍未做：DMG、Apple Developer ID 签名、notarization、auto updater、`/Applications` 安装流（K4）。
-- 因此当前可以把 `dist/SwiftSeek.app` 作为稳定本地交付，但**未签名 / 未公证**的 macOS 行为边界仍存在（见 §6）。
+### 1. K2 打包脚本已接入，但当前还没验收通过
+- `scripts/package-app.sh` 已存在，目标是：`swift build -c release` + lay out `dist/SwiftSeek.app` + 写 `Info.plist` + 生成 `AppIcon.icns` + ad-hoc `codesign` + 自检。
+- 但 K2 round 1 验收时，主路径在 `iconutil -c icns` 处失败，错误是 `Invalid Iconset`。
+- 这意味着当前还不能把 `dist/SwiftSeek.app` 视为已经验收通过的稳定本地交付物。
+- `scripts/build.sh` 仍专注 `.build/release` CLI 二进制；K2 的 `.app` 路径存在，但还需要修复后再次验收。
 
-### 2. K2 之前的手工 `.app` 已退役
-- 旧路径：仓库根 `SwiftSeek.app/`（K1 期间手工维护，被 `.gitignore` 忽略）。
-- 现路径：`dist/SwiftSeek.app/`，由 `scripts/package-app.sh` 生成。`.gitignore` 已加 `dist/`。
-- icon 生成：`make-icon.swift` 现在只是 package 流水线内部依赖；用户不再需要手动 `iconutil -c icns`。
+### 2. icon 流水线仍有真实 blocker
+- `scripts/make-icon.swift` 已被 package 脚本调用，但当前生成出的 `AppIcon.iconset` 仍会被 `iconutil` 拒绝。
+- 验收失败时 `dist/SwiftSeek.app` 只生成到：
+  - `Contents/MacOS/SwiftSeek`
+  - 空的 `Contents/Resources`
+- 在 `AppIcon.icns` 真实生成并进入 bundle 之前，K2 不能算完成。
 
 ### 3. 旧 bundle / stale binary 风险
 - 用户可能同时拥有：

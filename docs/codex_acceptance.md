@@ -5,29 +5,26 @@
 ## 当前有效状态
 - 当前活跃轨道：`everything-productization`
 - 当前阶段：`K2`
-- 当前阶段验收结论：K1 已 `PASS`，等待 K2 实现
-- 当前正式验收 session：尚未创建
+- 当前阶段验收结论：K2 round 1 `REJECT`
+- 当前正式验收 session：`019dc54e-017d-7de3-a24f-35c23f09ce08`
 - 日期：2026-04-25
 
 ### 当前审计结论
-K1 round 1 已通过。结论基于当前源码、当前文档和提交 `d890c81` 的实际核对，而不是沿用旧轨道结论。
+K2 round 1 基于提交 `45b7e3a` 验收，结论为 `REJECT`。
 
 本轮确认成立的事实：
-- `Sources/SwiftSeekCore/BuildInfo.swift` 新增运行时 build identity surface：`CFBundleShortVersionString` / `GitCommit` / `BuildDate`，并提供 `summary`、`multilineSummary`、bundle path、binary path 和 fallback。
-- `Sources/SwiftSeek/App/AppDelegate.swift` 在 `applicationDidFinishLaunching` 的最前面打印三行 build identity，再继续 menu / DB 初始化。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 保持 J1/J6 生命周期修复不变：
-  - `windowShouldClose(_:)` 仍是 hide-only close
-  - `applicationShouldHandleReopen` 路径未回退
-  - tab 记忆仍是 KVO `selectedTabViewItemIndex`，没有回退到非法 `tabView.delegate`
-- About 面板顶部现在显示 `BuildInfo.summary`；诊断块前置 build identity；新增“复制诊断信息”按钮。
-- `docs/manual_test.md` 已把设置窗口 reopen / Dock reopen / 10x close-show / 20x tab switch 和 stale bundle 自检写成 release gate。
-- `scripts/build.sh` 已移除过期的 “schema v3” 文案，并诚实声明 `.app` packaging 属于 K2。
+- `scripts/package-app.sh` 已新增，边界与目标基本对齐：build、lay out bundle、写 `Info.plist`、调用 `make-icon.swift`、尝试 `iconutil`、尝试 ad-hoc `codesign`、自检。
+- `.gitignore`、`README.md`、`docs/manual_test.md`、`scripts/build.sh` 的文档方向都已切到 K2。
+- 受限沙箱路径 `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox` 在当前环境下能够真实跑到打包阶段，不再像 K1 那样被 SwiftPM 环境直接卡死。
 
-本轮未能在当前 Codex 沙箱内直接复跑 `swift build --disable-sandbox` 与 `swift run --disable-sandbox SwiftSeekSmokeTest`，但阻塞原因为环境：
-- `~/.cache/clang/ModuleCache` 在当前沙箱不可写
-- 当前 CLT/SDK 存在版本不匹配：SDK 为 `Swift 6.3.0`，编译器为 `Swift 6.3.1`
-
-这两个问题阻止本地复编译，不构成 K1 代码本身的 blocker；K1 任务书也允许在命令不可运行时明确记录环境阻塞原因。
+本轮 blocker 也已确认：
+- `scripts/package-app.sh --sandbox` 在 `iconutil -c icns` 处失败，错误是 `Invalid Iconset`。
+- 因为 `iconutil` 失败，脚本没有生成 `dist/SwiftSeek.app/Contents/Resources/AppIcon.icns`，也没有进入 `Info.plist` 校验、`codesign` 校验和完整 bundle 自检的通过态。
+- 当前 `dist/SwiftSeek.app` 只有：
+  - `Contents/MacOS/SwiftSeek`
+  - 空的 `Contents/Resources`
+  这不满足 K2 的 `.app` 完整产物标准。
+- 我单独对脚本生成的 `AppIcon.iconset` 运行 `iconutil -c icns`，同样稳定复现 `Invalid Iconset`；因此不是 package 脚本日志误报，而是 K2 主链路真实失败。
 
 ## 当前验收要求
 K2 完成后，Codex 才能给出下一轮 `PASS` 或 `REJECT`。当前不允许因为 K1 已通过就把后续产品化阶段视为自动完成。

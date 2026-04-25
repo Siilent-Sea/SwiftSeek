@@ -36,11 +36,35 @@ let specs: [Spec] = [
 ]
 
 func renderIcon(pixels: Int) -> Data? {
-    let size = NSSize(width: pixels, height: pixels)
-    let image = NSImage(size: size)
-    image.lockFocus()
-    guard let ctx = NSGraphicsContext.current?.cgContext else { return nil }
-    let rect = NSRect(origin: .zero, size: size)
+    // Round 2 fix: build the NSBitmapImageRep explicitly at the
+    // requested pixel size, NOT via NSImage.lockFocus(). The latter
+    // produced PNGs whose pixel dimensions varied with the running
+    // display's backing scale (e.g. icon_16x16.png coming out as
+    // 32×32 on @2x screens). iconutil strictly validates that
+    // pixel dimensions match the filename declaration; mismatches
+    // cause the whole iconset to fail with "Invalid Iconset".
+    guard let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: pixels,
+        pixelsHigh: pixels,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else { return nil }
+    // Force points == pixels so the drawing context maps 1:1 with
+    // the requested pixel grid.
+    rep.size = NSSize(width: pixels, height: pixels)
+
+    NSGraphicsContext.saveGraphicsState()
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+    NSGraphicsContext.current = ctx
+    let cg = ctx.cgContext
+    let rect = NSRect(x: 0, y: 0, width: pixels, height: pixels)
 
     // Rounded-square background with vertical gradient (deep blue -> teal).
     // macOS Big Sur+ icons use a 22.37% corner radius of side length.
@@ -65,9 +89,9 @@ func renderIcon(pixels: Int) -> Data? {
                             y: handleStart.y - s * 0.20)
 
     NSColor.white.setStroke()
-    ctx.setLineCap(.round)
-    ctx.setLineJoin(.round)
-    ctx.setLineWidth(stroke)
+    cg.setLineCap(.round)
+    cg.setLineJoin(.round)
+    cg.setLineWidth(stroke)
 
     // Lens (open ring, transparent fill).
     let ring = NSBezierPath(ovalIn: NSRect(x: lensCenter.x - lensRadius,
@@ -85,11 +109,6 @@ func renderIcon(pixels: Int) -> Data? {
     handle.lineCapStyle = .round
     handle.stroke()
 
-    image.unlockFocus()
-
-    // PNG from rep.
-    guard let tiff = image.tiffRepresentation,
-          let rep = NSBitmapImageRep(data: tiff) else { return nil }
     return rep.representation(using: .png, properties: [:])
 }
 
