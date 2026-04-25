@@ -267,3 +267,50 @@ P5 把 `SettingsWindowController` 的四个占位 pane 换成真正连 `Database
 - 自动启动项 / Launch Agent 集成
 - 复杂 exclude 规则（glob / regex）— 本阶段固定"目录级前缀匹配"
 - 自动重建触发器（后续可在 `RebuildCoordinator` 顶上加，P5 仅手动触发）
+
+---
+
+## everything-productization 收口（K1-K6）
+
+> 这一段是 K1-K6 落地后的当前状态参考，不重写历史 P1-P5 / E1-J6 段。完整最新状态以 `docs/stage_status.md` + `docs/install.md` + `docs/release_checklist.md` 为准。
+
+### K1 — Build identity
+- `Sources/SwiftSeekCore/BuildInfo.swift`：纯函数读 `Bundle.main.infoDictionary` 取 `CFBundleShortVersionString` / `GitCommit` / `BuildDate`，dev 路径有 fallback。
+- `AppDelegate.applicationDidFinishLaunching` 启动头三行 NSLog：`summary` / `bundle=` / `binary=`。
+- `AboutPane` 顶部 summary 与诊断块同源。
+- 设置窗口生命周期 release gate 写入 `docs/manual_test.md` §33s，J1（hide-only close）/ J6（KVO `selectedTabViewItemIndex`）作为长期回归门禁保留。
+
+### K2 — 可重复 .app 打包
+- `scripts/package-app.sh`：`swift build -c release` → 重建 `dist/SwiftSeek.app/Contents/{MacOS,Resources}` → 注入 `Info.plist`（含自动写入 `GitCommit` / `BuildDate`）→ 用 `scripts/make-icon.swift --icns` 直接组装 `.icns`（不依赖 `iconutil`）→ ad-hoc `codesign` → 自检（`plutil -lint` / `codesign -dv` / 文件结构 / `.icns` magic）。
+- `scripts/make-icon.swift`：`NSBitmapImageRep(pixelsWide:pixelsHigh:samplesPerPixel:4...)` 显式像素尺寸（避开 `NSImage.lockFocus` 的 display-scale 漂移）；`--icns` 模式直接组装 ic04-ic14 OSType 条目的二进制。
+- `scripts/build.sh` 仍专注 `.build/release/<bin>` 裸二进制；`.app` 路径走 `package-app.sh`。
+
+### K3 — Diagnostics 单一来源
+- `Sources/SwiftSeekCore/Diagnostics.swift`：纯函数 `Diagnostics.snapshot(database:launchAtLoginIntent:launchAtLoginSystemStatus:)`，AppKit-free，覆盖 build identity / DB 路径与 schema / main+wal+shm 大小 / 关键表行数 / 索引模式 / 隐藏开关 / usage history 开关 / query history 开关 / roots / excludes / Launch at Login 双面状态 / last rebuild / 错误聚合。
+- `AboutPane.buildDiagnostics()` 委托给 `Diagnostics.snapshot`；"复制诊断信息" 按钮一键到 `NSPasteboard.general`。
+- SmokeTest K3 覆盖字段与设置翻转。
+
+### K4 — 安装 / 升级 / 回滚文档
+- `docs/install.md` 单一安装入口：安装 / 升级 / 回滚 / 卸载 / 首次打开 / Gatekeeper / Launch at Login 边界 / 多实例 / stale bundle / schema forward-only（v1→v7 表对照表）。
+- README 快速上手指向 install.md。
+- `docs/manual_test.md` §33v 的 install / upgrade / rollback / Launch at Login dry-run。
+
+### K5 — 权限引导 + Full Disk Access + recheck
+- `Sources/SwiftSeekCore/SettingsTypes.swift`：`RootHealth` 拆出 `.volumeOffline`（路径前缀 `/Volumes/<X>` 但 `<X>` 卷未挂载）、`.offline`（路径不存在）、`.unavailable`（权限被拒）；新增 `RootHealthReport { health, detail }` 与 `Database.computeRootHealthReport(for:currentlyIndexingPath:)` 返回结构化判定。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `IndexingPane`：rootsTable cell 改用 `RootHealthReport`，`text.toolTip = report.detail`；rootsBar 新增 "重新检查权限"（`reload()` 不动 DB）+ "打开完全磁盘访问设置"（`NSWorkspace.open` `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`，失败回退通用隐私 + NSAlert）。
+- `Diagnostics.snapshot` 增加 `roots 健康（K5）：` 段（最多 20 行）。
+- `docs/install.md` 新增"权限 / Full Disk Access / Root 覆盖（K5）"，`docs/manual_test.md` 新增 §33w 4 状态矩阵 + recheck + FDA fallback。
+
+### K6 — Release QA 收口
+- `docs/release_checklist.md`：单页 15 步 release gate（fresh build / smoke / package / bundle 元数据 / 启动 build identity / 设置生命周期 10×/ 热键 / add root → search → open / 诊断复制 / K5 root health / Launch at Login / icon / 安装升级回滚 dry-run / release notes / 文档一致性）。
+- `docs/release_notes_template.md`：诚实的发布说明模板，"已知边界"段不可删除（ad-hoc / 无 Developer ID / 无 notarization / 无 DMG / 无 auto updater / FDA / 外接盘）。
+- 文档同步：本段 + README"当前限制" + `docs/known_issues.md` + `docs/manual_test.md` + `docs/stage_status.md` 与 K1-K5 实现一致。
+
+### 当前轨道明确不做
+- Apple Developer ID 签名 / notarization
+- DMG / Sparkle / auto updater
+- App Store packaging / sandbox 适配
+- 全文内容 / OCR / AI 语义搜索
+- 网络盘 / 云盘实时一致性承诺
+- macOS 全局启动次数读取 / 系统隐私数据扫描
+- private API 调用

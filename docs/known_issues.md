@@ -83,23 +83,15 @@
   - 网络盘 / 云盘的实时一致性不承诺。
   - K5 不重做 K4 的安装文档，只补与权限恢复直接相关的交叉说明。
 
-### 9. 缺少 release QA checklist
-- 历史 `docs/manual_test.md` 很长，但不是面向最终 release artifact 的一页 checklist。
-- 当前需要把以下项目固定为 release gate：
-  - fresh clone build
-  - package app
-  - launch app
-  - settings reopen
-  - search hotkey
-  - add root
-  - search
-  - open file
-  - Run Count update
-  - DB stats
-  - Launch at Login note
-  - app icon
-  - About build identity
-  - install / upgrade / rollback docs
+### 9. Release QA checklist 已在 K6 落地
+- **K6 已收口**：
+  - `docs/release_checklist.md` 是单页 release gate，每次发布前必须从干净 workspace 完整跑过 15 步：fresh build → smoke → package-app → bundle 元数据 → 启动 build identity → 设置生命周期 10× → 搜索热键 → add root → search → open → Run Count → 诊断复制 → K5 root health / FDA recheck → Launch at Login → app icon → 安装 / 升级 / 回滚 dry-run → release notes → 文档一致性。
+  - `docs/release_notes_template.md` 是发布说明的诚实模板，"已知边界"段强制保留：ad-hoc / 无 Developer ID / 无 notarization / 无 DMG / 无 auto updater / FDA / 外接盘 / 网络盘 / schema forward-only。
+  - `docs/architecture.md` 末尾新增 K1-K6 productization 收口段，作为代码 ↔ 文档锚点。
+- 仍保留边界：
+  - 这条 checklist 不替代正式签名 / 公证 / DMG 流程；本轨道明确不做。
+  - 任何一项失败必须从第 1 步重跑，不允许跳过局部以为只验证局部。
+  - release notes 在所有 15 步全绿前不发，不在 notes 里夸大签名 / 公证状态。
 
 ## 已归档能力与仍保留边界
 

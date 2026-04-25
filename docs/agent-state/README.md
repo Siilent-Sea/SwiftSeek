@@ -10,8 +10,9 @@
 
 ## 当前轨道
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K2`
-- 要求：为 `everything-productization` 使用新的 Codex 验收 session；当前项目内仍未记录显式 session id，首次正式写入后再补 `codex-acceptance-session.txt`。
+- 当前阶段：`K6`
+- 当前验收 session：`019dc54e-017d-7de3-a24f-35c23f09ce08`
+- 要求：为 `everything-productization` 使用该 Codex 验收 session；`codex-acceptance-session.txt` 与 `codex-acceptance-session.json` 必须保持一致。
 - 禁止：混用已归档 `everything-ux-parity` session `019dc07b-55f0-7712-9d7f-74441d7c81df`，也不得混用更早轨道的 session。
 
 ## 约定文件
@@ -38,4 +39,4 @@
 - `everything-usage` 的历史 session 也只作为归档背景
 - `everything-ux-parity` 的历史 session 也只作为归档背景
 - `everything-productization` 必须使用新的验收 session
-- 如果当前轨道还没创建正式验收会话，可以暂时只有这个 README；首次创建后再补 `.txt` 和 `.json`
+- 当前轨道已经创建正式验收会话；不要回退到仅 README 状态。

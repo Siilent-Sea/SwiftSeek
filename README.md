@@ -29,7 +29,7 @@ macOS 原生本地极速文件搜索器。
 - **UX parity**（J1-J6）：设置窗口 hide-only 生命周期、Dock / reopen 行为、搜索窗宽度与列恢复、wildcard / quote / OR / NOT、recent queries / Saved Filters、首次使用 banner、设置 tab 记忆、设置窗 frame 记忆、Launch at Login 公开 API 包装
 
 ## 当前限制
-SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-productization` 当前已落地 K1-K5：K1 build identity（version / commit / build date / bundle / binary）+ 设置窗口 release gate；K2 `scripts/package-app.sh` 一条命令重复打包 + ad-hoc codesign；K3 `Diagnostics.snapshot` 单一来源；K4 `docs/install.md` 安装 / 升级 / 回滚 / Launch at Login / stale bundle 文档；K5 root 权限四态徽标 + RootHealthReport tooltip + "重新检查权限" + "打开完全磁盘访问设置" 按钮 + 诊断同源。仍未完成：release QA 收口（K6）。本轨道明确不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater。
+SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-productization` 当前已落地 K1-K6：K1 build identity（version / commit / build date / bundle / binary）+ 设置窗口 release gate；K2 `scripts/package-app.sh` 一条命令重复打包 + ad-hoc codesign；K3 `Diagnostics.snapshot` 单一来源；K4 `docs/install.md` 安装 / 升级 / 回滚 / Launch at Login / stale bundle 文档；K5 root 权限四态徽标 + RootHealthReport tooltip + 重新检查权限 + 打开完全磁盘访问设置 按钮 + 诊断同源；K6 单页 [release checklist](docs/release_checklist.md)（15 步 release gate）+ [release notes 模板](docs/release_notes_template.md)（诚实写明 ad-hoc / 无签名 / 无公证 / 无 DMG / 无 auto updater 边界）+ architecture.md K1-K6 收口段。本轨道明确不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater。
 
 **确认是否运行最新构建**：设置 → 关于 → 看顶部一行 `SwiftSeek <version> commit=<hash> build=<date>`，下方诊断块的 `bundle:` / `binary:` 行和你正在编辑的源码路径对比；不一致就是 stale bundle。详细排查见 [docs/manual_test.md](docs/manual_test.md) §33s。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
@@ -40,7 +40,8 @@ SwiftSeek 已完成 `everything-ux-parity`，产品化轨道 `everything-product
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`
-- 当前活跃轨道：`everything-productization`（K1 起步）
+- 当前活跃轨道：`everything-productization`（K1-K6 已落地，K6 等 Codex 验收 PROJECT COMPLETE）
+- Release gate：[docs/release_checklist.md](docs/release_checklist.md) + [docs/release_notes_template.md](docs/release_notes_template.md)
 - everything-usage 500k 实测亮点：3+char 加 100k usage JOIN 中位 94.33ms（+4ms），`recent:` 89.44ms，`frequent:` 16.87ms，`recordOpen` 8μs
 - everything-usage 实测报告：[docs/everything_usage_bench.md](docs/everything_usage_bench.md)
 

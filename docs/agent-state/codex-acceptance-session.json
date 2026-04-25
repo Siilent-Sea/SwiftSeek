@@ -1,14 +1,14 @@
 {
   "track": "everything-productization",
-  "stage": "K5",
+  "stage": "K6",
   "session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 passed on commit cc41750. K3 passed on commit 8eba98c. K4 passed on commit 0ebd033 after install/upgrade/rollback, Launch at Login honesty, and stale-bundle risk docs were landed. K5 is now the next acceptance target.",
+  "purpose": "Current active track acceptance state. K1 passed on commit d890c81. K2 passed on commit cc41750. K3 passed on commit 8eba98c. K4 passed on commit 0ebd033. K5 passed on commit a175880 after RootHealthReport, FDA recheck, diagnostics roots health, and permissions docs landed. K6 is now the next acceptance target.",
   "last_verdict": "PASS",
-  "last_verdict_round": "K4 round 1",
+  "last_verdict_round": "K5 round 1",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "K4 delivered install/upgrade/rollback and Launch at Login boundary docs without code regression, and sandbox build/smoke/package verification remained green on commit 0ebd033.",
-  "passed_stages": ["K1", "K2", "K3", "K4"],
+  "last_verdict_reason": "K5 delivered structured root health reporting, recheck/FDA UI, diagnostics roots health, and permissions docs; sandbox build, SmokeTest 209/209, and package-app.sh --sandbox passed on commit a175880.",
+  "passed_stages": ["K1", "K2", "K3", "K4", "K5"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -42,5 +42,5 @@
       "previous_session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df"
     }
   ],
-  "notes": "Active session for everything-productization track. K1 PASS round 1 on commit d890c81. K4 PASS round 1 on commit 0ebd033. Current next target stage is K5. .txt file mirrors this session id."
+  "notes": "Active session for everything-productization track. K1 PASS round 1 on commit d890c81. K5 PASS round 1 on commit a175880. Current next target stage is K6. .txt file mirrors this session id."
 }
