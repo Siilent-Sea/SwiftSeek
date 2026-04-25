@@ -159,6 +159,12 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>GitCommit</key><string>$GIT_COMMIT</string>
     <key>BuildDate</key><string>$BUILD_DATE</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <!-- L1 (everything-menubar-agent): LSUIElement intentionally stays false.
+         The menubar-agent / no-Dock behaviour is set at runtime via
+         NSApp.setActivationPolicy(.accessory) inside AppDelegate so L2 can
+         expose a "show Dock icon" preference without requiring users to
+         repackage the bundle. Do NOT flip this to <true/> without first
+         removing the runtime call and updating L1 / L2 docs. -->
     <key>LSUIElement</key><false/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>

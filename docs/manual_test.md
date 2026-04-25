@@ -1218,6 +1218,68 @@ codesign -dv --verbose=2 dist/SwiftSeek.app
 - architecture.md 末尾"everything-productization 收口（K1-K6）"段与代码一致
 - install.md 与 release checklist 第 13 步描述不矛盾
 
+### 33y. L1 菜单栏常驻形态验证（everything-menubar-agent）
+
+L1 把 SwiftSeek 默认形态从普通 Dock App 改成菜单栏常驻工具。每次发布必跑 release_checklist §5b 之外，本节记录手测细节与回归边界。
+
+#### 准备
+- 干净 workspace
+- 跑过 §33t package-app.sh 流程，`dist/SwiftSeek.app` GitCommit 与 HEAD 一致
+
+#### 1. Dock 不显示
+1. 退出所有 SwiftSeek 实例：`pkill -f SwiftSeek` 直到 `pgrep SwiftSeek` 无输出
+2. `open dist/SwiftSeek.app`
+3. 看 Dock 全栏（含末端"运行中应用"区）
+4. **预期**：没有 SwiftSeek 图标，没有反弹动画
+5. **失败处置**：看 Console 过滤 SwiftSeek，确认 `applicationDidFinishLaunching` 是否调到 `setActivationPolicy(.accessory)`；如未调到，说明 build 是 stale，重跑 §33t
+
+#### 2. 菜单栏图标存在
+1. 看屏幕右上角菜单栏
+2. **预期**：放大镜图标出现（`magnifyingglass` SF Symbol，模板色随系统主题）
+3. 屏幕过窄时菜单栏可能挤掉图标 → 退几个常驻菜单 app 再看
+
+#### 3. 菜单栏入口三连
+1. 左键点菜单栏图标 → 弹菜单
+2. **预期菜单结构**：
+   - 搜索…（⌥Space）
+   - 设置…（⌘,）
+   - ───
+   - 索引：空闲 / 索引中 · N/M roots
+   - ───
+   - 退出 SwiftSeek（⌘Q）
+3. 点 "搜索…" → 搜索窗弹出并前置；输入框光标可用
+4. ESC 隐藏搜索窗；菜单栏图标仍在
+5. 再点菜单栏图标 → 点 "设置…" → 设置窗弹出并前置；切 4 个 tab 都正常
+6. 关闭设置窗（红点）→ 菜单栏图标仍在
+7. 再点菜单栏图标 → 点 "退出 SwiftSeek" → 进程退出，菜单栏图标消失，`pgrep SwiftSeek` 无输出
+
+#### 4. 全局热键独立验证
+1. 重新 `open dist/SwiftSeek.app`，等菜单栏图标出现
+2. 按 ⌥Space → 搜索窗呼出
+3. ESC → 隐藏
+4. 再按 ⌥Space → 再次呼出
+5. **预期**：热键不依赖菜单栏可见也能工作
+
+#### 5. applicationShouldHandleReopen fallback
+1. SwiftSeek 在跑（菜单栏有图标），无可见窗口
+2. Finder 中再次双击 `dist/SwiftSeek.app`
+3. **预期**：设置窗口前置（不是开第二份进程），`pgrep SwiftSeek` 仍只一个 PID
+4. **边界**：与 `/Applications/SwiftSeek.app` 不同 bundle path 时可能开两份；这是 L4 的事
+
+#### 6. 反复启动 / 退出
+1. `open dist/SwiftSeek.app` → 菜单栏图标出现 → 菜单栏退出
+2. 重复 3 次
+3. **预期**：每次都干净起停；没有残留菜单栏图标；`pgrep SwiftSeek` 在退出后总是无输出
+
+#### 7. swift run 路径
+1. `swift run SwiftSeek`（直接从源码跑，不打包）
+2. **预期**：与 .app 等价 — Dock 不出现，菜单栏图标出现
+3. 这一步证明 `.accessory` 在 dev 路径与 release 路径一致
+
+#### 8. 边界：何时可以接受 Dock 出现
+- L1 严格 no Dock。如果 Dock 出现 SwiftSeek 图标 → 直接 ❌
+- 唯一例外：用户已经手动应用 L2 "显示 Dock 图标" 设置（L2 还没做，所以本阶段不接受任何 Dock 显示）
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

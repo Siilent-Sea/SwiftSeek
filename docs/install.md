@@ -56,14 +56,69 @@ open dist/SwiftSeek.app
 
 ---
 
+## 默认形态：菜单栏常驻工具（L1）
+
+> L1 起，SwiftSeek 默认是**菜单栏常驻工具**（macOS menubar agent），**不**显示 Dock 图标。
+
+### 启动后看到什么
+
+- **没有** Dock 图标
+- **菜单栏右上角** 出现放大镜（`NSStatusItem`，模板图标会自动适配明暗主题）
+- 左键点菜单栏图标 → 弹出菜单：
+  - `搜索…` ⌥Space
+  - `设置…` ⌘,
+  - `索引：空闲` / `索引中 · N/M roots`（只显示，不可点）
+  - `退出 SwiftSeek` ⌘Q
+- 全局热键 `⌥Space`（默认）随时唤出搜索窗，与菜单栏可见性无关
+
+### 实现方式（仅供排查参考）
+
+`AppDelegate.applicationDidFinishLaunching` 调用 `NSApp.setActivationPolicy(.accessory)`：
+- 运行时控制，便于 L2 加 "显示 Dock 图标" 设置
+- `Info.plist` 仍保留 `LSUIElement=false`（package-app.sh 里有注释说明），不与运行时策略冲突
+- ad-hoc / 未签名 bundle 的 LaunchServices 行为更稳定
+
+### 退出路径（重要）
+
+L1 隐藏 Dock 后**没有** Dock 右键退出。退出方式（按推荐顺序）：
+
+1. **菜单栏图标 → "退出 SwiftSeek"**（最直观）
+2. 设置窗口前置时 → `⌘Q`（菜单栏快捷键）
+3. CLI 备用：`pkill -f "SwiftSeek.app"` 或 `pkill -f SwiftSeek`
+4. 极端 fallback：Activity Monitor → 选 SwiftSeek 进程 → 强制退出
+
+### 找不到菜单栏图标怎么办
+
+可能原因 + 排查：
+
+| 现象 | 可能原因 | 排查 |
+|---|---|---|
+| 菜单栏没图标但进程在跑 | 屏幕宽度不够，被其他菜单挤掉 | 退出几个常驻菜单栏 app；或缩短系统时钟显示 |
+| 菜单栏没图标且进程没启动 | Gatekeeper 拦截 | Finder 右键 → 打开；或看 Console.app 过滤 SwiftSeek |
+| 菜单栏没图标但 `pgrep SwiftSeek` 有结果 | activation policy 未生效 | 看 Console 三连日志；可能旧 stale bundle 在跑（K1 build identity 检查） |
+| 双击 app 无任何反应 | `applicationShouldHandleReopen` 命中 | 应弹设置窗口作为 fallback；如未弹说明上轮已 crash 但没退出，强杀重启 |
+
+### 双击 app 已经在跑会怎样
+
+- L1 没有单实例保护（L4 才做）
+- 当前行为：`applicationShouldHandleReopen` 触发 → 弹出设置窗口前置（J1 修复保留）
+- macOS LaunchServices 通常会复用已有进程而不是真的开第二份；但 `dist/SwiftSeek.app` 与 `/Applications/SwiftSeek.app` **不同 bundle path**，可能各自独立常驻 → 看到两个菜单栏图标 → L4 收口
+
+### 与 K4 升级 / 回滚不冲突
+
+- K4 文档讲的"退出旧 SwiftSeek"路径在 L1 之后等价于"菜单栏 → 退出 SwiftSeek"
+- 升级流程仍是 退出 → 重打包 → 替换 bundle → 启动；只是退出方式从 Dock 右键变成菜单栏
+
+---
+
 ## 升级
 
 ### 步骤
 
 1. **退出旧 SwiftSeek**：
-   - Dock 右键 → 退出
-   - 或菜单栏图标 → 退出 SwiftSeek
+   - 菜单栏图标 → 退出 SwiftSeek（L1 起的主要路径）
    - 或 `pkill -f "SwiftSeek.app"`
+   - （Dock 右键退出在 L1 之后不可用，因为 Dock 默认隐藏）
 2. **重新打包新版本**：
    ```bash
    git pull

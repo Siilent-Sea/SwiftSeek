@@ -1,6 +1,8 @@
-# SwiftSeek Release Checklist（K6 单页）
+# SwiftSeek Release Checklist（K6 + L1 单页）
 
-每次发布本地 ad-hoc bundle 前**必须**从干净 workspace 走完整张表。任何一项失败都不算 release-ready。**这是 K6 release gate**：未签名 / 未公证 / 无 DMG / 无 auto updater 是当前轨道明确边界，不要在这条路径里夸大交付。
+每次发布本地 ad-hoc bundle 前**必须**从干净 workspace 走完整张表。任何一项失败都不算 release-ready。
+
+**当前 release gate** = K6 收口 + L1 menubar-agent 形态默认。未签名 / 未公证 / 无 DMG / 无 auto updater 是当前轨道明确边界，不要在这条路径里夸大交付。L1 起 SwiftSeek 默认 **不显示 Dock 图标**；菜单栏状态项是主入口。
 
 ## 0. 前置确认
 
@@ -86,17 +88,31 @@ SwiftSeek: binary=<binary 路径>
 - [ ] `bundle=` 路径就是刚 `open` 的 `dist/SwiftSeek.app`
 - [ ] `binary=` 指向 `Contents/MacOS/SwiftSeek`
 
+## 5b. L1 menubar-agent 形态验证（每次发布必跑）
+
+L1 把默认形态从普通 Dock App 改成菜单栏常驻工具。Dock 不显示是预期行为，不是 bug。
+
+- [ ] 启动后 **Dock 中没有** SwiftSeek 图标（看 Dock 全栏；L1 通过 `NSApp.setActivationPolicy(.accessory)` 在 `applicationDidFinishLaunching` 设置）
+- [ ] **菜单栏右上角** 出现放大镜图标（`NSStatusItem`）
+- [ ] 点菜单栏图标弹出菜单，包含：搜索…（⌥Space）/ 设置…（⌘,）/ 索引：… / 退出 SwiftSeek（⌘Q）
+- [ ] 点菜单栏 → "搜索…" → 搜索窗前置可输入
+- [ ] 点菜单栏 → "设置…" → 设置窗前置
+- [ ] 全局热键 `⌥Space` 可呼出搜索窗（不依赖菜单栏可见）
+- [ ] 点菜单栏 → "退出 SwiftSeek" → 进程退出，菜单栏图标消失
+- [ ] 重复 `open dist/SwiftSeek.app` → 退出 → 启动 3 次，菜单栏图标每次正常出现/消失，无残留进程
+
 ## 6. 设置窗口生命周期 Release Gate
 
 按 `docs/manual_test.md` §33s 执行（J1 + J6 修复回归门禁）：
 
-- [ ] 主菜单 → 设置 打开
+- [ ] **菜单栏** SwiftSeek 状态项 → "设置…" 打开（L1 之后这是主入口；不再依赖 Dock）
 - [ ] 关闭设置窗口（红点 / Cmd-W）
-- [ ] 主菜单 → 设置 **重新打开** 设置窗口
+- [ ] 菜单栏 → "设置…" **重新打开** 设置窗口
 - [ ] 重复 close / open **10 次**
 - [ ] 每次都成功打开
 - [ ] 切换 tab：常规 / 索引 / 维护 / 关于 全部正常切换（J6 KVO 路径）
-- [ ] Dock 图标 reopen / Cmd-Tab 切回都能呼出窗口
+- [ ] 双击 `dist/SwiftSeek.app` 第二次（applicationShouldHandleReopen 路径）→ 设置窗口前置作为 fallback
+- [ ] **不**期望 Dock 图标可点击（L1 默认隐藏 Dock）；如出现 Dock 图标说明 `.accessory` 失败，标记本次 release ❌
 
 ## 7. 搜索热键 + ESC 隐藏
 
@@ -154,8 +170,9 @@ SwiftSeek: binary=<binary 路径>
 ## 12. App Icon 验证
 
 - [ ] `dist/SwiftSeek.app` 在 Finder 里显示自定义 App Icon（不是默认 Swift / 通用图标）
-- [ ] Dock 里运行时图标也是这个图标
-- [ ] 关于面板 / Cmd-Tab 切换时图标显示正常
+- [ ] **不**期望 Dock 中显示 App Icon（L1 默认隐藏 Dock）
+- [ ] 关于面板里图标显示正常
+- [ ] 菜单栏 `NSStatusItem` 显示放大镜模板图标（不是 App Icon — status bar 走 SF Symbol `magnifyingglass`，索引中切换为 `magnifyingglass.circle`）
 
 ## 13. 安装 / 升级 / 回滚 Dry-Run
 

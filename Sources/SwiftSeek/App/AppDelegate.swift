@@ -23,8 +23,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("SwiftSeek: bundle=\(BuildInfo.bundlePath)")
         NSLog("SwiftSeek: binary=\(BuildInfo.executablePath)")
 
+        // L1: switch to menubar-agent activation policy BEFORE any
+        // window or main-menu installation. `.accessory` removes the
+        // Dock icon, suppresses the standard Cocoa main menu in the
+        // system menu bar, and keeps the process around for the
+        // NSStatusItem entry installed below.
+        //
+        // Why .accessory at runtime instead of `LSUIElement=true` in
+        // Info.plist:
+        //   - L2 will introduce a "show Dock icon" preference; flipping
+        //     activation policy at runtime is the real lever, while a
+        //     baked-in LSUIElement key would force a repackage to undo.
+        //   - `swift run SwiftSeek` (dev path) inherits the same
+        //     behaviour with no plist edits — fewer dev/release drift
+        //     traps.
+        //   - ad-hoc / unsigned bundles see inconsistent LaunchServices
+        //     caching behaviour around `LSUIElement` across macOS
+        //     versions; the public AppKit API is the more predictable
+        //     path. We leave Info.plist `LSUIElement=false` intentionally;
+        //     runtime owns the actual policy.
+        NSApp.setActivationPolicy(.accessory)
+
         NSApp.mainMenu = MainMenu.build(target: self)
-        NSApp.activate(ignoringOtherApps: true)
 
         do {
             let paths = try AppPaths.ensureSupportDirectory()
@@ -48,22 +68,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStatusItem()
         installSearchWindow()
         installGlobalHotkey()
-        showSettings(nil)
+
+        // L1: deliberately do NOT auto-show the settings window on
+        // launch. The menubar status item is the primary entry point
+        // for a menubar-agent app; auto-popping settings every launch
+        // would defeat the agent form factor. Users open settings via
+        // the status menu's "设置…" item, and the J1 reopen path
+        // (applicationShouldHandleReopen) still surfaces settings as a
+        // fallback if the user double-clicks the bundle a second time.
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
 
-    /// J1: Dock reopen (click Dock icon with no visible windows).
-    /// `hasVisibleWindows == true` → AppKit handles it; we return
-    /// true so the default behaviour kicks in. `false` → we're in
-    /// the state the J1 bug report describes: user closed settings,
-    /// there are no visible windows, and the only way back used to
-    /// be "Dock right-click Quit + relaunch". Show settings as the
-    /// predictable primary entry (search window is opt-in via
-    /// ⌥Space / menu and hides on resign-key, so settings is the
-    /// better "something visible" default).
+    /// J1 + L1: reopen handler. In Dock-app mode this fires when the
+    /// user clicks the Dock icon with no visible windows. In L1's
+    /// `.accessory` (menubar-agent) mode the Dock icon is hidden, but
+    /// the callback still fires when the user runs `open` against the
+    /// bundle a second time (e.g. double-clicking SwiftSeek.app from
+    /// Finder while the agent is already running).
+    ///
+    /// `hasVisibleWindows == true` → AppKit handles it; return true so
+    /// the default behaviour kicks in. `false` → there are no visible
+    /// windows; show settings as the predictable fallback so the user
+    /// always has a visible UI surface to find their way back to the
+    /// menubar entry. Search window is intentionally not the fallback
+    /// since it hides on resign-key and would feel like the relaunch
+    /// "did nothing".
     func applicationShouldHandleReopen(_ sender: NSApplication,
                                        hasVisibleWindows: Bool) -> Bool {
         if !hasVisibleWindows {

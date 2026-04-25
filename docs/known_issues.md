@@ -1,105 +1,80 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前用户真实会感知到的限制。`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity` 均已归档；当前活跃轨道是 `everything-productization`，重点是产品化、安装、打包、生命周期回归门禁和诊断能力。
+本文档记录当前用户真实会感知到的限制。历史轨道 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization` 均已归档；当前活跃轨道是 `everything-menubar-agent`。
 
 ## 当前活跃轨道相关限制
 
-### 1. K2 已建立可重复 .app 打包流水线
-- `scripts/package-app.sh` 现在能一条命令完成：`swift build -c release` + lay out `dist/SwiftSeek.app` + 写 `Info.plist` + 生成 `AppIcon.icns` + ad-hoc `codesign` + 自检。
-- `.icns` 由 `scripts/make-icon.swift` 直接写出，不再依赖 `iconutil`，规避了本地与 Codex 沙箱之间的 `iconutil` 漂移。
-- 当前可验证产物：
-  - `dist/SwiftSeek.app/Contents/Info.plist`
-  - `dist/SwiftSeek.app/Contents/MacOS/SwiftSeek`
-  - `dist/SwiftSeek.app/Contents/Resources/AppIcon.icns`
-  - `dist/SwiftSeek.app/Contents/_CodeSignature/CodeResources`
-- `scripts/build.sh` 仍专注 `.build/release` CLI 二进制；`.app` 正式本地交付路径是 `scripts/package-app.sh`。
+### 1. 默认隐藏 Dock 图标（L1 已落地）
 
-### 2. 仍未做正式发行级签名 / 公证
-- 当前是 ad-hoc `codesign`，不是 Apple Developer ID 签名。
-- 当前没有 notarization。
-- 当前没有 DMG、auto updater、`/Applications` 安装/升级/回滚流程。
-- 因此 K2 证明的是“本地可重复 bundle 流水线成立”，不是“正式发行链路完成”。
+- `AppDelegate.applicationDidFinishLaunching` 在最早期（NSLog build identity 三连之后）调用 `NSApp.setActivationPolicy(.accessory)`，使 Dock 不显示 SwiftSeek 图标。
+- `Info.plist` 仍保留 `LSUIElement=false`：选择运行时 activation policy 而非 plist `LSUIElement=true` 的取舍写在 `scripts/package-app.sh` 注释和 `docs/install.md` 默认形态段。
+- L2 会基于 runtime activation policy 加 "显示 Dock 图标" 设置开关；plist 路径保留以便 L2 不需要 user 重打包就能切。
+- 在 ad-hoc / 未签名 bundle 上，不同 macOS 版本对 activation policy 的稳定性仍需手测；release checklist §5b 强制每次发布手动确认。
 
-### 3. 旧 bundle / stale binary 风险
-- 用户可能同时拥有：
-  - 最新源码
+### 2. 菜单栏 status item 是默认主入口（L1 已落地）
+
+- `AppDelegate.installStatusItem()` 安装的 `NSStatusItem` 是 L1 之后用户与 SwiftSeek 交互的主入口。
+- 当前菜单栏菜单包含：
+  - 搜索…（⌥Space）
+  - 设置…（⌘,）
+  - 索引：空闲 / 索引中（只显示）
+  - 退出 SwiftSeek（⌘Q）
+- L1 不扩展菜单栏复杂状态项；L3 才做最近打开 / 常用 / 索引模式 / DB 大小 / root 简况。
+- L1 不再依赖 Dock reopen 作为默认入口；`applicationShouldHandleReopen` 仅作为 fallback（`open` 第二次时弹设置窗口）。
+
+### 3. 无 Dock 模式下的入口与退出（L1 已落地）
+
+- J1/J6 之前依赖 Dock click 唤回设置窗口；L1 改为依赖菜单栏图标 + 全局热键。
+- 退出路径优先级：菜单栏 → "退出 SwiftSeek"（⌘Q） > `pkill -f "SwiftSeek.app"` > Activity Monitor 强制退出。
+- `applicationShouldHandleReopen` 仍保留：双击已运行的 SwiftSeek.app 第二次会弹设置窗口作为 fallback，避免"双击没反应"的迷惑感。
+- 菜单栏图标在某些极端场景（屏幕过窄被挤掉、stale bundle 在跑、Gatekeeper 拦截）可能不出现；`docs/install.md` 默认形态段写了排查矩阵。
+
+### 4. LSUIElement / activationPolicy 在 ad-hoc App 下需要实测
+
+- 当前 SwiftSeek 仍是 ad-hoc codesign，不是 Developer ID 签名，不做 notarization。
+- `LSUIElement=true` 与 `NSApp.setActivationPolicy(.accessory)` 都会影响 Dock、Command+Tab、主菜单可见性和窗口前置行为。
+- macOS 不同版本、LaunchServices 缓存、未签名 / ad-hoc bundle 可能表现有差异。
+- L1/L2 必须用真实 `dist/SwiftSeek.app` 手测，不能只看源码推断。
+
+### 5. 退出路径必须明确
+
+- 隐藏 Dock 后，用户不能靠 Dock 右键退出。
+- 当前 status item 的"退出 SwiftSeek"是关键路径，必须纳入 release gate。
+- 如果 status item 异常，文档需要保留备用路径，例如 Activity Monitor、`pkill -f SwiftSeek` 或重新打开 app 后退出。
+
+### 6. 多开 / 旧 bundle 风险仍存在
+
+- productization 轨道已补 build identity 和 stale bundle 排查，但当前没有单实例保护。
+- 同一台机器仍可能同时存在：
+  - `dist/SwiftSeek.app`
+  - `/Applications/SwiftSeek.app`
+  - `~/Downloads/SwiftSeek.app`
   - `.build/release/SwiftSeek`
-  - 本地被忽略的 `SwiftSeek.app`
-  - `/Applications` 中的旧 SwiftSeek.app
-- K1 已补上 About / diagnostics / startup log 的 build identity，但这不等于 stale bundle 风险彻底消失。
-- 用户仍可能遇到“源码已经修了，但双击启动的还是旧 App”。
-- 当前应通过 About 顶部 summary、诊断中的 `bundle:` / `binary:` 和启动日志三连来核对自己到底跑的是哪一个产物；K2 会继续把这条链路接到可重复 package 流程。
+- 菜单栏 agent 形态下，多开更难被用户注意到，可能出现多个菜单栏图标、hotkey 争用、DB 写竞争或操作到旧 build。
+- L4 需要单实例 / 多 bundle 防护与最终收口。
 
-### 4. 设置窗口 bug 已修，但必须进入 release gate
-- J1 已修设置窗口关闭后不可重开：
-  - `SettingsWindowController.windowShouldClose(_:)` hide-only close。
-  - `AppDelegate.applicationShouldHandleReopen` 支持 Dock reopen。
-  - 主菜单 / menu bar 设置入口指向 `showSettings`。
-- J6 后设置菜单无反应又出现过一次，后续 hotfix 用 KVO 观察 `selectedTabViewItemIndex`，避免非法 `tabView.delegate`。
-- 这类生命周期问题必须作为每次 release 的门禁，不应只依赖历史 `PROJECT COMPLETE`。
+### 7. 隐藏 Dock 的用户可配置性尚未完成
 
-### 5. Build identity + 完整诊断已在 K1 + K3 落地
-- **K1**：`Sources/SwiftSeekCore/BuildInfo.swift` 提供运行时 build identity（version / commit / build date / bundle / binary），从 `Bundle.main.infoDictionary` 读，dev 路径有 fallback。`AppDelegate` 启动头三行 NSLog + About 顶部 summary 同步显示。
-- **K2**：`scripts/package-app.sh` 自动注入 `GitCommit` / `BuildDate` 到 Info.plist。
-- **K3**：抽出 `Sources/SwiftSeekCore/Diagnostics.swift` 纯函数 `Diagnostics.snapshot(database:launchAtLoginIntent:launchAtLoginSystemStatus:)` 作为单一来源；扩字段：
-  - DB main / wal / shm 大小
-  - files / file_usage / query_history / saved_filters 行数
-  - 索引模式 / 隐藏文件开关 / usage history 开关 / query history 开关
-  - roots（总+启用）/ excludes 计数
-  - Launch at Login 用户意图 + 系统实际状态（SMAppService.enabled / .notRegistered / unsupported / headless）
-  - last rebuild 时间 / 结果 / 摘要
-- About 面板"复制诊断信息"按钮直接 export `Diagnostics.snapshot` 完整文本。
-- bug-report 模板见 `docs/manual_test.md` §33u — 用户复制即用。
-- 与 `SwiftSeekDBStats` CLI 口径一致（同一时刻读同一 `Database.computeStats()`）。
+- 当前设置中没有"显示 Dock 图标"或"菜单栏模式"开关。
+- L1 只要求默认隐藏 Dock；L2 才处理用户可恢复 Dock 的设置项。
+- 如果动态切换 activation policy 不稳定，应诚实提示"需重启生效"。
 
-### 6. 未签名 / 未公证带来的 macOS 行为边界
-- 当前没有 Apple Developer ID 签名。
-- 当前没有 notarization。
-- Gatekeeper、Launch Services、Launch at Login、登录项批准等行为会受到未签名 / ad-hoc bundle 影响。
-- `LaunchAtLogin.swift` 使用公开 `SMAppService.mainApp`，但未签名 / 未公证构建可能失败、需要用户在系统设置批准，或登录后行为不稳定。
-- 当前轨道可以做 ad-hoc 本地包和诚实提示，不应假装已完成正式签名发行。
+### 8. 菜单栏状态信息仍偏基础
 
-### 7. 安装 / 升级 / 回滚流程已在 K4 文档化
-- `docs/install.md` 是 K4 的单一入口，覆盖：
-  - **安装**：`./scripts/package-app.sh` → `cp -R dist/SwiftSeek.app /Applications/` → 首次打开 / Gatekeeper / xattr quarantine 处理
-  - **升级**：退出旧 → 重新打包 → 替换 → 用 build identity 核对 commit hash 是否匹配
-  - **回滚**：备份 DB → 替换 binary → schema forward-only 边界（Schema v1→v7 表对照表）→ 旧 binary 打开新 schema DB 的风险与建议（删 DB / 重命名让旧 binary 重建）
-  - **Launch at Login 边界**：未签名 / ad-hoc 可能需手动批准；`dist/` 直接跑通常注册不上
-  - **多实例 / stale bundle**：通过 About → 顶部 summary + bundle/binary 行 + Console 启动头三行判断；替换失败常见原因（旧进程没退、LaunchServices 缓存、`cp -R` 残留）
-  - **卸载**：bundle / DB / preferences / 登录项的清单
-- README 快速上手段已加入 install.md 链接，让用户从首页进入即可找到完整流程。
-- 当前 schema 已是 v7（H2 引入 query_history / saved_filters）。回滚到 K1 之前的 binary 必须先备份 DB；`Database.migrate()` 永远 forward-only。
-
-### 8. 权限 / Full Disk Access / root 覆盖引导（K5 已落地）
-- **K5 已收口**：
-  - **RootHealth 状态从 3 类细化到 4+ 类**：`.ready` / `.indexing` / `.paused` / `.offline`（路径不存在）/ `.volumeOffline`（`/Volumes/<X>` 卷未挂载）/ `.unavailable`（权限不足）。
-  - **每行带详细原因 tooltip**：`Database.computeRootHealthReport(for:)` 返回结构化 `RootHealthReport { health, detail }`，UI 把 detail 挂到 NSTextField.toolTip，鼠标停留即可看到判定依据。
-  - **设置 → 索引 → "重新检查权限" 按钮**：不重启 app、不动 DB，重新评估每个 root 的当前状态。补完 Full Disk Access 后即用即检。
-  - **设置 → 索引 → "打开完全磁盘访问设置" 按钮**：直接 `NSWorkspace.open` 到 `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`，授权失败回退通用隐私面板，再失败弹 NSAlert 手动指引。
-  - **诊断块同步**：`Diagnostics.snapshot` 增加 `roots 健康（K5）：` 段，最多列 20 个 root，每行格式 `<徽标>  <路径>  — <详细原因>`，与 UI 完全同源。
-  - **文档同步**：`docs/install.md` 新增"权限 / Full Disk Access / Root 覆盖（K5）"段，列出四种状态徽标的含义与恢复路径。
-- 仍存在的边界：
-  - macOS 权限模型本身不绕过：未签名 / ad-hoc bundle 在某些 macOS 版本下即使加了 Full Disk Access 也可能被 TCC 二次拦截。
-  - 网络盘 / 云盘的实时一致性不承诺。
-  - K5 不重做 K4 的安装文档，只补与权限恢复直接相关的交叉说明。
-
-### 9. Release QA checklist 已在 K6 落地
-- **K6 已收口**：
-  - `docs/release_checklist.md` 是单页 release gate，每次发布前必须从干净 workspace 完整跑过 15 步：fresh build → smoke → package-app → bundle 元数据 → 启动 build identity → 设置生命周期 10× → 搜索热键 → add root → search → open → Run Count → 诊断复制 → K5 root health / FDA recheck → Launch at Login → app icon → 安装 / 升级 / 回滚 dry-run → release notes → 文档一致性。
-  - `docs/release_notes_template.md` 是发布说明的诚实模板，"已知边界"段强制保留：ad-hoc / 无 Developer ID / 无 notarization / 无 DMG / 无 auto updater / FDA / 外接盘 / 网络盘 / schema forward-only。
-  - `docs/architecture.md` 末尾新增 K1-K6 productization 收口段，作为代码 ↔ 文档锚点。
-- 仍保留边界：
-  - 这条 checklist 不替代正式签名 / 公证 / DMG 流程；本轨道明确不做。
-  - 任何一项失败必须从第 1 步重跑，不允许跳过局部以为只验证局部。
-  - release notes 在所有 15 步全绿前不发，不在 notes 里夸大签名 / 公证状态。
+- 当前 status item tooltip 只是"SwiftSeek 搜索"。
+- 菜单里只有基本索引状态，没有 build version、index mode、root count、DB 大小等简要信息。
+- L3 会把菜单栏从入口扩展成可快速判断状态的主入口，但不做臃肿 dashboard。
 
 ## 已归档能力与仍保留边界
 
-### UX parity 已完成但不等于产品化完成
-- `everything-ux-parity` 已完成设置窗口 hide-only close、Dock reopen、Run Count 可见性、wildcard / quote / OR / NOT、搜索历史 / Saved Filters、上下文菜单、首次使用 banner、窗口状态记忆和 Launch at Login 公开 API 包装。
-- 这些是功能与体验闭环，不是 release packaging 闭环。
+### Productization 已完成；L1 已把默认形态切到菜单栏 agent
+
+- `everything-productization` 已完成可重复 `.app` 打包、Info.plist / icon / ad-hoc codesign、build identity、diagnostics、install / rollback 文档、Full Disk Access / root 覆盖引导和 release checklist。
+- L1 在 productization 之上把默认 activation policy 切成 `.accessory`，Dock 不再常驻；菜单栏 status item 是主入口；release_checklist §5b 把 no-Dock 验证写成强制项。
+- L2-L4 仍未完成：Dock 显示开关、菜单栏增强（最近 / 常用 / 索引摘要）、单实例与多 bundle 防护。
 
 ### Run Count 统计范围
+
 - `Run Count` / `打开次数` 只表示通过 SwiftSeek 成功触发 `.open` 的次数。
 - 不读取 macOS 全局启动次数。
 - 不读取系统最近项目。
@@ -107,33 +82,25 @@
 - 不使用 private API。
 
 ### 查询和搜索边界
+
 - 已支持 `ext:` / `kind:` / `path:` / `root:` / `hidden:` / `recent:` / `frequent:`。
-- 已支持 J3 的 wildcard / quote / OR / NOT。
+- 已支持 wildcard / quote / OR / NOT。
 - 仍不做全文内容搜索、OCR、AI 语义搜索、regex、括号表达式。
 
 ### DB footprint
+
 - Compact 模式已将 500k 实测 main DB 从 fullpath 3.46 GB 降到 1.07 GB。
 - Full path substring 模式仍可选，但体积更大。
 - VACUUM / checkpoint 是维护入口，不是替代 compact 的根治方案。
 
 ## 环境约束
 
-### 必须在 macOS 13+ 上构建与运行
-- 目标 `.macOS(.v13)`。
-- Apple Silicon 与 Intel 都可用，release 二进制跟随本机架构。
-
-### 无 Xcode.app 时只能 SwiftPM 构建
-- 仓库未提供 `.xcodeproj` / `.xcworkspace`。
-- 仅安装 Command Line Tools 的机器可用 `swift build` / `swift run ...`。
-
-### 受限沙箱下的构建约束
-```bash
-HOME=/tmp/swiftseek-home \
-CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
-./scripts/build.sh --sandbox
-```
+- macOS 13+。
+- SwiftPM 工程，无 `.xcodeproj` / `.xcworkspace`。
+- 当前本地交付仍是 ad-hoc bundle；正式 Developer ID 签名、notarization、DMG、auto updater 不在当前默认范围。
 
 ## 明确不做
+
 - 全文内容搜索
 - OCR
 - AI 语义搜索
