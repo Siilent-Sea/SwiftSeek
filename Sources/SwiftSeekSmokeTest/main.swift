@@ -4520,6 +4520,71 @@ reporter.check("L3 MenubarStatus.formatRoots: empty → '暂无 root'") {
                          "empty rows → '暂无 root'")
 }
 
+// MARK: - L4 single-instance helper
+
+reporter.check("L4 SingleInstance.chooseSibling: empty list → nil") {
+    let result = SingleInstance.chooseSibling(myPid: 100, candidates: [])
+    try reporter.require(result == nil,
+                         "no candidates → nil; got \(String(describing: result))")
+}
+
+reporter.check("L4 SingleInstance.chooseSibling: only self → nil") {
+    let me = SingleInstance.Sibling(pid: 100, bundlePath: "/A", executablePath: "/A/X")
+    let result = SingleInstance.chooseSibling(myPid: 100, candidates: [me])
+    try reporter.require(result == nil,
+                         "self should be filtered out")
+}
+
+reporter.check("L4 SingleInstance.chooseSibling: multiple siblings → lowest pid wins") {
+    let me = SingleInstance.Sibling(pid: 100, bundlePath: "/Me", executablePath: "/Me/X")
+    let s2 = SingleInstance.Sibling(pid: 50, bundlePath: "/A", executablePath: "/A/X")
+    let s3 = SingleInstance.Sibling(pid: 75, bundlePath: "/B", executablePath: "/B/X")
+    let result = SingleInstance.chooseSibling(myPid: 100, candidates: [me, s2, s3])
+    try reporter.require(result?.pid == 50,
+                         "expected pid 50 (lowest), got \(String(describing: result?.pid))")
+    try reporter.require(result?.bundlePath == "/A",
+                         "bundle path should match the chosen sibling")
+}
+
+reporter.check("L4 SingleInstance.conflictLogLine: includes both pids and both bundle paths") {
+    let sibling = SingleInstance.Sibling(pid: 12345,
+                                         bundlePath: "/Applications/SwiftSeek.app",
+                                         executablePath: "/Applications/SwiftSeek.app/Contents/MacOS/SwiftSeek")
+    let line = SingleInstance.conflictLogLine(
+        ourPid: 67890,
+        ourBundlePath: "/Users/me/dev/SwiftSeek/dist/SwiftSeek.app",
+        ourExecutablePath: "/Users/me/dev/SwiftSeek/dist/SwiftSeek.app/Contents/MacOS/SwiftSeek",
+        sibling: sibling
+    )
+    try reporter.require(line.contains("pid=12345"), "must mention sibling pid")
+    try reporter.require(line.contains("pid=67890"), "must mention our pid")
+    try reporter.require(line.contains("/Applications/SwiftSeek.app"),
+                         "must mention sibling bundle path")
+    try reporter.require(line.contains("/Users/me/dev/SwiftSeek/dist/SwiftSeek.app"),
+                         "must mention our bundle path")
+    try reporter.require(line.contains("deferring"),
+                         "must indicate the new instance is deferring")
+}
+
+reporter.check("L4 SingleInstance.conflictLogLine: '?' fallback when sibling paths unknown") {
+    let sibling = SingleInstance.Sibling(pid: 99, bundlePath: nil, executablePath: nil)
+    let line = SingleInstance.conflictLogLine(
+        ourPid: 1,
+        ourBundlePath: "/X",
+        ourExecutablePath: "/X/Y",
+        sibling: sibling
+    )
+    try reporter.require(line.contains("bundle=?"),
+                         "should fall back to '?' for missing sibling bundle")
+    try reporter.require(line.contains("exec=?"),
+                         "should fall back to '?' for missing sibling exec")
+}
+
+reporter.check("L4 SingleInstance.showSettingsNotificationName: stable + scoped to bundle id") {
+    try reporter.require(SingleInstance.showSettingsNotificationName == "com.local.swiftseek.menubar-agent.show-settings",
+                         "notification name must be stable across builds")
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {

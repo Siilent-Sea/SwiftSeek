@@ -35,6 +35,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSLog("SwiftSeek: bundle=\(BuildInfo.bundlePath)")
         NSLog("SwiftSeek: binary=\(BuildInfo.executablePath)")
 
+        // L4: single-instance defense. Run BEFORE we install any UI,
+        // open the DB, or register the global hotkey so a duplicate
+        // launch does not flicker a second menubar icon, fight over
+        // the hotkey, or (most importantly) write to the same DB
+        // concurrently and trip SQLite "database is locked".
+        //
+        // Defense scope: same `CFBundleIdentifier`. This catches:
+        //   - Repeated `open` of the same `dist/SwiftSeek.app`.
+        //   - `dist/SwiftSeek.app` AND `/Applications/SwiftSeek.app`
+        //     running together (both ship the default
+        //     `com.local.swiftseek` id from package-app.sh).
+        //   - Launch at Login firing while the user double-clicks the
+        //     bundle manually.
+        // Out of scope: instances with different bundle ids (custom
+        // `SWIFTSEEK_BUNDLE_ID=...` repackages). Those are
+        // intentionally treated as different apps by macOS.
+        if maybeDeferToExistingInstance() {
+            return  // we are exiting; nothing else to do
+        }
+        installShowSettingsObserver()
+
         // L1 + L2: pick activation policy BEFORE any window or
         // main-menu installation. L1 introduced `.accessory` as the
         // hard-coded default (menubar-agent / no Dock). L2 makes this
@@ -122,6 +143,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the status menu's "设置…" item, and the J1 reopen path
         // (applicationShouldHandleReopen) still surfaces settings as a
         // fallback if the user double-clicks the bundle a second time.
+    }
+
+    /// L4: scan the running-application table for siblings with the
+    /// same bundle id, log any conflict honestly, ask the survivor
+    /// to surface settings, and exit ourselves. Returns true when we
+    /// are deferring (the caller should `return` immediately and let
+    /// the runloop tear us down); false when we are the first
+    /// instance and should proceed with normal startup.
+    private func maybeDeferToExistingInstance() -> Bool {
+        // Bundle id resolution: prefer the actually-loaded
+        // Info.plist value because tests / repackages can override
+        // it. If the bundle isn't published (raw `swift run` from
+        // the repo without an .app wrapper), `Bundle.main.bundleIdentifier`
+        // is nil — in that path single-instance is best-effort and
+        // we fall back to "no defense" rather than guessing.
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            NSLog("SwiftSeek: single-instance check skipped (Bundle.main.bundleIdentifier is nil; likely raw swift run)")
+            return false
+        }
+        let myPid = ProcessInfo.processInfo.processIdentifier
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+        let candidates: [SingleInstance.Sibling] = running.map { app in
+            SingleInstance.Sibling(pid: app.processIdentifier,
+                                   bundlePath: app.bundleURL?.path,
+                                   executablePath: app.executableURL?.path)
+        }
+        guard let sibling = SingleInstance.chooseSibling(myPid: myPid, candidates: candidates) else {
+            return false  // we are the first / only instance
+        }
+
+        // Log honestly so a user staring at the multi-bundle case
+        // can see exactly which two paths are involved before we
+        // exit.
+        NSLog(SingleInstance.conflictLogLine(
+            ourPid: myPid,
+            ourBundlePath: BuildInfo.bundlePath,
+            ourExecutablePath: BuildInfo.executablePath,
+            sibling: sibling
+        ))
+
+        // Best-effort: ask the older instance to surface its
+        // settings window so the user gets visible feedback that
+        // "the app is already running, here it is" instead of a
+        // silent no-op. We try two activation paths:
+        //   1. Direct NSRunningApplication.activate — most reliable
+        //      when both processes are in the same user session.
+        //   2. DistributedNotification — fallback for rare cases
+        //      where direct activate doesn't surface the window
+        //      (the older instance handles the notification by
+        //      calling showSettings(_:)).
+        if let older = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+            .first(where: { $0.processIdentifier == sibling.pid }) {
+            older.activate(options: [.activateAllWindows])
+        }
+        DistributedNotificationCenter.default().postNotificationName(
+            NSNotification.Name(SingleInstance.showSettingsNotificationName),
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
+
+        // Exit on the next runloop tick so the post above has time
+        // to flush. `NSApp.terminate(nil)` is the polite path; the
+        // older instance survives.
+        DispatchQueue.main.async {
+            NSApp.terminate(nil)
+        }
+        return true
+    }
+
+    /// L4: as the surviving instance, listen for "show settings"
+    /// requests from a later launching instance that detected us
+    /// and is exiting. When a notification arrives, surface the
+    /// settings window so the user sees something happen.
+    private func installShowSettingsObserver() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(SingleInstance.showSettingsNotificationName),
+            object: nil,
+            queue: OperationQueue.main
+        ) { [weak self] _ in
+            // Routes through our existing showSettings path so it
+            // honors J1's "activate before makeKeyAndOrderFront"
+            // ordering and J6's tab-state restoration.
+            self?.showSettings(nil)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

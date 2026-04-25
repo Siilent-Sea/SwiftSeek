@@ -1,8 +1,8 @@
-# SwiftSeek Release Checklist（K6 + L1 单页）
+# SwiftSeek Release Checklist（K6 + L1-L4 单页）
 
 每次发布本地 ad-hoc bundle 前**必须**从干净 workspace 走完整张表。任何一项失败都不算 release-ready。
 
-**当前 release gate** = K6 收口 + L1 menubar-agent 形态默认。未签名 / 未公证 / 无 DMG / 无 auto updater 是当前轨道明确边界，不要在这条路径里夸大交付。L1 起 SwiftSeek 默认 **不显示 Dock 图标**；菜单栏状态项是主入口。
+**当前 release gate** = K6 收口 + L1 menubar-agent 形态默认 + L2 Dock 显示开关 + L3 菜单栏状态可见性 + L4 单实例防护。未签名 / 未公证 / 无 DMG / 无 auto updater 是当前轨道明确边界，不要在这条路径里夸大交付。L1 起 SwiftSeek 默认 **不显示 Dock 图标**；菜单栏状态项是主入口；L4 起重复打开同一 bundle id 的实例会主动 defer + 唤醒旧实例。
 
 ## 0. 前置确认
 
@@ -131,6 +131,39 @@ L3 把菜单栏从"入口"升级为"主入口 + 快速状态面板"。tooltip + 
 - [ ] 索引完成 → 菜单栏图标回 `magnifyingglass` + 索引行变 "空闲"；tooltip 同步
 - [ ] 添加一个不存在路径作为 root（或删除已存在 root 的目录后 "重新检查权限"）→ tooltip 与菜单 roots 行包含 "不健康"
 - [ ] 点菜单栏 → "搜索…" / "设置…" / "退出 SwiftSeek" 仍正常工作（L1/L2 不回归）
+
+## 5e. L4 单实例 / 多 bundle 防护验证（每次发布必跑）
+
+L4 实现 single-instance defense：同 `CFBundleIdentifier` 的第二份实例启动时主动 defer + 唤醒旧实例。
+
+- [ ] **场景 A — 同一 `.app` 双击两次**：
+  - `open dist/SwiftSeek.app` → 等菜单栏图标出现 → 再次 `open dist/SwiftSeek.app`
+  - `pgrep SwiftSeek` 仍只有一个 PID
+  - 菜单栏仍只一个图标
+  - 旧实例的设置窗口前置（DistributedNotification → showSettings 路径）
+  - Console 过滤 SwiftSeek，新实例的 K1 三连之后有一行 `another instance detected — sibling pid=...`
+- [ ] **场景 B — `dist` 与 `/Applications` 并存**：
+  - `cp -R dist/SwiftSeek.app /Applications/`
+  - `open dist/SwiftSeek.app` → 等菜单栏出现
+  - `open /Applications/SwiftSeek.app`
+  - 仍只一个菜单栏图标 + 一个 PID
+  - 第二启动方的 NSLog 冲突日志同时显示两条 bundle path（`dist/...` 和 `/Applications/...`）
+  - 用户能从日志看出哪个先启动 / 哪个被 defer
+- [ ] **场景 C — Launch at Login + 手动启动**：
+  - 设置 → 常规 → 勾选 Launch at Login → 退出 SwiftSeek
+  - 注销重登 → SwiftSeek 自动启动
+  - 立即手动 `open dist/SwiftSeek.app`
+  - 仍只一个 PID + 一个菜单栏图标
+- [ ] **场景 D — defer 不破坏 L1/L2/L3**：
+  - 上面三个场景之后，旧实例：
+    - 菜单栏图标仍可点
+    - 全局热键 `⌥Space` 仍有效
+    - 设置窗口可正常打开
+    - tooltip / 菜单状态行仍可见（L3）
+- [ ] **swift run dev 路径降级行为**：
+  - `swift run SwiftSeek`（不打包，无 Bundle.main.bundleIdentifier）
+  - Console 有 `single-instance check skipped (Bundle.main.bundleIdentifier is nil; likely raw swift run)` 一行
+  - 这是 dev 路径已知降级，release 路径不受影响
 
 ## 6. 设置窗口生命周期 Release Gate
 

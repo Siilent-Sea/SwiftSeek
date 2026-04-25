@@ -43,16 +43,23 @@
 - 当前 status item 的"退出 SwiftSeek"是关键路径，必须纳入 release gate。
 - 如果 status item 异常，文档需要保留备用路径，例如 Activity Monitor、`pkill -f SwiftSeek` 或重新打开 app 后退出。
 
-### 6. 多开 / 旧 bundle 风险仍存在
+### 6. 多开 / 旧 bundle 防护（L4 已落地）
 
-- productization 轨道已补 build identity 和 stale bundle 排查，但当前没有单实例保护。
-- 同一台机器仍可能同时存在：
-  - `dist/SwiftSeek.app`
-  - `/Applications/SwiftSeek.app`
-  - `~/Downloads/SwiftSeek.app`
-  - `.build/release/SwiftSeek`
-- 菜单栏 agent 形态下，多开更难被用户注意到，可能出现多个菜单栏图标、hotkey 争用、DB 写竞争或操作到旧 build。
-- L4 需要单实例 / 多 bundle 防护与最终收口。
+- `Sources/SwiftSeekCore/SingleInstance.swift` 提供纯函数 `chooseSibling(myPid:candidates:)` 与 `conflictLogLine(...)`；AppDelegate 在 `applicationDidFinishLaunching` 用 `NSRunningApplication.runningApplications(withBundleIdentifier:)` 拉同 bundle id 实例列表，过滤掉自己 pid，挑最低 pid 作为 canonical owner。
+- 检测维度：
+  - 同一 `dist/SwiftSeek.app` 重复打开
+  - `dist/SwiftSeek.app` 与 `/Applications/SwiftSeek.app` 并存（两份默认共享 `com.local.swiftseek` bundle id）
+  - Launch at Login 与手动启动并发
+- 检测到旧实例时：
+  - NSLog 一行冲突信息：`SwiftSeek: another instance detected — sibling pid=... bundle=... exec=...; our pid=... bundle=... exec=...; deferring to sibling and exiting`
+  - 直接调 `NSRunningApplication.activate(options: [.activateAllWindows])` 把旧实例前置
+  - 同时 `DistributedNotificationCenter` 广播 `com.local.swiftseek.menubar-agent.show-settings`，旧实例收到后调 `showSettings(nil)` 弹设置窗口给用户视觉反馈
+  - 新实例 `NSApp.terminate(nil)` 退出，不长期常驻、不抢菜单栏图标、不抢 hotkey、不写 DB
+- 边界（仍需保留）：
+  - 用户在打包时用 `SWIFTSEEK_BUNDLE_ID=...` 自定义不同 bundle id 的两个 build：会被视为不同 app，单实例检查不跨它们触发（这是 macOS 行为，也是设计预期）
+  - 跨用户 / 跨登录会话：`NSRunningApplication.runningApplications(withBundleIdentifier:)` 仅返回当前用户会话的进程；跨用户多实例不在本轨道范围
+  - `swift run SwiftSeek`（直接源码跑，不打包）：`Bundle.main.bundleIdentifier` 为 nil，单实例检查跳过 + NSLog 提示；这是 dev 路径已知降级
+- 排查路径：Console.app 过滤 SwiftSeek，第一行有 K1 build identity 三连，紧接着如果检测到冲突会有上述 NSLog；用户根据两个 bundle path 决定退掉哪一个（菜单栏 → 退出 SwiftSeek 或 `pkill`）。
 
 ### 7. Dock 显示开关（L2 已落地）
 

@@ -1426,6 +1426,80 @@ L3 把菜单栏从"入口"升级为"主入口 + 快速状态面板"。tooltip + 
 - L3 **不读取** macOS 全局最近项目 / Finder 历史 / 系统启动次数 / private API
 - L3 **不做** 弹窗 dashboard 或菜单栏 popover；只是 NSMenu + NSStatusItem.button.toolTip
 
+### 33ab. L4 单实例 / 多 bundle 防护验证（everything-menubar-agent）
+
+L4 是 menubar-agent 轨道的最终阶段。本节是 release_checklist §5e 的展开版，覆盖单实例检查的几条主路径与诚实边界。
+
+#### 准备
+- 干净 workspace
+- §33t 打过的 `dist/SwiftSeek.app`，GitCommit 与 HEAD 一致
+- `pkill -f SwiftSeek` 直到 `pgrep SwiftSeek` 无输出
+
+#### 1. 同一 `.app` 双击两次
+1. `open dist/SwiftSeek.app`
+2. 等菜单栏放大镜图标出现，记下 `pgrep SwiftSeek` 输出的 PID（设为 P1）
+3. 再次 `open dist/SwiftSeek.app`
+4. **预期**：
+   - `pgrep SwiftSeek` 仍只有 P1 一个 PID
+   - 菜单栏仍只一个放大镜图标
+   - 设置窗口前置（旧实例响应 DistributedNotification）
+   - Console.app 过滤 SwiftSeek，看到第二启动方先打 K1 三连，紧接着一行：
+     ```
+     SwiftSeek: another instance detected — sibling pid=<P1> bundle=<dist 路径> exec=<...>; our pid=<P2> bundle=<dist 路径> exec=<...>; deferring to sibling and exiting
+     ```
+   - 第二启动方进程消失（NSApp.terminate），P2 不在 `pgrep` 输出里
+
+#### 2. dist 与 /Applications 并存
+1. `pkill -f SwiftSeek` 清干净
+2. `cp -R dist/SwiftSeek.app /Applications/`（确认 `/Applications/SwiftSeek.app` 与 `dist/SwiftSeek.app` 内容一致）
+3. `open dist/SwiftSeek.app`，等菜单栏出现
+4. `open /Applications/SwiftSeek.app`
+5. **预期**：
+   - 仍只一个 PID + 一个菜单栏图标
+   - Console 看到冲突日志，sibling bundle 是 `dist/...`，our bundle 是 `/Applications/...`（或反过来，取决于哪个先启动）
+   - 用户能从日志的两条 bundle path 立刻看出哪个是旧 / 哪个是新
+6. 反过来：先 `open /Applications/SwiftSeek.app`，再 `open dist/SwiftSeek.app` → 同样 defer
+
+#### 3. Launch at Login + 手动启动
+1. SwiftSeek 已启动 → 设置 → 常规 → 勾选 "随 macOS 登录自动启动 SwiftSeek"（如可用）
+2. 退出 SwiftSeek（菜单栏 → 退出）
+3. 注销当前用户 → 重新登录
+4. **预期**：登录后 SwiftSeek 自动启动（菜单栏图标出现）
+5. 立即 `open dist/SwiftSeek.app`（或双击 Finder 中的 `.app`）
+6. **预期**：手动启动方 defer，仍只一个 PID
+
+#### 4. 旧实例响应 + 不影响 L1/L2/L3
+1. 上述任一场景之后，验证旧实例完整功能：
+   - 菜单栏图标点击弹菜单（L1/L3 入口）
+   - 全局热键 `⌥Space` 唤出搜索窗（L1）
+   - 菜单栏 → 设置 → 改 Dock 显示开关 → 退出 → 重启（L2）
+   - 悬停菜单栏看 tooltip 5 行（L3）
+   - 添加 root → 索引中状态切换（L1+L3 联动）
+   - 菜单栏 → 退出 SwiftSeek（L1）
+2. **预期**：所有功能不回归
+
+#### 5. swift run dev 路径降级
+1. `pkill -f SwiftSeek` → `swift run SwiftSeek`
+2. Console 看到：`SwiftSeek: single-instance check skipped (Bundle.main.bundleIdentifier is nil; likely raw swift run)`
+3. 没有冲突日志（因为 bundle id 拿不到，跳过检查）
+4. 这是 dev 路径设计降级，不影响 release 路径
+
+#### 6. 重启稳定性（残留进程检查）
+1. 重复 §1 的双击场景 5 次
+2. 每次结束后跑 `pgrep SwiftSeek`
+3. **预期**：每次结束后只有 0 个或 1 个 PID（取决于是否还有运行实例），不会逐次累积成 2、3、4 个
+
+#### 7. 边界：明确不防护
+- 用 `SWIFTSEEK_BUNDLE_ID=com.example.alt ./scripts/package-app.sh` 打不同 bundle id 的两份 build → 同时启动**会**留两个菜单栏图标。这不是 bug — macOS 视为不同 app，本轨道刻意不跨它们防护
+- 跨用户会话（不同 macOS 登录用户同时跑 SwiftSeek）：单实例检查只看当前会话内的进程，跨用户**不防护**
+- 用户用 Activity Monitor 强制 kill 旧实例的瞬间，新启动的实例可能没看到 sibling → 短暂双实例窗口正常存在
+
+#### 8. 失败处置
+- 如出现两个长期常驻菜单栏图标 → 单实例检查失败：
+  - 看 Console 第二启动方有没有 K1 三连 + 冲突日志
+  - 没有冲突日志 = `runningApplications(withBundleIdentifier:)` 没返回 sibling，可能是 LaunchServices 缓存问题；先重启系统再复测
+  - 有冲突日志但新实例没退出 = `NSApp.terminate(nil)` 路径阻塞；这是 bug，记入 release notes 并 ❌
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

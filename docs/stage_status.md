@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-menubar-agent`
 - 当前阶段：`L4`
-- 当前状态：L3 已通过 Codex 验收；L4 待 Claude 执行
+- 当前状态：L4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -228,6 +228,19 @@
 - L1 no Dock、L2 Dock 显示开关、L3 菜单栏状态不回归。
 - 文档足够让非作者执行安装、升级、回滚、排查和 release QA。
 - 没有越界到正式发行机制或新搜索能力。
+
+### L4 实现已落地（待 Codex 最终验收 / PROJECT COMPLETE 候选）
+
+- `Sources/SwiftSeekCore/SingleInstance.swift`（新文件，纯函数 / AppKit-free）：`Sibling { pid, bundlePath, executablePath }`、`chooseSibling(myPid:candidates:)`（过滤掉自己 + 选最低 pid 作 canonical owner）、`conflictLogLine(...)`（一行 NSLog 文本，包含两 pid + 两 bundle path + 两 executable path + "deferring to sibling and exiting"）、`showSettingsNotificationName = "com.local.swiftseek.menubar-agent.show-settings"`（DistributedNotification name）。
+- `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 在 K1 build identity 三连之后立即跑 `maybeDeferToExistingInstance()`：用 `NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier!)` 拉同 bundle id 进程列表 → `SingleInstance.chooseSibling` → 命中时 NSLog `conflictLogLine`，调 `older.activate(options: [.activateAllWindows])` 直接前置旧实例，`DistributedNotificationCenter.default().postNotificationName(...)` 广播让旧实例弹设置窗口，然后 `DispatchQueue.main.async { NSApp.terminate(nil) }` 自杀；返回 true 后整个 `applicationDidFinishLaunching` early return，不安装 statusItem / hotkey / DB。Bundle id 为 nil（`swift run` 直跑）时 NSLog 跳过提示并 fall through 到正常启动。`installShowSettingsObserver()` 注册 DistributedNotification 监听把后续 "show settings" 请求接到现有 `showSettings(_:)` 路径（J1 顺序保留）。
+- `Sources/SwiftSeekSmokeTest/main.swift`：6 个 L4 用例（chooseSibling 空列表 / 仅自己 / 多 sibling 取最低 pid / conflictLogLine 包含两 pid 两 bundle / nil sibling 路径 → "?" fallback / showSettingsNotificationName 稳定）。SmokeTest 总数 217 → 223。
+- `docs/install.md`：默认形态段 "双击 app 已经在跑会怎样" 改写为 L4 已落地，列出冲突日志格式 + 适用场景 + 不在范围（自定义 bundle id / dev swift run / 跨用户）。
+- `docs/release_checklist.md`：header 改成 "K6 + L1-L4"；新增 §5e "L4 单实例 / 多 bundle 防护验证"，覆盖场景 A-D + dev 路径降级。
+- `docs/known_issues.md` §6 改写为 L4 已落地，列触发路径 / NSLog 行 / 不防护边界 / 排查路径。
+- `docs/manual_test.md` §33ab：8 节 L4 手测矩阵（同 .app 双击 / dist+/Applications 并存 / Launch at Login + 手动 / 旧实例不回归 L1/L2/L3 / swift run 降级 / 重启稳定性 / 不防护边界 / 失败处置）。
+- 受限沙箱 build OK；SmokeTest 223/223；package-app 仍可重复跑通。GUI 多实例 / Launch at Login 场景仍按 §33ab 与 release_checklist §5e 作为每次发布手测。
+
+如 Codex 接受 L4，本轨道 `everything-menubar-agent` 满足 `PROJECT COMPLETE` 条件：L1 默认 no Dock、L2 Dock 可选、L3 菜单栏状态可见、L4 单实例防护，全 4 阶段完成；K1-K6 不回退；文档同源；release gate 完整。
 
 ## 后续阶段索引
 
