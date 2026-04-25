@@ -8,7 +8,7 @@
 
 - `AppDelegate.applicationDidFinishLaunching` 在最早期（NSLog build identity 三连之后）调用 `NSApp.setActivationPolicy(.accessory)`，使 Dock 不显示 SwiftSeek 图标。
 - `Info.plist` 仍保留 `LSUIElement=false`：选择运行时 activation policy 而非 plist `LSUIElement=true` 的取舍写在 `scripts/package-app.sh` 注释和 `docs/install.md` 默认形态段。
-- L2 会基于 runtime activation policy 加 "显示 Dock 图标" 设置开关；plist 路径保留以便 L2 不需要 user 重打包就能切。
+- L2 已基于 runtime activation policy 加 "显示 Dock 图标" 设置开关；plist 路径保留，用户不需要重打包就能切换下次启动的 Dock 可见性。
 - 在 ad-hoc / 未签名 bundle 上，不同 macOS 版本对 activation policy 的稳定性仍需手测；release checklist §5b 强制每次发布手动确认。
 
 ### 2. 菜单栏 status item 是默认主入口（L1 已落地）
@@ -70,11 +70,11 @@
 
 ## 已归档能力与仍保留边界
 
-### Productization 已完成；L1 已把默认形态切到菜单栏 agent
+### Productization 已完成；L1/L2 已把默认形态与 Dock 恢复策略收口
 
 - `everything-productization` 已完成可重复 `.app` 打包、Info.plist / icon / ad-hoc codesign、build identity、diagnostics、install / rollback 文档、Full Disk Access / root 覆盖引导和 release checklist。
 - L1 在 productization 之上把默认 activation policy 切成 `.accessory`，Dock 不再常驻；菜单栏 status item 是主入口；release_checklist §5b 把 no-Dock 验证写成强制项。
-- L2-L4 仍未完成：Dock 显示开关、菜单栏增强（最近 / 常用 / 索引摘要）、单实例与多 bundle 防护。
+- L2 已补 Dock 显示开关与重启生效策略；L3-L4 仍未完成：菜单栏增强（最近 / 常用 / 索引摘要）、单实例与多 bundle 防护。
 
 ### Run Count 统计范围
 

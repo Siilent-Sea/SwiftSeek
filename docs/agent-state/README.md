@@ -11,7 +11,7 @@
 ## 当前轨道
 
 - 当前活跃轨道：`everything-menubar-agent`
-- 当前阶段：`L2`
+- 当前阶段：`L3`
 - 当前验收 session：`019dc5fc-318e-7d31-bb00-2810eaf6642c`
 - 要求：`everything-menubar-agent` 必须继续使用这个新的 Codex 验收 session。
 - 禁止：不得复用已归档 `everything-productization` session `019dc54e-017d-7de3-a24f-35c23f09ce08`，也不得复用更早轨道 session。
@@ -22,7 +22,7 @@
 
 - 正常情况下只存当前活跃轨道的 Codex 验收 session id
 - 当前文件应为 `019dc5fc-318e-7d31-bb00-2810eaf6642c`
-- Claude / Codex 后续 L2-L4 验收应优先恢复这个 session，而不是使用 `resume --last`
+- Claude / Codex 后续 L3-L4 验收应优先恢复这个 session，而不是使用 `resume --last`
 
 ### `codex-acceptance-session.json`
 

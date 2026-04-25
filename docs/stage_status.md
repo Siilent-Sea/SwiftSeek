@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-menubar-agent`
-- 当前阶段：`L2`
-- 当前状态：L2 实现已就位，待 Codex 验收
+- 当前阶段：`L3`
+- 当前状态：L2 已通过 Codex 验收；L3 待 Claude 执行
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -104,7 +104,7 @@
 - Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 209/209 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=d5cad2b`，`codesign` 显示 ad-hoc 签名。
 - 受限沙箱不能执行真实 GUI Dock 可见性和菜单栏点击模拟；这些仍按 `docs/manual_test.md` §33y 作为每次发布必跑手测。
 
-## 当前阶段：L2
+## 已通过阶段：L2
 
 ### 阶段目标
 
@@ -137,7 +137,7 @@
 - 文档同步，不再把 Dock 显示开关写成未完成项。
 - 没有提前实现 L3/L4。
 
-### L2 实现已落地（待 Codex 验收）
+### L2 Codex 验收结论：PASS
 
 - `Sources/SwiftSeekCore/SettingsTypes.swift`：新增 `SettingsKey.dockIconVisible`（DB key `dock_icon_visible`），值 `"1"` = 显示 Dock，`"0"` / 缺失 = L1 默认 no Dock；`Database` extension 加 `getDockIconVisible() throws -> Bool` / `setDockIconVisible(_ visible: Bool) throws`，与 hidden / launch-at-login 等已有 settings 同模式。
 - `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 顺序固定为 — 先 `.accessory` 兜底 → DB 打开 → 读 `getDockIconVisible()` → 若为 true 切 `.regular` 并 NSLog `Dock icon visible (user preference)`，否则 NSLog `Dock icon hidden (L1 default)`；读失败保持 L1 默认 + NSLog 错误。声明实时切换不可靠：runtime `.regular` ↔ `.accessory` transition 在 ad-hoc 包上不稳定，因此 L2 是"持久化设置 + 重启生效"路径。
@@ -147,7 +147,41 @@
 - `docs/release_checklist.md`：新增 §5c "L2 Dock 显示开关验证"（10 项必跑）。
 - `docs/known_issues.md` §7 改写为 L2 已落地，写明持久化 key、应用时机、为什么不做 live transition、release_checklist §5c 强制手测。
 - `docs/manual_test.md` §33z：8 节 L2 手测矩阵（全新 DB 默认 / 切到 Dock visible / Dock visible 入口 / 切回 no Dock / 反复切换稳定性 / DB 异常值 fallback / 与其他设置无干扰 / 边界）。
-- 受限沙箱下 build OK；SmokeTest 212/212；package-app 仍可重复跑通；GUI Dock visible/hidden 切换仍按 §33z 作为每次发布手测。
+- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 212/212 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=5ff1334`，`codesign` 显示 ad-hoc 签名。
+- 受限沙箱不能执行真实 GUI Dock visible/hidden 跨启动切换、菜单栏点击、设置 note 文本和跨模式入口验证；这些仍按 `docs/manual_test.md` §33z 与 `docs/release_checklist.md` §5c 作为每次发布必跑手测。
+
+## 当前阶段：L3
+
+### 阶段目标
+
+让菜单栏成为真正主入口：用户不用先打开设置窗口，也能快速确认当前构建、索引状态、索引模式、root 健康和 DB 简况，并能直达现有最近 / 常用能力。
+
+### L3 必须完成
+
+- 增强菜单栏菜单结构，保留搜索 / 设置 / 索引状态 / 退出，同时新增 build identity、index mode、root 简况、DB 大小等只读状态。
+- 增强 status item tooltip，短文本展示版本 / commit、索引状态、索引模式和 root 简况。
+- 菜单打开前或状态变化时刷新菜单状态；读取失败时显示可理解的降级文案，不 crash。
+- 如接入最近打开 / 常用，只能基于 SwiftSeek 内部 `file_usage` 表，不读系统全局历史。
+- 更新 install / manual test / release checklist / known issues。
+
+### L3 禁止事项
+
+- 不做单实例 / 多 bundle 防护
+- 不做正式签名 / notarization / DMG / auto updater
+- 不做完整菜单栏 dashboard 或复杂弹窗控制台
+- 不新增全文搜索、AI、OCR、云盘一致性、Finder 插件或系统全局历史读取
+- 不提前实现 L4
+
+### L3 完成判定标准
+
+只有同时满足以下条件，L3 才能提交 Codex 验收：
+
+- 菜单栏搜索、设置、退出和 L1/L2 行为不回归。
+- tooltip 与菜单能展示 build identity、索引状态、索引模式、root/DB 简况。
+- 索引状态变化能更新到菜单或 tooltip。
+- 状态读取失败有降级文案，不破坏主入口。
+- 最近 / 常用若实现，必须受 usage history 数据和隐私设置约束。
+- 文档同步，且没有提前实现 L4。
 
 ## 后续阶段索引
 

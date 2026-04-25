@@ -1,14 +1,14 @@
 {
   "track": "everything-menubar-agent",
-  "stage": "L2",
+  "stage": "L3",
   "session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state for everything-menubar-agent. L1 passed in this session; next acceptance target is L2.",
+  "purpose": "Current active track acceptance state for everything-menubar-agent. L1 and L2 passed in this session; next acceptance target is L3.",
   "last_verdict": "PASS",
-  "last_verdict_round": "L1 round 1",
+  "last_verdict_round": "L2 round 1",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "L1 delivered runtime .accessory no-Dock behavior after build identity logs, kept LSUIElement=false with documented tradeoff, removed launch-time settings auto-show, updated release/install/known/manual docs, and passed build, 209/209 smoke, package, plist, codesign, and icon checks at HEAD d5cad2b. GUI Dock/menu click checks remain manual per docs/manual_test.md §33y.",
-  "passed_stages": ["L1"],
+  "last_verdict_reason": "L2 delivered persisted dock_icon_visible intent, launch-time .accessory fallback plus optional .regular user preference, Settings UI restart-required note, 3 smoke tests, and docs/manual/release gates. Build, 212/212 smoke, package, plist, codesign, and icon checks passed at HEAD 5ff1334. GUI Dock/menu cross-mode checks remain manual per docs/manual_test.md §33z.",
+  "passed_stages": ["L1", "L2"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
