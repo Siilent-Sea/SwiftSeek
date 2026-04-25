@@ -64,12 +64,25 @@ open dist/SwiftSeek.app
 
 - **没有** Dock 图标
 - **菜单栏右上角** 出现放大镜（`NSStatusItem`，模板图标会自动适配明暗主题）
-- 左键点菜单栏图标 → 弹出菜单：
+- **悬停**菜单栏图标 → tooltip 显示 5 行快速状态（L3 已落地）：
+  - `SwiftSeek <ver> commit=<hash> build=<date>`
+  - `索引：<空闲 / 索引中 · N/M roots>`
+  - `模式：<Compact / Full path / —>`
+  - `roots：<总数 个（启用数 启用[，不健康数 不健康]）/ 暂无 root>`
+  - `DB 大小：<人类可读字节数 / —>`
+- 左键点菜单栏图标 → 弹出菜单（L3 已增强）：
   - `搜索…` ⌥Space
   - `设置…` ⌘,
-  - `索引：空闲` / `索引中 · N/M roots`（只显示，不可点）
+  - ─── 只读状态行（disabled，非可点）：
+    - `索引：空闲` / `索引中 · N/M roots`
+    - `SwiftSeek <ver> commit=<hash> build=<date>`
+    - `模式：<Compact / Full path / —>`
+    - `roots：<...>`
+    - `DB 大小：<...>`
   - `退出 SwiftSeek` ⌘Q
+- 状态行每次打开菜单都会刷新（`menuNeedsUpdate`），索引中状态变化也会立即更新 tooltip
 - 全局热键 `⌥Space`（默认）随时唤出搜索窗，与菜单栏可见性无关
+- 本菜单**不读取**系统全局最近项目 / Finder 历史 / private API；roots 健康判定与 K5 RootHealth 同源
 
 ### 实现方式（仅供排查参考）
 

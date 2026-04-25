@@ -62,11 +62,15 @@
 - 切换时不会丢失菜单栏入口；两种模式下菜单栏 status item 都常驻。
 - macOS activation policy 在不同版本和 LaunchServices 缓存下表现可能有差异；release_checklist §5c 保留为每次发布必跑手测。
 
-### 8. 菜单栏状态信息仍偏基础
+### 8. 菜单栏状态可见性（L3 已落地）
 
-- 当前 status item tooltip 只是"SwiftSeek 搜索"。
-- 菜单里只有基本索引状态，没有 build version、index mode、root count、DB 大小等简要信息。
-- L3 会把菜单栏从入口扩展成可快速判断状态的主入口，但不做臃肿 dashboard。
+- `Sources/SwiftSeekCore/MenubarStatus.swift` 提供纯函数 `MenubarStatus.snapshot(database:indexingDescription:)` + `tooltipText(snapshot:)`，组合 BuildInfo + IndexMode + listRoots + RootHealth + DatabaseStats 得到 5 行 tooltip 与 5 行只读菜单状态。
+- AppDelegate 菜单结构：搜索 / 设置 / ─── / 索引 / build / 模式 / roots / DB 大小 / ─── / 退出。新增 4 个 disabled NSMenuItem（build / 模式 / roots / DB 大小）只读状态行。
+- 刷新时机：installStatusItem 初始填充 + `NSMenuDelegate.menuNeedsUpdate(_:)` 每次菜单打开 + `reflectRebuildState(_:)` 索引中/空闲切换。
+- tooltip 与菜单状态文本同源；不重复 K3 `Diagnostics.snapshot` 的全文（仍走"复制诊断信息"按钮）。
+- 不读取 macOS 全局最近项目 / Finder 历史 / private API；roots 健康判定使用 K5 `computeRootHealthReport`。
+- 不做完整菜单栏 dashboard 或弹窗控制台；当前 L3 只做只读状态，最近 / 常用入口未在 round 1 实现（taskbook 标"如果实现"）。
+- 读取失败的降级文案：indexMode 读不到 → "—"；listRoots 失败 → "读取 roots 失败"；mainFileBytes < 0 → "DB 大小：—"；DB 不可用（未初始化）→ tooltip 回退为"SwiftSeek 搜索"，菜单状态行保持初始 placeholder。
 
 ## 已归档能力与仍保留边界
 

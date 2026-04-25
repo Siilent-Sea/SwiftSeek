@@ -9,9 +9,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var rebuildCoordinator: RebuildCoordinator?
     private var statusItem: NSStatusItem?
     private var statusIndexingItem: NSMenuItem?
+    // L3: status-only menu rows for build identity, index mode, root
+    // summary, and DB size. Refreshed in `menuNeedsUpdate(_:)` so the
+    // user sees current state every time they pop the menu.
+    private var statusBuildItem: NSMenuItem?
+    private var statusModeItem: NSMenuItem?
+    private var statusRootsItem: NSMenuItem?
+    private var statusDBItem: NSMenuItem?
     private(set) var database: Database?
 
     private let hotkeyAlertedKey = "SwiftSeek.hotkey_fail_alerted_v1"
+
+    /// L3: cache the most recent indexing description string so
+    /// `MenubarStatus.snapshot` can include it without poking
+    /// RebuildCoordinator from the formatter (Core stays AppKit-free).
+    private var lastIndexingDescription: String = "空闲"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // K1: log build identity FIRST so stale-bundle / wrong-binary
@@ -253,6 +265,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
+        // L3: NSMenuDelegate so we can refresh status rows when the
+        // user pops the menu (instead of trying to push every state
+        // change into the menu, which would require listening on
+        // settings/db churn that L3 explicitly avoids).
+        menu.delegate = self
 
         let searchItem = NSMenuItem(title: "搜索…",
                                     action: #selector(toggleSearchWindow(_:)),
@@ -275,6 +292,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(indexingItem)
         self.statusIndexingItem = indexingItem
 
+        // L3: read-only status rows. Disabled (non-clickable) so they
+        // visually read as state, not actions. Wording is filled in
+        // by `refreshMenubarStatus()` on every menu open and again
+        // when rebuild state changes.
+        let buildItem = NSMenuItem(title: BuildInfo.summary, action: nil, keyEquivalent: "")
+        buildItem.isEnabled = false
+        menu.addItem(buildItem)
+        self.statusBuildItem = buildItem
+
+        let modeItem = NSMenuItem(title: "模式：—", action: nil, keyEquivalent: "")
+        modeItem.isEnabled = false
+        menu.addItem(modeItem)
+        self.statusModeItem = modeItem
+
+        let rootsItem = NSMenuItem(title: "roots：—", action: nil, keyEquivalent: "")
+        rootsItem.isEnabled = false
+        menu.addItem(rootsItem)
+        self.statusRootsItem = rootsItem
+
+        let dbItem = NSMenuItem(title: "DB 大小：—", action: nil, keyEquivalent: "")
+        dbItem.isEnabled = false
+        menu.addItem(dbItem)
+        self.statusDBItem = dbItem
+
         menu.addItem(NSMenuItem.separator())
 
         let quitItem = NSMenuItem(title: "退出 SwiftSeek",
@@ -285,6 +326,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         item.menu = menu
         self.statusItem = item
+
+        // Initial population so first hover (before menu open) and
+        // tooltip already reflect real state.
+        refreshMenubarStatus()
+    }
+
+    /// L3: pull fresh state from Core's MenubarStatus formatter and
+    /// shove it into the status-only menu items + button tooltip.
+    /// Called on installStatusItem (initial), `menuNeedsUpdate(_:)`
+    /// (every menu open), and from `reflectRebuildState(_:)` (so the
+    /// tooltip's index line stays current even while the menu is
+    /// closed).
+    fileprivate func refreshMenubarStatus() {
+        guard let db = database else {
+            // Pre-DB state: leave the seeded "—" placeholders. Better
+            // than crashing or pretending we have stats.
+            statusItem?.button?.toolTip = "SwiftSeek 搜索"
+            return
+        }
+        let snapshot = MenubarStatus.snapshot(database: db,
+                                              indexingDescription: lastIndexingDescription)
+        statusBuildItem?.title = snapshot.buildSummary
+        statusIndexingItem?.title = "索引：\(snapshot.indexingDescription)"
+        statusModeItem?.title = "模式：\(snapshot.indexModeLabel)"
+        statusRootsItem?.title = "roots：\(snapshot.rootsLabel)"
+        statusDBItem?.title = snapshot.dbSizeLabel
+        statusItem?.button?.toolTip = MenubarStatus.tooltipText(snapshot: snapshot)
     }
 
     private func reflectRebuildState(_ state: RebuildCoordinator.State) {
@@ -292,6 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .idle:
             statusIndexingItem?.title = "索引：空闲"
+            lastIndexingDescription = "空闲"
             if let img = NSImage(systemSymbolName: "magnifyingglass",
                                  accessibilityDescription: nil) {
                 img.isTemplate = true
@@ -302,6 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case let .rebuilding(_, processed, total):
             let totalText = total > 0 ? "\(processed)/\(total) roots" : "启动…"
             statusIndexingItem?.title = "索引中 · \(totalText)"
+            lastIndexingDescription = "索引中 · \(totalText)"
             if let img = NSImage(systemSymbolName: "magnifyingglass.circle",
                                  accessibilityDescription: nil) {
                 img.isTemplate = true
@@ -310,6 +380,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.title = " 索引中…"
             button.imagePosition = .imageLeft
         }
+        // L3: refresh tooltip + status rows so the menubar's quick
+        // glance always reflects the current indexing state, even
+        // when the user hasn't popped the menu yet.
+        refreshMenubarStatus()
     }
 
     private func presentFatal(error: Error) {
@@ -320,5 +394,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "退出")
         alert.runModal()
         NSApp.terminate(nil)
+    }
+}
+
+// MARK: - L3 NSMenuDelegate
+
+/// L3: refresh the status menu's read-only state rows whenever the
+/// user pops the menu. Keeps DB / settings reads out of every state
+/// change path; we only pay the cost when the menu is actually
+/// being viewed.
+extension AppDelegate: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        // Only one menu uses this delegate (the status item's menu),
+        // so no menu === statusItem?.menu identity check needed; if
+        // we add more delegate-using menus later, gate here.
+        refreshMenubarStatus()
     }
 }

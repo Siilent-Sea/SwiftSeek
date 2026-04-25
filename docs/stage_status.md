@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-menubar-agent`
 - 当前阶段：`L3`
-- 当前状态：L2 已通过 Codex 验收；L3 待 Claude 执行
+- 当前状态：L3 实现已就位，待 Codex 验收
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -182,6 +182,18 @@
 - 状态读取失败有降级文案，不破坏主入口。
 - 最近 / 常用若实现，必须受 usage history 数据和隐私设置约束。
 - 文档同步，且没有提前实现 L4。
+
+### L3 实现已落地（待 Codex 验收）
+
+- `Sources/SwiftSeekCore/MenubarStatus.swift`（新文件，纯函数 / AppKit-free）：`MenubarStatus.snapshot(database:indexingDescription:)` 返回 `Snapshot { buildSummary, indexingDescription, indexModeLabel, rootsLabel, dbSizeLabel }`；`tooltipText(snapshot:)` 组装 5 行 tooltip；`formatRoots(rows:database:)` 统一计算 "N 个（M 启用[，K 不健康]）" / "暂无 root"。读取失败 fall back 到 "—" / "读取 roots 失败"。
+- `Sources/SwiftSeek/App/AppDelegate.swift`：`installStatusItem` 增加 4 个 disabled NSMenuItem（build / 模式 / roots / DB 大小），位置在 `索引：…` 下方；`refreshMenubarStatus()` 把 MenubarStatus.snapshot 文本写到状态行 + button.toolTip；NSMenuDelegate `menuNeedsUpdate(_:)` 每次菜单打开刷新；`reflectRebuildState(_:)` 同时把 lastIndexingDescription 写回 Core 调用并刷新 tooltip，让索引中状态在菜单关闭时也更新。
+- `Sources/SwiftSeekSmokeTest/main.swift`：5 个 L3 用例（empty DB / roots count / unhealthy roots / tooltip 5-line format / formatRoots empty）。SmokeTest 总数 212 → 217。
+- `docs/install.md`：默认形态段更新"启动后看到什么"列出 tooltip 5 行 + 菜单状态行；说明刷新时机；强调不读系统全局历史 / private API。
+- `docs/release_checklist.md`：新增 §5d "L3 菜单栏状态可见性验证"（10+ 项必跑）。
+- `docs/known_issues.md` §8 改写为 L3 已落地，列结构、刷新时机、fallback 文案、不做项。
+- `docs/manual_test.md` §33aa：9 节 L3 手测矩阵（tooltip / 菜单结构 / 索引状态切换 / roots 变化 / 模式切换 / DB 大小 / Dock visible 模式不破坏 / 读取失败 fallback / 不实现项边界）。
+- 受限沙箱下 build OK；SmokeTest 217/217；package-app 仍可重复跑通。GUI tooltip / 菜单 / 索引状态切换仍按 §33aa 与 release_checklist §5d 作为每次发布手测。
+- L3 round 1 **不接入** 最近打开 / 常用子菜单（taskbook 标 "如果实现"）；如 Codex 验收要求补再做 round 2。
 
 ## 后续阶段索引
 

@@ -1348,6 +1348,84 @@ L2 把"用户能否恢复 Dock 图标"做成一个持久化设置，重启生效
 - L2 **不做** live `.regular` ↔ `.accessory` 切换。如果用户期望勾选后 Dock 立即出现，UI note 已明确说"需重启"，这是设计选择不是 bug
 - L2 **不做** "退出 + 自动重启" 一键操作（属于 L4 单实例话题；L2 期望用户手动菜单栏退出 + 双击重启）
 
+### 33aa. L3 菜单栏状态可见性（everything-menubar-agent）
+
+L3 把菜单栏从"入口"升级为"主入口 + 快速状态面板"。tooltip + 只读菜单行让用户不打开设置窗就能确认 build / 索引 / 模式 / roots / DB 大小。
+
+#### 准备
+- 干净 workspace，§33t 打过的 `dist/SwiftSeek.app`，GitCommit 与 HEAD 一致
+- 用一个全新 HOME 模拟首次安装：`HOME=/tmp/swiftseek-l3-test ./scripts/package-app.sh --sandbox && HOME=/tmp/swiftseek-l3-test open dist/SwiftSeek.app`（或直接清现有 DB）
+
+#### 1. tooltip 内容验证
+1. 鼠标悬停菜单栏放大镜图标 ~1 秒
+2. **预期** tooltip 5 行：
+   - 行 1：`SwiftSeek <ver> commit=<hash> build=<date>` — 与 `git rev-parse --short HEAD` 一致
+   - 行 2：`索引：空闲`
+   - 行 3：`模式：Compact`（默认）
+   - 行 4：`roots：暂无 root`（首次安装）
+   - 行 5：`DB 大小：<KB/MB>`（不会是 `-1` / 负数）
+3. 把鼠标移走再回来 → tooltip 仍出现，文本一致
+
+#### 2. 菜单只读状态行
+1. 左键点菜单栏图标
+2. **预期菜单结构**（顺序）：
+   - `搜索…` ⌥Space
+   - `设置…` ⌘,
+   - ───
+   - `索引：空闲`（disabled）
+   - `SwiftSeek <ver> commit=<hash> build=<date>`（disabled）
+   - `模式：Compact`（disabled）
+   - `roots：暂无 root`（disabled）
+   - `DB 大小：<...>`（disabled）
+   - ───
+   - `退出 SwiftSeek` ⌘Q
+3. 点 disabled 状态行 → 不响应、不会触发任何动作
+4. 关菜单 → 文本不持久化在屏幕上（无幽灵）
+
+#### 3. 索引中状态切换
+1. 设置 → 索引 → 添加任一可读目录作为 root
+2. 等"索引中"开始（菜单栏图标变 `magnifyingglass.circle`，按钮 title 出现 " 索引中…"）
+3. 悬停菜单栏 → tooltip 行 2 变 `索引：索引中 · N/M roots`，N 随进度更新
+4. 打开菜单 → 索引行同步到 `索引：索引中 · N/M roots`
+5. 索引完成后 → tooltip 行 2 + 菜单回到 `索引：空闲`，按钮图标回到 `magnifyingglass`
+
+#### 4. roots 状态变化
+1. 添加一个真实 root → tooltip 行 4 与菜单 roots 行变 "1 个（1 启用）"
+2. 设置 → 索引 → 选中该 root → 启用/停用 → 状态变 "1 个（0 启用）"
+3. 添加一个不存在路径作为 root（也可通过文件系统删除已添加 root 的实际目录后点 "重新检查权限"）→ tooltip + 菜单包含 "不健康"
+4. 移除所有 root → 回到 "暂无 root"
+
+#### 5. 索引模式切换
+1. 设置 → 常规 → 索引模式切到 Full path（重建索引）
+2. 等重建完成
+3. 打开菜单栏菜单 → 模式行 "模式：Full path"
+4. tooltip 第 3 行同步
+5. 切回 Compact → 重建 → 模式行 "模式：Compact"
+
+#### 6. DB 大小变化
+1. 添加 root 索引大量文件
+2. 重新打开菜单栏菜单 → DB 大小行人类可读字节数已增长（不是 -1）
+3. 设置 → 维护 → VACUUM → 重新打开菜单 → DB 大小可能变小
+
+#### 7. Dock visible 模式不破坏菜单栏增强
+1. 设置 → 常规 → 勾选 "在 Dock 显示 SwiftSeek 图标"
+2. 菜单栏 → "退出 SwiftSeek" → 重新打开
+3. **预期**：Dock 中出现 SwiftSeek 图标 + 菜单栏图标仍存在 + tooltip 与菜单状态行**仍然完整可读**
+4. 测试 §1-§5 都仍工作
+
+#### 8. 读取失败的降级文案
+1. 退出 SwiftSeek
+2. 用 sqlite CLI 把 `settings` 表中的 `index_mode` 写成非法值
+3. 重新启动 SwiftSeek
+4. 打开菜单栏菜单 → "模式：—"（fallback），不 crash
+5. 不影响其他状态行（仍能显示 build / roots / DB 大小）
+6. 修复设置后下次重建模式行恢复正常
+
+#### 9. 边界：明确不实现
+- L3 round 1 **不接入** "最近打开" / "常用" 子菜单（taskbook 标 "如果实现"，本轮选择不实现以收紧 scope）；如 L4 acceptance 期间 Codex 要求补，L4 round 任何时刻可加
+- L3 **不读取** macOS 全局最近项目 / Finder 历史 / 系统启动次数 / private API
+- L3 **不做** 弹窗 dashboard 或菜单栏 popover；只是 NSMenu + NSStatusItem.button.toolTip
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

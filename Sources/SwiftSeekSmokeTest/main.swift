@@ -4421,6 +4421,105 @@ reporter.check("L2 dockIconVisible survives reopen") {
                          "value should persist across DB reopen")
 }
 
+// MARK: - L3 MenubarStatus formatter
+
+reporter.check("L3 MenubarStatus.snapshot: empty DB → 暂无 root + DB 大小 reasonable") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+
+    let snap = MenubarStatus.snapshot(database: db, indexingDescription: "空闲")
+    try reporter.require(snap.rootsLabel == "暂无 root",
+                         "empty roots → '暂无 root', got '\(snap.rootsLabel)'")
+    try reporter.require(snap.indexingDescription == "空闲",
+                         "indexingDescription should pass through verbatim")
+    // Compact is the default IndexMode for fresh DBs.
+    try reporter.require(snap.indexModeLabel == "Compact",
+                         "fresh DB defaults to Compact, got '\(snap.indexModeLabel)'")
+    try reporter.require(snap.dbSizeLabel.hasPrefix("DB 大小："),
+                         "dbSizeLabel should start with 'DB 大小：'")
+}
+
+reporter.check("L3 MenubarStatus.snapshot: roots count + enabled count surface") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let r1Dir = try makeTempDir()
+    defer { cleanup(r1Dir) }
+    let r2Dir = try makeTempDir()
+    defer { cleanup(r2Dir) }
+    let r1Id = try db.registerRoot(path: r1Dir.path)
+    _ = try db.registerRoot(path: r2Dir.path)
+    // Disable r1 to make enabled != total.
+    try db.setRootEnabled(id: r1Id, enabled: false)
+
+    let snap = MenubarStatus.snapshot(database: db, indexingDescription: "空闲")
+    // Both readable dirs → no unhealthy.
+    try reporter.require(snap.rootsLabel == "2 个（1 启用）",
+                         "expected '2 个（1 启用）', got '\(snap.rootsLabel)'")
+}
+
+reporter.check("L3 MenubarStatus.snapshot: unhealthy roots surface in label") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // r1: a missing path → .offline → unhealthy
+    _ = try db.registerRoot(path: "/tmp/swiftseek-l3-no-such-path-\(UUID().uuidString)")
+    // r2: a real readable dir → .ready → healthy
+    let r2Dir = try makeTempDir()
+    defer { cleanup(r2Dir) }
+    _ = try db.registerRoot(path: r2Dir.path)
+
+    let snap = MenubarStatus.snapshot(database: db, indexingDescription: "空闲")
+    try reporter.require(snap.rootsLabel.contains("不健康"),
+                         "label should mention 不健康, got '\(snap.rootsLabel)'")
+    try reporter.require(snap.rootsLabel.contains("2 个"),
+                         "label should mention total 2, got '\(snap.rootsLabel)'")
+}
+
+reporter.check("L3 MenubarStatus.tooltipText format: 5 lines in defined order") {
+    let snap = MenubarStatus.Snapshot(
+        buildSummary: "SwiftSeek 1.0 commit=abc1234 build=2026-04-26",
+        indexingDescription: "索引中 · 1/3 roots",
+        indexModeLabel: "Compact",
+        rootsLabel: "3 个（3 启用）",
+        dbSizeLabel: "DB 大小：512 KB"
+    )
+    let text = MenubarStatus.tooltipText(snapshot: snap)
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    try reporter.require(lines.count == 5, "expected 5 lines, got \(lines.count)")
+    try reporter.require(lines[0] == "SwiftSeek 1.0 commit=abc1234 build=2026-04-26",
+                         "line 0 build summary mismatch")
+    try reporter.require(lines[1] == "索引：索引中 · 1/3 roots",
+                         "line 1 indexing mismatch: '\(lines[1])'")
+    try reporter.require(lines[2] == "模式：Compact",
+                         "line 2 mode mismatch")
+    try reporter.require(lines[3] == "roots：3 个（3 启用）",
+                         "line 3 roots mismatch")
+    try reporter.require(lines[4] == "DB 大小：512 KB",
+                         "line 4 db size mismatch")
+}
+
+reporter.check("L3 MenubarStatus.formatRoots: empty → '暂无 root'") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try reporter.require(MenubarStatus.formatRoots(rows: [], database: db) == "暂无 root",
+                         "empty rows → '暂无 root'")
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {
