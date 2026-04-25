@@ -38,12 +38,19 @@
 - J6 后设置菜单无反应又出现过一次，后续 hotfix 用 KVO 观察 `selectedTabViewItemIndex`，避免非法 `tabView.delegate`。
 - 这类生命周期问题必须作为每次 release 的门禁，不应只依赖历史 `PROJECT COMPLETE`。
 
-### 5. Build identity 已在 K1 落地
-- `Sources/SwiftSeekCore/BuildInfo.swift` 提供运行时 build identity surface：从 `Bundle.main.infoDictionary` 读 `CFBundleShortVersionString` / `GitCommit` / `BuildDate`，dev 路径回落到静态 fallback ("1.0-dev" / "dev" / "unknown")。
-- `AppDelegate.applicationDidFinishLaunching` 启动头三行日志：`SwiftSeek: SwiftSeek <version> commit=<hash> build=<date>` / `bundle=<path>` / `binary=<path>`。
-- About 面板顶部 versionLabel 显示 `BuildInfo.summary`；诊断块以五行 build identity 起始（版本 / commit / build date / bundle / binary）；新加 "复制诊断信息" 按钮一键写剪贴板。
-- 当前 `.app` bundle Info.plist 已手动添加 `GitCommit` / `BuildDate` 键；K2 的 `scripts/package-app.sh` 会自动写入。
-- 用户反馈 bug 时贴 About → 复制诊断信息 即给出完整 build identity，不再需要靠截图猜版本。
+### 5. Build identity + 完整诊断已在 K1 + K3 落地
+- **K1**：`Sources/SwiftSeekCore/BuildInfo.swift` 提供运行时 build identity（version / commit / build date / bundle / binary），从 `Bundle.main.infoDictionary` 读，dev 路径有 fallback。`AppDelegate` 启动头三行 NSLog + About 顶部 summary 同步显示。
+- **K2**：`scripts/package-app.sh` 自动注入 `GitCommit` / `BuildDate` 到 Info.plist。
+- **K3**：抽出 `Sources/SwiftSeekCore/Diagnostics.swift` 纯函数 `Diagnostics.snapshot(database:launchAtLoginIntent:launchAtLoginSystemStatus:)` 作为单一来源；扩字段：
+  - DB main / wal / shm 大小
+  - files / file_usage / query_history / saved_filters 行数
+  - 索引模式 / 隐藏文件开关 / usage history 开关 / query history 开关
+  - roots（总+启用）/ excludes 计数
+  - Launch at Login 用户意图 + 系统实际状态（SMAppService.enabled / .notRegistered / unsupported / headless）
+  - last rebuild 时间 / 结果 / 摘要
+- About 面板"复制诊断信息"按钮直接 export `Diagnostics.snapshot` 完整文本。
+- bug-report 模板见 `docs/manual_test.md` §33u — 用户复制即用。
+- 与 `SwiftSeekDBStats` CLI 口径一致（同一时刻读同一 `Database.computeStats()`）。
 
 ### 6. 未签名 / 未公证带来的 macOS 行为边界
 - 当前没有 Apple Developer ID 签名。

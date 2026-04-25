@@ -1027,6 +1027,48 @@ codesign -dv --verbose=2 dist/SwiftSeek.app
 #### J1/J6 lifecycle 不回退（K1 release gate 复用）
 按 §33s 步骤跑 — 设置窗 × 关 → 菜单栏 / 主菜单 / Dock 三路径重开 + 10× 压力 + 20× tab 切换。
 
+### 33u. K3 完整诊断 + bug-report 模板
+前置：K2 `dist/SwiftSeek.app` 已生成；启动可见 build identity。
+
+#### About 面板字段验证
+1. 设置 → 关于 → 顶部 summary `SwiftSeek <ver> commit=<hash> build=<date>`
+2. 诊断块按顺序应有：
+   - **build identity**：版本 / commit / build date / bundle / binary 5 行
+   - **数据库**：DB 路径 + schema 版本 + main/wal/shm 大小
+   - **行数**：files / file_usage / query_history / saved_filters
+   - **配置**：索引模式 / 隐藏文件 / usage 开关 / query 开关
+   - **roots / excludes**：总 / 启用计数
+   - **Launch at Login**：用户意图 + 系统状态（"已注册"/"未注册"）
+   - **last rebuild**：时间 / 结果 / 摘要
+
+#### "复制诊断信息" 按钮
+3. 点 "复制诊断信息" → `pbpaste` 粘贴 → 文本应包含上述全部字段，可直接贴到 GitHub issue 而不需要补充。
+
+#### 与 SwiftSeekDBStats 口径一致
+4. 命令行核对：
+   ```bash
+   ./.build/release/SwiftSeekDBStats
+   ```
+   `files` / `file_usage` / `main DB size` 等数字应与 About 一致（同一时刻测量；增量索引中可能轻微漂移）。
+
+#### 启动日志校验
+5. Console.app 过滤 SwiftSeek 启动头几行：
+   - `SwiftSeek: SwiftSeek <ver> commit=<hash> build=<date>`
+   - `SwiftSeek: bundle=<...>`
+   - `SwiftSeek: binary=<...>`
+   - `SwiftSeek: database ready at <...> schema=<N>`
+
+#### Bug-report 模板
+用户反馈问题时**必须**附：
+- "复制诊断信息" 输出的整段（含 build identity + schema + 行数 + LAL 状态）
+- 复现步骤
+- 是否在系统设置 → 通用 → 登录项 / 隐私与安全性 → 完全磁盘访问 中给过 SwiftSeek 权限
+- macOS 版本（`sw_vers -productVersion`）
+
+#### J1/J6 lifecycle 不回退（K1 release gate 复用）
+按 §33s 步骤跑 — 设置窗 × 关 → 三路径重开 + 10× 压力 + 20× tab 切换。
+按 §33t 步骤验证 K2 package-app.sh 仍能 fresh 跑通。
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

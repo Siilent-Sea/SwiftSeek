@@ -52,7 +52,7 @@ func cleanup(_ url: URL) {
 
 let reporter = SmokeReporter()
 
-print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6 + K1)")
+print("SwiftSeek smoke test (P0 + P1 + P2 + P3 + P4 + P4-startup + P5 + E1 + E2 + E3 + E4 + E5 + F1 + F2 + F3 + F4 + G1 + G3 + G4 + H1 + H2 + H3 + H4 + J1 + J2 + J3 + J4 + J5 + J6 + K1 + K3)")
 print("schema version: \(Schema.currentVersion)")
 print("---")
 
@@ -4070,6 +4070,95 @@ reporter.check("J3 search: illegal syntax doesn't crash, degrades to plain") {
     _ = try engine.search("!!foo")
     // Empty OR + filter combo.
     _ = try engine.search("alpha|| ext:md")
+}
+
+// MARK: - K3 diagnostics snapshot
+
+reporter.check("K3 Diagnostics.snapshot covers build identity + DB + settings + LAL fields") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Make a couple of state knobs flippable so we can detect they
+    // appear in the snapshot.
+    try db.setHiddenFilesEnabled(true)
+    try db.setLaunchAtLoginRequested(true)
+    let snap = Diagnostics.snapshot(
+        database: db,
+        launchAtLoginIntent: true,
+        launchAtLoginSystemStatus: nil
+    )
+    // Build identity block.
+    try reporter.require(snap.contains("SwiftSeek 诊断信息"),
+                         "missing header")
+    try reporter.require(snap.contains(BuildInfo.appVersion),
+                         "missing version")
+    try reporter.require(snap.contains(BuildInfo.gitCommit),
+                         "missing commit")
+    try reporter.require(snap.contains(BuildInfo.buildDate),
+                         "missing build date")
+    try reporter.require(snap.contains(BuildInfo.bundlePath),
+                         "missing bundle path")
+    try reporter.require(snap.contains(BuildInfo.executablePath),
+                         "missing binary path")
+    // DB block.
+    try reporter.require(snap.contains("数据库："),
+                         "missing DB path label")
+    try reporter.require(snap.contains("schema 版本：\(Schema.currentVersion)"),
+                         "missing schema version line, snap=\(snap.prefix(400))")
+    try reporter.require(snap.contains("main / wal / shm 大小："),
+                         "missing DB size line")
+    try reporter.require(snap.contains("files 行数："),
+                         "missing files row count")
+    try reporter.require(snap.contains("file_usage 行数："),
+                         "missing file_usage row count")
+    try reporter.require(snap.contains("query_history 行数："),
+                         "missing query_history row count")
+    try reporter.require(snap.contains("saved_filters 行数："),
+                         "missing saved_filters row count")
+    try reporter.require(snap.contains("索引模式："),
+                         "missing index mode")
+    // Settings.
+    try reporter.require(snap.contains("隐藏文件纳入索引：是"),
+                         "hidden=on should render as 是")
+    try reporter.require(snap.contains("usage history 记录开关："),
+                         "missing usage history toggle")
+    try reporter.require(snap.contains("query history 记录开关："),
+                         "missing query history toggle")
+    // Roots / excludes.
+    try reporter.require(snap.contains("roots：总"),
+                         "missing roots line")
+    try reporter.require(snap.contains("excludes："),
+                         "missing excludes line")
+    // Launch at Login.
+    try reporter.require(snap.contains("Launch at Login 用户意图：已勾选"),
+                         "LAL intent should be 已勾选, snap=\(snap.prefix(400))")
+    try reporter.require(snap.contains("Launch at Login 系统状态：—（headless 报告，无系统查询）"),
+                         "LAL system status should be headless dash, snap=\(snap.prefix(400))")
+}
+
+reporter.check("K3 Diagnostics.snapshot reflects flipped settings (hidden / usage off)") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setHiddenFilesEnabled(false)
+    try db.setUsageHistoryEnabled(false)
+    try db.setQueryHistoryEnabled(false)
+    try db.setLaunchAtLoginRequested(false)
+    let snap = Diagnostics.snapshot(database: db)
+    try reporter.require(snap.contains("隐藏文件纳入索引：否"),
+                         "should reflect hidden=off")
+    try reporter.require(snap.contains("usage history 记录开关：关"),
+                         "usage history toggle off")
+    try reporter.require(snap.contains("query history 记录开关：关"),
+                         "query history toggle off")
+    try reporter.require(snap.contains("Launch at Login 用户意图：未勾选"),
+                         "LAL intent off")
 }
 
 // MARK: - K1 build identity surface

@@ -1813,49 +1813,14 @@ private final class AboutPane: NSViewController {
     }
 
     private func buildDiagnostics() -> String {
-        let dbPath = database.url.path
-        let schema = database.schemaVersion
-        // Each query catches+logs independently so one failing sub-query does
-        // not blank the whole diagnostics panel; user still sees the rest.
-        var errors: [String] = []
-        func safe<T>(_ label: String, default defaultValue: T, _ fn: () throws -> T) -> T {
-            do { return try fn() } catch {
-                NSLog("SwiftSeek: AboutPane \(label) failed: \(error)")
-                errors.append("\(label): \(error)")
-                return defaultValue
-            }
-        }
-        let rootsAll = safe("listRoots", default: []) { try database.listRoots() }
-        let rootsEnabled = rootsAll.filter { $0.enabled }.count
-        let excludesCount = safe("listExcludes", default: 0) { try database.listExcludes().count }
-        let filesCount = safe("countRows(files)", default: Int64(-1)) { try database.countRows(in: "files") }
-        let hidden = safe("getHiddenFilesEnabled", default: false) { try database.getHiddenFilesEnabled() }
-        let lastAt = safe("getSetting(lastRebuildAt)", default: "—") { (try database.getSetting(SettingsKey.lastRebuildAt)) ?? "—" }
-        let lastResult = safe("getSetting(lastRebuildResult)", default: "—") { (try database.getSetting(SettingsKey.lastRebuildResult)) ?? "—" }
-        let lastStats = safe("getSetting(lastRebuildStats)", default: "—") { (try database.getSetting(SettingsKey.lastRebuildStats)) ?? "—" }
-        // K1 build identity block — always first so pasted bug reports
-        // start with "what build is this?".
-        var out = """
-SwiftSeek 诊断信息
-版本：\(BuildInfo.appVersion)
-build commit：\(BuildInfo.gitCommit)
-build date：\(BuildInfo.buildDate)
-bundle：\(BuildInfo.bundlePath)
-binary：\(BuildInfo.executablePath)
-
-数据库：\(dbPath)
-schema 版本：\(schema)
-roots：总 \(rootsAll.count)，启用 \(rootsEnabled)
-excludes：\(excludesCount)
-files 行数：\(filesCount)
-隐藏文件纳入索引：\(hidden ? "是" : "否")
-上次重建时间：\(lastAt)
-上次重建结果：\(lastResult)
-上次重建摘要：\(lastStats)
-"""
-        if !errors.isEmpty {
-            out += "\n\n诊断读取错误：\n" + errors.joined(separator: "\n")
-        }
-        return out
+        // K3: delegate to Diagnostics.snapshot — single source of
+        // truth shared with smoke tests and any future CLI export.
+        // Pass live SMAppService status via the LaunchAtLogin probe
+        // so the report matches what the user sees in 设置 → 常规.
+        return Diagnostics.snapshot(
+            database: database,
+            launchAtLoginIntent: (try? database.getLaunchAtLoginRequested()) ?? false,
+            launchAtLoginSystemStatus: { LaunchAtLogin.isRegistered() }
+        )
     }
 }
