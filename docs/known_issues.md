@@ -18,8 +18,9 @@
   - 搜索…（⌥Space）
   - 设置…（⌘,）
   - 索引：空闲 / 索引中（只显示）
+  - build / 模式 / roots / DB 大小（只读状态行）
   - 退出 SwiftSeek（⌘Q）
-- L1 不扩展菜单栏复杂状态项；L3 才做最近打开 / 常用 / 索引模式 / DB 大小 / root 简况。
+- L3 已补 build identity、索引模式、DB 大小和 root 简况；最近 / 常用子菜单未在 round 1 实现，保留为可选后续。
 - L1 不再依赖 Dock reopen 作为默认入口；`applicationShouldHandleReopen` 仅作为 fallback（`open` 第二次时弹设置窗口）。
 
 ### 3. 无 Dock 模式下的入口与退出（L1 已落地）
@@ -74,11 +75,11 @@
 
 ## 已归档能力与仍保留边界
 
-### Productization 已完成；L1/L2 已把默认形态与 Dock 恢复策略收口
+### Productization 已完成；L1-L3 已把菜单栏 agent 主形态收口到状态可见
 
 - `everything-productization` 已完成可重复 `.app` 打包、Info.plist / icon / ad-hoc codesign、build identity、diagnostics、install / rollback 文档、Full Disk Access / root 覆盖引导和 release checklist。
 - L1 在 productization 之上把默认 activation policy 切成 `.accessory`，Dock 不再常驻；菜单栏 status item 是主入口；release_checklist §5b 把 no-Dock 验证写成强制项。
-- L2 已补 Dock 显示开关与重启生效策略；L3-L4 仍未完成：菜单栏增强（最近 / 常用 / 索引摘要）、单实例与多 bundle 防护。
+- L2 已补 Dock 显示开关与重启生效策略；L3 已补菜单栏只读状态可见性。L4 仍未完成：单实例与多 bundle 防护、最终 release 收口。
 
 ### Run Count 统计范围
 

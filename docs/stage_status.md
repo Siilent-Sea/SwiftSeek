@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-menubar-agent`
-- 当前阶段：`L3`
-- 当前状态：L3 实现已就位，待 Codex 验收
+- 当前阶段：`L4`
+- 当前状态：L3 已通过 Codex 验收；L4 待 Claude 执行
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -150,7 +150,7 @@
 - Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 212/212 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=5ff1334`，`codesign` 显示 ad-hoc 签名。
 - 受限沙箱不能执行真实 GUI Dock visible/hidden 跨启动切换、菜单栏点击、设置 note 文本和跨模式入口验证；这些仍按 `docs/manual_test.md` §33z 与 `docs/release_checklist.md` §5c 作为每次发布必跑手测。
 
-## 当前阶段：L3
+## 已通过阶段：L3
 
 ### 阶段目标
 
@@ -183,7 +183,7 @@
 - 最近 / 常用若实现，必须受 usage history 数据和隐私设置约束。
 - 文档同步，且没有提前实现 L4。
 
-### L3 实现已落地（待 Codex 验收）
+### L3 Codex 验收结论：PASS
 
 - `Sources/SwiftSeekCore/MenubarStatus.swift`（新文件，纯函数 / AppKit-free）：`MenubarStatus.snapshot(database:indexingDescription:)` 返回 `Snapshot { buildSummary, indexingDescription, indexModeLabel, rootsLabel, dbSizeLabel }`；`tooltipText(snapshot:)` 组装 5 行 tooltip；`formatRoots(rows:database:)` 统一计算 "N 个（M 启用[，K 不健康]）" / "暂无 root"。读取失败 fall back 到 "—" / "读取 roots 失败"。
 - `Sources/SwiftSeek/App/AppDelegate.swift`：`installStatusItem` 增加 4 个 disabled NSMenuItem（build / 模式 / roots / DB 大小），位置在 `索引：…` 下方；`refreshMenubarStatus()` 把 MenubarStatus.snapshot 文本写到状态行 + button.toolTip；NSMenuDelegate `menuNeedsUpdate(_:)` 每次菜单打开刷新；`reflectRebuildState(_:)` 同时把 lastIndexingDescription 写回 Core 调用并刷新 tooltip，让索引中状态在菜单关闭时也更新。
@@ -192,8 +192,42 @@
 - `docs/release_checklist.md`：新增 §5d "L3 菜单栏状态可见性验证"（10+ 项必跑）。
 - `docs/known_issues.md` §8 改写为 L3 已落地，列结构、刷新时机、fallback 文案、不做项。
 - `docs/manual_test.md` §33aa：9 节 L3 手测矩阵（tooltip / 菜单结构 / 索引状态切换 / roots 变化 / 模式切换 / DB 大小 / Dock visible 模式不破坏 / 读取失败 fallback / 不实现项边界）。
-- 受限沙箱下 build OK；SmokeTest 217/217；package-app 仍可重复跑通。GUI tooltip / 菜单 / 索引状态切换仍按 §33aa 与 release_checklist §5d 作为每次发布手测。
+- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 217/217 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=75d3a79`，`codesign` 显示 ad-hoc 签名。
+- 受限沙箱不能执行真实 GUI tooltip 弹出、菜单打开刷新、索引状态图标切换和跨 Dock 模式菜单栏验证；这些仍按 `docs/manual_test.md` §33aa 与 `docs/release_checklist.md` §5d 作为每次发布必跑手测。
 - L3 round 1 **不接入** 最近打开 / 常用子菜单（taskbook 标 "如果实现"）；如 Codex 验收要求补再做 round 2。
+
+## 当前阶段：L4
+
+### 阶段目标
+
+菜单栏 agent 形态下，减少多开、旧 bundle、登录项和手动启动并存造成的混乱，并完成本轨道最终验收准备。
+
+### L4 必须完成
+
+- 实现单实例 / 多 bundle 防护，至少覆盖同一 `.app` 重复打开、`dist` 与 `/Applications` 并存、Launch at Login + 手动启动。
+- 检测到已有实例时，新实例不应继续长期常驻；能唤醒旧实例则唤醒，不能唤醒则日志清楚并退出。
+- 日志或诊断中保留 build identity、bundle path、executable path 和冲突处理信息。
+- 更新 release checklist / manual test / install / known issues / stage status / acceptance docs。
+- 完成 L1-L4 最终文档一致性收口，为 `PROJECT COMPLETE` 验收准备。
+
+### L4 禁止事项
+
+- 不做正式签名 / notarization / DMG / auto updater
+- 不做跨用户多实例支持
+- 不使用 private API 或绕过 macOS 权限
+- 不新增搜索、索引、AI、OCR、云盘一致性或 Finder 插件能力
+- 不重写窗口系统或菜单栏 dashboard
+
+### L4 完成判定标准
+
+只有同时满足以下条件，L4 才能提交 Codex 最终验收：
+
+- 常见多开路径不会产生两个长期常驻菜单栏实例。
+- 旧 bundle / 新 bundle 并存时，行为可解释且有日志或文档化处理路径。
+- Launch at Login 与手动启动并发不造成重复常驻。
+- L1 no Dock、L2 Dock 显示开关、L3 菜单栏状态不回归。
+- 文档足够让非作者执行安装、升级、回滚、排查和 release QA。
+- 没有越界到正式发行机制或新搜索能力。
 
 ## 后续阶段索引
 

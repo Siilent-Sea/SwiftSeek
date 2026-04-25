@@ -1,14 +1,14 @@
 {
   "track": "everything-menubar-agent",
-  "stage": "L3",
+  "stage": "L4",
   "session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state for everything-menubar-agent. L1 and L2 passed in this session; next acceptance target is L3.",
+  "purpose": "Current active track acceptance state for everything-menubar-agent. L1, L2, and L3 passed in this session; next acceptance target is L4 final track wrap.",
   "last_verdict": "PASS",
-  "last_verdict_round": "L2 round 1",
+  "last_verdict_round": "L3 round 1",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "L2 delivered persisted dock_icon_visible intent, launch-time .accessory fallback plus optional .regular user preference, Settings UI restart-required note, 3 smoke tests, and docs/manual/release gates. Build, 212/212 smoke, package, plist, codesign, and icon checks passed at HEAD 5ff1334. GUI Dock/menu cross-mode checks remain manual per docs/manual_test.md §33z.",
-  "passed_stages": ["L1", "L2"],
+  "last_verdict_reason": "L3 delivered AppKit-free MenubarStatus formatter, 5-line tooltip, disabled menu status rows, menuNeedsUpdate refresh, rebuild-state tooltip refresh, 5 smoke tests, and docs/manual/release gates. Build, 217/217 smoke, package, plist, codesign, and icon checks passed at HEAD 75d3a79. GUI tooltip/menu/indexing-state checks remain manual per docs/manual_test.md §33aa.",
+  "passed_stages": ["L1", "L2", "L3"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
