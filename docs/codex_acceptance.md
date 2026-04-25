@@ -4,37 +4,40 @@
 
 ## 当前有效状态
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K1`
-- 当前阶段验收结论：尚未验收
+- 当前阶段：`K2`
+- 当前阶段验收结论：K1 已 `PASS`，等待 K2 实现
 - 当前正式验收 session：尚未创建
 - 日期：2026-04-25
 
 ### 当前审计结论
-本轮只做新轨道立项与任务书落盘，不假装已经完成打包或产品化。
+K1 round 1 已通过。结论基于当前源码、当前文档和提交 `d890c81` 的实际核对，而不是沿用旧轨道结论。
 
-已确认的代码优先事实：
-- `everything-ux-parity` 已归档：J1-J6 已完成设置窗口生命周期、Run Count 可见性、查询表达、搜索历史、上下文菜单、首次使用引导、Launch at Login 说明与窗口状态记忆。
-- `AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)` 已存在，无可见窗口时调用 `showSettings(nil)`。
-- `SettingsWindowController.windowShouldClose(_:)` 已实现 hide-only close。
-- `SettingsWindowController` 当前通过 KVO 观察 `selectedTabViewItemIndex`，没有使用非法 `tabView.delegate`。
-- `LaunchAtLogin.swift` 使用公开 `SMAppService.mainApp`，但注释与 UI 已承认未签名 / 未公证构建可能失败或需系统批准。
-- `scripts/build.sh` 仍只交付 `.build/release` 可执行文件；脚本注释明确不做 `.app` bundle / signing / notarization。
-- `scripts/build.sh` 末尾仍打印“schema 当前为 v3”，但当前 `Schema.currentVersion` 是 7。
-- `scripts/make-icon.swift` 只生成 iconset PNG，仍需手工 `iconutil` 生成 `AppIcon.icns`。
-- 本地存在 `SwiftSeek.app/Contents/Info.plist` 与 `AppIcon.icns`，`codesign -dv` 显示 ad-hoc 签名；但 `SwiftSeek.app/` 被 `.gitignore` 忽略，不是可重复发布流水线。
-- About / diagnostics 目前没有 app version、commit、build timestamp、bundle path、executable path 等稳定 build identity。
+本轮确认成立的事实：
+- `Sources/SwiftSeekCore/BuildInfo.swift` 新增运行时 build identity surface：`CFBundleShortVersionString` / `GitCommit` / `BuildDate`，并提供 `summary`、`multilineSummary`、bundle path、binary path 和 fallback。
+- `Sources/SwiftSeek/App/AppDelegate.swift` 在 `applicationDidFinishLaunching` 的最前面打印三行 build identity，再继续 menu / DB 初始化。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 保持 J1/J6 生命周期修复不变：
+  - `windowShouldClose(_:)` 仍是 hide-only close
+  - `applicationShouldHandleReopen` 路径未回退
+  - tab 记忆仍是 KVO `selectedTabViewItemIndex`，没有回退到非法 `tabView.delegate`
+- About 面板顶部现在显示 `BuildInfo.summary`；诊断块前置 build identity；新增“复制诊断信息”按钮。
+- `docs/manual_test.md` 已把设置窗口 reopen / Dock reopen / 10x close-show / 20x tab switch 和 stale bundle 自检写成 release gate。
+- `scripts/build.sh` 已移除过期的 “schema v3” 文案，并诚实声明 `.app` packaging 属于 K2。
+
+本轮未能在当前 Codex 沙箱内直接复跑 `swift build --disable-sandbox` 与 `swift run --disable-sandbox SwiftSeekSmokeTest`，但阻塞原因为环境：
+- `~/.cache/clang/ModuleCache` 在当前沙箱不可写
+- 当前 CLT/SDK 存在版本不匹配：SDK 为 `Swift 6.3.0`，编译器为 `Swift 6.3.1`
+
+这两个问题阻止本地复编译，不构成 K1 代码本身的 blocker；K1 任务书也允许在命令不可运行时明确记录环境阻塞原因。
 
 ## 当前验收要求
-K1 完成后，Codex 才能给出 `PASS` 或 `REJECT`。K1 不允许因为 `everything-ux-parity` 已经 `PROJECT COMPLETE` 而自动通过。
+K2 完成后，Codex 才能给出下一轮 `PASS` 或 `REJECT`。当前不允许因为 K1 已通过就把后续产品化阶段视为自动完成。
 
 验收时必须检查：
-- 设置窗口 release gate 已写入 `docs/manual_test.md` 或等价 checklist。
-- 设置窗口关闭 / 菜单栏重开 / 主菜单重开 / Dock reopen 路径可执行。
-- 设置 tab 切换不使用非法 delegate 方案。
-- About / diagnostics 或等价 UI 显示 build identity。
-- 启动日志打印 build identity。
-- `scripts/build.sh` 不再输出 schema v3 等过期内容。
-- build / smoke 仍通过，或记录不可运行原因。
+- `.app` package 脚本能从 fresh clone 稳定生成 bundle。
+- `Info.plist` / `AppIcon.icns` / ad-hoc codesign 进入可重复流程，而不是依赖手工注入。
+- `dist/SwiftSeek.app` 或等价输出路径明确。
+- `open` 启动、`codesign -dv`、`plutil`、bundle 结构检查都可验证。
+- K1 的 build identity 和 settings release gate 不回退。
 
 ## 历史归档轨道
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23

@@ -23,9 +23,9 @@
   - `.build/release/SwiftSeek`
   - 本地被忽略的 `SwiftSeek.app`
   - `/Applications` 中的旧 SwiftSeek.app
-- 当前 About / diagnostics 还没有稳定显示 git commit、build timestamp、bundle path 或 executable path。
-- 用户容易遇到“源码已经修了，但运行的 App 行为没变”的情况。
-- K1 必须补 build identity 和文档化 stale build 排查路径。
+- K1 已补上 About / diagnostics / startup log 的 build identity，但这不等于 stale bundle 风险彻底消失。
+- 用户仍可能遇到“源码已经修了，但双击启动的还是旧 App”。
+- 当前应通过 About 顶部 summary、诊断中的 `bundle:` / `binary:` 和启动日志三连来核对自己到底跑的是哪一个产物；K2 会继续把这条链路接到可重复 package 流程。
 
 ### 4. 设置窗口 bug 已修，但必须进入 release gate
 - J1 已修设置窗口关闭后不可重开：

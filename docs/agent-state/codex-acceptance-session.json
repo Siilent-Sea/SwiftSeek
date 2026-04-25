@@ -1,14 +1,14 @@
 {
   "track": "everything-productization",
-  "stage": "K1",
-  "session_id": null,
+  "stage": "K2",
+  "session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08",
   "updated_at": "2026-04-25",
-  "purpose": "Current active track acceptance state. A new Codex acceptance session must be created for everything-productization K1; do not reuse archived everything-ux-parity or earlier track sessions.",
-  "last_verdict": null,
-  "last_verdict_round": null,
-  "last_verdict_date": null,
-  "last_verdict_reason": null,
-  "passed_stages": [],
+  "purpose": "Current active track acceptance state. K1 passed on commit d890c81; K2 is now the next acceptance target. A new Codex acceptance session must still be created for everything-productization and must not reuse archived everything-ux-parity or earlier track sessions.",
+  "last_verdict": "PASS",
+  "last_verdict_round": "K1 round 1",
+  "last_verdict_date": "2026-04-25",
+  "last_verdict_reason": "K1 build identity, stale-bundle triage surface, and settings release gate landed on commit d890c81. Local rebuild could not be re-run inside the current Codex sandbox because ModuleCache permissions and CLT/SDK mismatch blocked SwiftPM.",
+  "passed_stages": ["K1"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -42,5 +42,5 @@
       "previous_session_id": "019dc07b-55f0-7712-9d7f-74441d7c81df"
     }
   ],
-  "notes": "codex-acceptance-session.txt is intentionally absent until a real everything-productization acceptance session id exists."
+  "notes": "Active session for everything-productization track. K1 PASS round 1 on commit d890c81. Next target stage is K2. .txt file mirrors this session id."
 }

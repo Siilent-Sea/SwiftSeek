@@ -10,8 +10,8 @@
 
 ## 当前轨道
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K1`
-- 要求：为 `everything-productization` 使用新的 Codex 验收 session；首次正式验收创建 session 后，再写入 `codex-acceptance-session.txt`。
+- 当前阶段：`K2`
+- 要求：为 `everything-productization` 使用新的 Codex 验收 session；当前项目内仍未记录显式 session id，首次正式写入后再补 `codex-acceptance-session.txt`。
 - 禁止：混用已归档 `everything-ux-parity` session `019dc07b-55f0-7712-9d7f-74441d7c81df`，也不得混用更早轨道的 session。
 
 ## 约定文件

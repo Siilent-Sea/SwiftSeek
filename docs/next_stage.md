@@ -1,98 +1,86 @@
-# 下一阶段任务书：K1
+# 下一阶段任务书：K2
 
 当前活跃轨道：`everything-productization`
-当前阶段：`K1`
-阶段名称：设置窗口回归门禁 + stale build 防护
+当前阶段：`K2`
+阶段名称：可重复生成 `.app` bundle 的打包流水线
 
 ## 交给 Claude 的任务
 
-你现在只做 K1。目标不是新增业务功能，也不是开始正式打包，而是把用户真实遇到过的设置窗口问题变成长期 release gate，并让用户能判断当前运行的是不是最新构建。
+你现在只做 K2。目标是把 SwiftSeek 从“有源码、有本地 app 痕迹”推进到“fresh clone 后可重复生成 `.app` bundle”。K1 已经完成 build identity 与 settings release gate；K2 不要重复做诊断 UI，也不要提前写 K4-K6 的安装、权限或最终 release 收口。
 
-K1 不做 `.app` 打包流水线，不做 DMG，不做 notarization，不做 Apple Developer ID 签名，不做 Launch at Login 大改。
+K2 不做 DMG，不做 notarization，不做 Apple Developer ID 签名，不做 auto updater。
 
 ## 必须先审计的代码路径
 
+- `scripts/package-app.sh`（如不存在则新增）
 - `Sources/SwiftSeek/App/AppDelegate.swift`
-- `Sources/SwiftSeek/App/LaunchAtLogin.swift`
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift`
-- `Sources/SwiftSeek/UI/SearchWindowController.swift`
-- `Sources/SwiftSeek/UI/SearchViewController.swift`
-- `Sources/SwiftSeekCore/Schema.swift`
-- `Sources/SwiftSeekCore/SettingsTypes.swift`
-- `Sources/SwiftSeekSmokeTest/main.swift`
+- `Sources/SwiftSeekCore/BuildInfo.swift`
 - `scripts/build.sh`
 - `scripts/make-icon.swift`
+- `.gitignore`
+- `README.md`
 - `docs/manual_test.md`
 - `docs/known_issues.md`
 
 重点确认：
-- `windowShouldClose` 是否仍是 hide-only close。
-- `AppDelegate.applicationShouldHandleReopen` 是否仍覆盖 Dock reopen。
-- 主菜单 / menu bar 设置入口是否仍指向 `showSettings`。
-- 设置 tab 记忆是否仍用 KVO，不能回退到非法 `tabView.delegate`。
-- `scripts/build.sh` 是否仍只产出 `.build/release` 二进制。
-- `scripts/build.sh` 是否还有过期 schema 文案。
-- About / diagnostics 是否缺少 version / commit / build timestamp / bundle path。
+- 当前 bundle 生成链路哪里还是手工的：`Info.plist`、`AppIcon.icns`、binary copy、codesign。
+- `BuildInfo` 依赖的键是否能由 package 脚本自动写入。
+- `scripts/build.sh` 与新 package 脚本的边界是否清晰。
+- `.gitignore` 是否把生成物和模板边界写清。
 
 ## 必须做
 
-1. 建立设置窗口 release gate：
-   - 设置窗口 10 次关闭 / 打开。
-   - 启动后打开设置、关闭、从菜单栏重开。
-   - 从主菜单 `SwiftSeek -> 设置…` 重开。
-   - 无可见窗口时 Dock 点击重开。
-   - 设置 tab 反复切换不崩溃。
-2. 把上述 release gate 写入 `docs/manual_test.md` 或明确 release checklist 文档。
-3. 增加运行时 build identity：
-   - About / diagnostics 显示 app version。
-   - 显示 schema version。
-   - 显示 git commit 或 build timestamp。
-   - 显示 bundle path 或 executable path。
-4. 启动日志打印 build identity。
-5. 如果无法自动注入 git commit，先用 build-info 文件或 Swift 常量，并在文档说明限制。
-6. 修正 `scripts/build.sh` 中已知过期文案，至少不能继续打印 schema v3。
-7. 更新 README / known issues / manual test，说明如何确认当前运行的是最新 bundle / binary。
-8. 保持 J1/J6 生命周期修复不回归。
+1. 新增或重写 `scripts/package-app.sh`，一条命令完成：
+   - `swift build -c release`
+   - 生成 `SwiftSeek.app/Contents/MacOS/SwiftSeek`
+   - 写入 `Info.plist`
+   - 生成或复制 `AppIcon.icns`
+   - 写入 `CFBundleIdentifier`
+   - 写入 `CFBundleVersion`
+   - 写入 `CFBundleShortVersionString`
+   - 写入 `GitCommit`
+   - 写入 `BuildDate`
+   - 做 ad-hoc codesign
+2. 明确输出目录，例如 `dist/SwiftSeek.app`；重复执行时旧产物清理策略要明确。
+3. `scripts/build.sh` 要么调用 package 脚本，要么继续只负责 CLI build，但两者边界必须写清。
+4. `scripts/make-icon.swift` 接入 package 流程，不允许继续要求手工 `iconutil` 作为主路径。
+5. 更新 README / manual test / known issues，说明：
+   - 怎样从 fresh clone 生成 `.app`
+   - 怎样检查 bundle 结构、Info.plist 和 codesign
+   - 当前仍然只是 ad-hoc，本阶段不承诺正式签名 / 公证
+6. 保持 K1 的 build identity、settings release gate、J1/J6 生命周期修复不回退。
 
 ## 明确不做
 
-- 不做 K2：正式 `.app` package 脚本。
 - 不做 DMG。
 - 不做 notarization。
 - 不做 Apple Developer ID 签名。
 - 不做 auto updater。
-- 不做 Launch at Login 大改。
+- 不做安装 / 升级 / 回滚文档收口，那是 K4。
+- 不做 Full Disk Access / 权限引导，那是 K5。
 - 不新增搜索 / ranking / 索引功能。
 
 ## 验收标准
 
-1. 设置窗口 release gate 已写入文档，且步骤可执行。
-2. 设置窗口关闭 / 菜单栏重开 / 主菜单重开 / Dock reopen 的手测路径明确。
-3. 设置 tab 切换不再使用非法 `tabView.delegate` 方案。
-4. About / diagnostics 或等价 UI 可见 version、schema、build identity、bundle/executable path。
-5. 启动日志打印 build identity。
-6. 用户可通过文档判断 stale bundle / stale binary。
-7. `scripts/build.sh` 不再输出 schema v3 等明显过期内容。
-8. `swift build` 通过。
-9. `swift run SwiftSeekSmokeTest` 通过。
+1. fresh clone 后一条命令能生成 `.app`。
+2. `.app/Contents/MacOS/SwiftSeek` 存在且可执行。
+3. `Info.plist` 字段完整，且 `BuildInfo` 读到的字段来自 package 流程而非手工编辑。
+4. `AppIcon.icns` 自动生成或复制进 bundle。
+5. `codesign -dv --verbose=2` 可见 ad-hoc 签名。
+6. `open dist/SwiftSeek.app` 或等价命令可启动。
+7. `scripts/build.sh` / `scripts/package-app.sh` / README 的边界一致，不互相打架。
 
-## 必须补的手测
+## 必须补的验证
 
 ```text
-1. 构建并启动当前 App。
-2. 打开 About / diagnostics，确认能看到 version、schema、commit 或 build timestamp、bundle/executable path。
-3. 查看启动日志，确认打印 build identity。
-4. 点设置窗口左上角 × 关闭。
-5. 从菜单栏图标打开“设置…”，必须成功。
-6. 再次关闭设置窗口。
-7. 从主菜单 SwiftSeek -> 设置… 打开，必须成功。
-8. 关闭所有可见窗口。
-9. 点击 Dock 图标，必须能重新唤起可操作窗口。
-10. 重复设置窗口关闭 / 打开 10 次。
-11. 连续切换设置 tab 20 次，不崩溃。
-12. 对照 diagnostics 的 build identity，确认当前运行的不是旧 bundle。
+1. shell: package 脚本 fresh 运行一次，确认产物落到预期目录。
+2. shell: `plutil -lint` 与 `plutil -p` 检查 Info.plist。
+3. shell: `codesign -dv --verbose=2 dist/SwiftSeek.app`。
+4. shell: 检查 `Contents/MacOS/SwiftSeek` 与 `Contents/Resources/AppIcon.icns`。
+5. GUI: `open dist/SwiftSeek.app` 启动后，About 仍显示正确 build identity。
+6. 回归: K1 的设置窗口 reopen / 10x close-show / 20x tab switch 不回退。
 ```
 
 ## 验收后文档
 
-K1 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 K2 任务书；如果 REJECT，按 blocker 修复。
+K2 完成后交 Codex 验收。不要自己宣布 PASS。Codex 如果 PASS，会给 K3 任务书；如果 REJECT，按 blocker 修复。

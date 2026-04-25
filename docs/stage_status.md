@@ -4,49 +4,57 @@
 
 ## 轨道总览
 - 当前活跃轨道：`everything-productization`
-- 当前阶段：`K1`
+- 当前阶段：`K2`
 - 当前轨道目标：把 SwiftSeek 从“功能轨道已完成的开发者可运行项目”推进到“可重复打包、可安装、可诊断、可回归验证的 macOS 工具”。重点不再是新增搜索功能，而是发布链路、`.app` bundle、图标/Info.plist/codesign、版本标识、stale build 防护、窗口生命周期 release gate、安装/升级/回滚、权限与最终 release QA。
 - 已归档轨道：`v1-baseline` / `everything-alignment` / `everything-performance` / `everything-footprint` / `everything-usage` / `everything-ux-parity`
 
-## 当前阶段：K1
+## 当前阶段：K2
 
 ### 阶段目标
-建立设置窗口回归门禁和 stale build 防护。
+建立可重复生成 `.app` bundle 的本地打包流水线。
 
-K1 必须把用户真实遇到过的设置窗口 / 设置菜单问题变成长期 release gate，并补上最小 build identity，让用户和开发者能判断当前运行的是不是最新构建。
+K2 必须把当前手工或半手工的 `.app`、Info.plist、icon、codesign 组装路径收口成可重复脚本，让 SwiftSeek 真正具备“fresh clone 后本地可交付 app bundle”的能力。
 
 ### 当前代码审计依据
-- `AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)` 已存在；无可见窗口时调用 `showSettings(nil)`。
-- `SettingsWindowController` 已实现 `NSWindowDelegate.windowShouldClose(_:)`，关闭按钮只 `orderOut` 并返回 `false`。
-- `SettingsWindowController` 的 tab 记忆已改为 KVO `selectedTabViewItemIndex`，避免旧的非法 `tabView.delegate` 做法。
-- `SearchWindowController` 已加 `setFrameAutosaveName("SwiftSeekSearchPanel")`；设置窗口也有 `setFrameAutosaveName("SwiftSeekSettingsWindow")`。
-- `LaunchAtLogin.swift` 使用公开 `SMAppService.mainApp`，但注释已承认未签名 / ad-hoc bundle 下可能不稳定。
-- `scripts/build.sh` 仍只构建 `.build/release` 下的可执行文件，不生成稳定 `.app`；脚本注释明确“不做签名 / notarization / .app bundle”，但 `.gitignore` 又写着“Local app bundle (built by scripts/build.sh + codesign)”。
-- `scripts/build.sh` 结尾仍打印“schema 当前为 v3”，当前 `Schema.currentVersion` 已是 7。
-- `scripts/make-icon.swift` 只生成 iconset PNG，仍要求手动 `iconutil` 输出 `AppIcon.icns`。
-- 本地存在 `SwiftSeek.app/Contents/Info.plist` 和 `AppIcon.icns`，`codesign -dv` 显示 ad-hoc 签名；但 `SwiftSeek.app/` 被 `.gitignore` 忽略，Info.plist / icon / codesign 不属于可重复交付流水线。
-- About / Diagnostics 当前显示 DB path、schema、roots、excludes、files、hidden、last rebuild；没有 app version、commit、build date、bundle path、executable path 等 build identity。
+- K1 已通过：BuildInfo / About / diagnostics / startup log 现在能暴露 version、commit、build date、bundle path、binary path。
+- K1 的 settings release gate 已写入 `docs/manual_test.md` §33s，J1/J6 生命周期修复作为长期回归门禁保留。
+- `scripts/build.sh` 已修正文案，不再宣称 schema v3，并明确自己只构建 `.build/release` 二进制。
+- 当前仍没有 `scripts/package-app.sh`，`.app` bundle 仍未进入可重复脚本。
+- `scripts/make-icon.swift` 仍是 icon 原材料脚本，`AppIcon.icns` 还没有自动进入稳定 package 流程。
+- 本地 `SwiftSeek.app` 仍是被 `.gitignore` 忽略的手工/半手工产物，不能作为 fresh clone 后稳定交付路径。
 
 ### 当前阶段禁止事项
-- 不做正式 `.app` 打包流水线，留给 K2。
 - 不做 DMG。
 - 不做 Apple Developer ID 签名或 notarization。
 - 不做 auto updater。
-- 不重写 Launch at Login，留给 K4 稳定化。
+- 不做安装 / 升级 / 回滚，留给 K4。
+- 不做权限引导和 Full Disk Access 收口，留给 K5。
 - 不新增搜索 / ranking / 索引业务功能。
 - 不把本轮文档立项写成已经完成产品化。
 
 ### 当前阶段完成判定标准
-K1 只有同时满足以下条件才可验收通过：
-1. `docs/manual_test.md` 或等价 release checklist 明确覆盖设置窗口 10 次关闭/打开。
-2. release gate 覆盖：启动后打开设置、关闭、从菜单栏重开、从主菜单重开、Dock reopen、设置 tab 切换不崩溃。
-3. KVO tab 记忆不能回退到非法 `tabView.delegate` 方案。
-4. 增加可见 build identity：About / diagnostics 或等价 UI 至少显示 app version、schema、git commit 或 build timestamp、bundle/executable path。
-5. 启动日志打印 build identity，便于区分 stale bundle。
-6. 如果暂时无法注入 git commit，必须有 build-info 文件或常量，并在文档说明限制。
-7. 文档写清如何判断当前 `.app` / binary 是否刷新到最新构建。
-8. 不提前实现 K2-K6。
-9. `swift build` 和 `swift run SwiftSeekSmokeTest` 通过，或记录环境阻塞原因。
+K2 只有同时满足以下条件才可验收通过：
+1. fresh clone 后一条命令能生成 `.app`。
+2. `.app/Contents/MacOS/SwiftSeek` 存在且可执行。
+3. `Info.plist` 字段完整，并自动写入 version / bundle id / build metadata。
+4. `AppIcon.icns` 自动进入 bundle，不依赖手工主路径。
+5. `codesign -dv --verbose=2` 显示 ad-hoc 签名。
+6. `open dist/SwiftSeek.app` 或等价命令可启动。
+7. `scripts/build.sh`、package 脚本、README、manual test 的边界一致。
+8. 不提前实现 K3-K6。
+9. `swift build`、package 验证命令与必要 smoke 通过，或明确记录环境阻塞原因。
+
+## 已通过阶段
+
+### `K1`
+- 结论：`PASS`，日期 2026-04-25，验收提交 `d890c81`。
+- 已落地：
+  - 设置窗口 reopen / Dock reopen / tab KVO 形成 release gate
+  - About / diagnostics / startup log 暴露 build identity
+  - `scripts/build.sh` 去掉过期 schema v3 文案
+  - README / manual test / known issues 写清 stale bundle 自检
+- 环境备注：
+  - 当前 Codex 沙箱下 `swift build --disable-sandbox` / `swift run --disable-sandbox SwiftSeekSmokeTest` 无法直接复跑，原因是 `ModuleCache` 权限和 CLT/SDK 版本不匹配；已记录为环境阻塞，不视为 K1 实现 blocker。
 
 ## 已归档轨道
 
