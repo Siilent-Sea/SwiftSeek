@@ -1,76 +1,79 @@
-# 下一阶段任务书：M2
+# 下一阶段任务书：M3
 
 当前活跃轨道：`everything-filemanager-integration`
 
-当前阶段：`M2`
+当前阶段：`M3`
 
-任务性质：交给 Claude 执行的实现任务书。M2 只把 M1 的 Reveal Target 配置接入实际“显示位置”动作，并补对应 helper / smoke / 文档。动态按钮文案、diagnostics、完整 release gate 留到 M3。
+任务性质：交给 Claude 执行的实现任务书。M3 只做 Reveal target 的动态文案、诊断信息、fallback 展示打磨和手测 / release gate 同步。M2 的实际执行路由已经通过，不要重写执行核心。
 
 ## 背景
 
-M1 已通过 Codex 验收：
+M1 已完成 Reveal Target 数据模型与设置 UI。
 
-- `RevealTargetType` / `ExternalRevealOpenMode` / `RevealTarget` 已落地。
-- DB settings 已有 `reveal_target_type` / `reveal_custom_app_path` / `reveal_external_open_mode`。
-- 设置页已经能选择 Finder / 自定义 App、选择 `.app`、保存 `item` / `parentFolder`。
-- 保存失败三条路径都会弹 `NSAlert`，不会只写日志。
+M2 已完成实际 reveal 路由：
 
-当前真实 reveal 路径仍是 Finder-only：
+- Finder 模式继续用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
+- 自定义 App 模式使用公开 `NSWorkspace.open([targetURL], withApplicationAt: appURL, configuration:)`。
+- `.item` / `.parentFolder` 目标 URL 解析已由 `RevealResolver` 覆盖。
+- app path 空、失效、非 `.app`、打开失败都会 fallback 到 Finder。
+- custom app 打开失败 fallback 已修正为回到原始 target URL，而不是 parentFolder resolved URL。
+- reveal 不增加 Run Count。
 
-- `ResultActionRunner.perform(.revealInFinder)` 仍直接调用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
-- 搜索窗口按钮和右键菜单仍写“在 Finder 中显示”。
+当前剩余问题是用户可见层仍不完整：
 
-## M2 目标
+- 搜索窗口按钮仍写“在 Finder 中显示”。
+- 右键菜单仍写“在 Finder 中显示”。
+- hint / diagnostics / manual test / release checklist 还不能完整表达当前 reveal target。
 
-让“显示位置”动作真正读取 M1 的配置：
+## M3 目标
 
-- Finder 模式继续保持现有 Finder 选中文件行为。
-- 自定义 App 模式用公开 macOS API 打开目标 URL。
-- 外部 App 配置失效时给用户可见反馈，并 fallback 到 Finder。
-- reveal / show 不增加 Run Count。
+让用户选择 Finder / QSpace / 自定义 App 后，搜索窗口文案、右键菜单、hint、diagnostics、fallback 提示和手测 / release gate 都能反映当前 reveal target。
 
 ## 必须做
 
-1. 接入配置读取
-   - 从 `Database.getRevealTarget()` 读取当前 reveal target。
-   - 现有调用链如果拿不到 `Database`，可以新增最小必要参数或 helper，但不要做大范围架构重写。
+1. 动态显示名称 helper
+   - 增加可纯测 helper，用于把 `RevealTarget` + custom app path 显示成用户可读名称。
+   - Finder：`Finder`
+   - 文件名包含 `qspace`（大小写不敏感）：`QSpace`
+   - 其它 `.app`：去掉 `.app` 后显示 app 名称，例如 `Path Finder.app` → `Path Finder`
+   - 空 / 失效 custom app path：显示“自定义 App”或等价清晰文案，不能崩。
 
-2. 保留 Finder 行为
-   - `RevealTarget.type == .finder` 时继续调用：
-     `NSWorkspace.shared.activateFileViewerSelecting([url])`
-   - Finder 模式必须仍能在 Finder 中选中文件。
+2. 搜索窗口按钮动态文案
+   - Finder：`在 Finder 中显示`
+   - QSpace：`在 QSpace 中显示`
+   - 其它自定义 App：`在 <AppName> 中显示`
+   - 配置变化后，搜索窗口重新出现或刷新时应反映最新设置。
 
-3. 实现自定义 App 模式
-   - `RevealTarget.type == .customApp` 时读取 `customAppPath`。
-   - 校验 path：
-     - 非空
-     - 路径存在
-     - 是 `.app` bundle
-   - 根据 `openMode` 解析目标：
-     - `.item`：目标文件 / 目录本身
-     - `.parentFolder`：如果目标是文件，打开父目录；如果目标本身是目录，可打开该目录或按 helper 明确处理，必须有测试说明
-   - 使用公开 API，例如：
-     `NSWorkspace.shared.open([targetURL], withApplicationAt: appURL, configuration: ..., completionHandler: ...)`
+3. 右键菜单动态文案
+   - 与按钮文案同源，避免按钮和菜单不一致。
 
-4. 失败处理与 fallback
-   - custom app path 空、缺失、不是 `.app`、不存在、打开失败时：
-     - 给用户可见反馈（alert / status label /现有 UI 可承载的错误提示均可，但不能 silent fail）
-     - `NSLog` 记录 app path、target path、open mode、错误原因
-     - fallback 到 Finder 的 `activateFileViewerSelecting`
-   - fallback 后用户仍能定位文件。
+4. hint 文案同步
+   - 不能继续只表达 Finder-only 语义。
+   - 可以保留快捷键提示，但 reveal action 名称要跟随当前 target 或使用中性“显示位置”。
 
-5. 不影响 Run Count
-   - 只有 `.open` 成功才记录 `file_usage.open_count`。
-   - reveal / show 无论 Finder、custom app、fallback，都不能增加 Run Count。
+5. fallback 提示打磨
+   - 保留 M2 的 toast，但让文案更贴近实际目标，例如：
+     - `无法用 QSpace 显示，已回退到 Finder：<reason>`
+     - `无法用 <AppName> 显示，已回退到 Finder：<reason>`
+   - 不允许 silent fail。
 
-6. 补 smoke / helper 测试
-   - 抽出可纯测的 helper，覆盖：
-     - `.item` 目标 URL 解析
-     - `.parentFolder` 目标 URL 解析
-     - custom app path 空 / 不存在 / 非 `.app` 的验证结果
-     - fallback decision
-     - reveal 不触发 `recordOpen`
-   - GUI / 外部 app 真实打开可以留给手测，但纯逻辑必须进 smoke。
+6. diagnostics / About 信息
+   - Diagnostics 增加 reveal target 字段：
+     - target type
+     - custom app path
+     - app display name
+     - external open mode
+   - About / 复制诊断信息中能看出当前 reveal target。
+
+7. 文档与 release gate
+   - 更新 `docs/manual_test.md`：
+     - Finder 模式
+     - QSpace / custom app 模式
+     - app path 失效 fallback
+     - `.item` / `.parentFolder` 差异
+     - reveal 不增加 Run Count
+   - 更新 `docs/release_checklist.md`，把上述场景变成发布前必须确认项。
+   - 更新 `docs/known_issues.md`，去掉已经落地的限制，保留真实边界：外部 app 不保证选中文件、不使用私有 API。
 
 ## 明确不做
 
@@ -78,31 +81,34 @@ M1 已通过 Codex 验收：
 - 不硬编码未知 QSpace bundle id。
 - 不假设 QSpace URL scheme。
 - 不做 AppleScript。
-- 不改变系统默认文件管理器。
-- 不把 reveal 计入 Run Count。
-- 不把 M3 动态文案、diagnostics、release checklist 全量收口提前做完；如需加最小错误提示可以做，但不要扩大成 M3。
+- 不改变 macOS 系统默认文件管理器。
+- 不让 reveal 计入 Run Count。
+- 不做 M4 最终 PROJECT COMPLETE 收口；M3 通过后再进入 M4。
 
 ## 关键文件
 
-- `Sources/SwiftSeekCore/ResultAction.swift`
-- `Sources/SwiftSeek/UI/ResultActionRunner.swift`
 - `Sources/SwiftSeek/UI/SearchViewController.swift`
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift`
+- `Sources/SwiftSeekCore/RevealResolver.swift`
+- `Sources/SwiftSeekCore/Diagnostics.swift`
 - `Sources/SwiftSeekCore/SettingsTypes.swift`
-- `Sources/SwiftSeekCore/PathHelpers.swift`
 - `Sources/SwiftSeekSmokeTest/main.swift`
-- `docs/known_issues.md`
 - `docs/manual_test.md`
+- `docs/release_checklist.md`
+- `docs/known_issues.md`
 - `docs/codex_acceptance.md`
 - `docs/stage_status.md`
 
 ## 验收标准
 
-- Finder 模式行为不回退：仍调用 Finder 专用 reveal，能选中文件。
-- custom app 模式能按 `.item` / `.parentFolder` 选择正确 URL 并交给用户选择的 `.app`。
-- app path 空、失效、非 `.app`、打开失败时有可见反馈、NSLog，并 fallback 到 Finder。
-- reveal / show 不增加 `open_count`。
-- 不出现 QSpace bundle id / URL scheme / AppleScript / private API。
-- SmokeTest 覆盖 M2 纯逻辑，且总数增加。
+- Finder 模式按钮 / 右键菜单仍显示“在 Finder 中显示”。
+- 选择 QSpace 后按钮 / 右键菜单显示“在 QSpace 中显示”。
+- 选择其它 app 后显示 app 名称。
+- fallback toast 能说清楚“哪个 app 失败，已回退 Finder”。
+- diagnostics 可判断当前 reveal target。
+- manual test / release checklist 覆盖真实 GUI 场景。
+- reveal 仍不增加 Run Count。
+- 不出现 QSpace 私有 API、bundle id、URL scheme、AppleScript。
 
 ## 必须运行的检查
 
@@ -122,8 +128,9 @@ CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
 
 ## 必须手测
 
-1. Finder 模式：搜索结果点击“在 Finder 中显示”，Finder 打开并选中目标。
-2. 自定义 App + `parentFolder`：选择 `/Applications/QSpace.app` 或任意 `.app`，点击显示，外部 app 收到父目录 URL。
-3. 自定义 App + `item`：点击显示，外部 app 收到文件 / 目录本身 URL。
-4. 失效 app path：移动 / 删除 / 手动写坏 path 后点击显示，有可见错误提示，并 fallback 到 Finder。
-5. reveal 前后同一文件的 Run Count 不变化；只有“打开”动作增加 Run Count。
+1. Finder 模式：按钮和右键菜单显示“在 Finder 中显示”，点击后 Finder 选中目标。
+2. QSpace/custom app 模式：按钮和右键菜单显示目标 app 名称，点击后外部 app 收到目标 URL。
+3. app path 失效：点击后出现 fallback 提示，并回退 Finder。
+4. `.item` / `.parentFolder`：分别验证目标 URL 语义。
+5. reveal 前后 Run Count 不变；“打开”动作仍增加 Run Count。
+6. About / 复制诊断信息包含 reveal target 状态。

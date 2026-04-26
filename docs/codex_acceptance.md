@@ -5,32 +5,34 @@
 ## 当前有效状态
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M2`
+- 当前阶段：`M3`
 - 最新验收结论：`PASS`
-- 最新通过阶段：`M1`
+- 最新通过阶段：`M2`
 - 当前正式验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
 - 日期：2026-04-26
 
-## M1 round 2 验收结论
+## M2 round 2 验收结论
 
-`HEAD=fdae4714c987452c9231c2e725a171f9ff2188df` 通过 M1 验收。
+`HEAD=4ef32c0f0c3ef5d0adec6ea7be6545a1d560416f` 通过 M2 验收。
 
 Round 1 阻塞项已修复：
 
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `onRevealTargetTypeChanged(_:)` 保存失败时现在会 `NSLog`、弹 `NSAlert`，并调用 `reflectRevealTargetState()` 回滚 UI 到已持久化状态。
-- `onRevealOpenModeChanged(_:)` 同样会 `NSLog`、弹 `NSAlert`，并回滚 segmented 状态。
-- `onPickRevealApp(_:)` 原有保存失败 `NSAlert` 仍保留。
+- `Sources/SwiftSeekCore/RevealResolver.swift` 新增 `finderFallbackURL(target:)`，作为 Finder fallback URL 的纯函数单一来源，始终返回原始 `target.path` URL。
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift` custom app 分支在 closure 外捕获 `fallbackURL`，`NSWorkspace.open` error 分支现在用该原始 target URL 调 `activateFileViewerSelecting`，不会在 `.parentFolder` 文件场景误选父目录。
+- `NSLog` 同时记录 external-app `targetURL` 与 Finder fallback 原始 URL，便于诊断。
+- `Sources/SwiftSeekSmokeTest/main.swift` 增加 2 个 M2 round 2 回归用例，覆盖 file fallback 不等于 parentFolder resolved URL，以及 directory fallback 保持目录本身。
+- `docs/known_issues.md` §2 已去掉“当前 reveal 路径仍是 Finder”的旧句子，改为指向 §1 的 M2 已落地事实。
 
-M1 通过依据：
+M2 通过依据：
 
-- `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `RevealTargetType`、`ExternalRevealOpenMode`、`RevealTarget.defaultTarget = (.finder, "", .parentFolder)`。
-- 已有 `SettingsKey.revealTargetType` / `revealCustomAppPath` / `revealExternalOpenMode`。
-- `Database.getRevealTarget()` / `setRevealTarget(_:)` 已落地；unknown type fallback 到 `.finder` 并保留 custom path，unknown open mode fallback 到 `.parentFolder`，missing path fallback 到 `""`。
-- 设置页常规 pane 已有 Finder / 自定义 App popup、选择 App 按钮、`.application` `NSOpenPanel`、app summary、QSpace 文件名启发式、open mode segmented 和多行说明。
-- 选择 `.app` 会保存为 `.customApp`，不存在隐藏选择状态。
-- `ResultActionRunner.perform(.revealInFinder)` 仍是 Finder-only，M1 没有提前接入外部 app。
-- 搜索窗口按钮和右键菜单仍是“在 Finder 中显示”，留给 M3 动态化。
-- 未发现 QSpace bundle id、URL scheme、AppleScript 或 private API 接入。
+- `RevealResolver` 仍保持 AppKit-free，覆盖 strategy、custom app validation、target URL 解析、fallback URL 和 FileManager 探针。
+- `ResultActionRunner.perform(_:target:)` 两参数入口仍保留，兼容无 DB 路径；四参数入口能在有 DB 时读取 `RevealTarget` 并路由 Finder / custom app / fallback。
+- Finder 模式仍调用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
+- custom app 模式使用公开 `NSWorkspace.shared.open([targetURL], withApplicationAt: appURL, configuration:)`，`config.activates = true`。
+- app path 空、失效、非 `.app`、异步打开失败均有 fallback；fallback 会通知 `SearchViewController` 显示 toast。
+- `recordOpen` 仍只在 `.open` 成功路径调用，reveal 不增加 Run Count。
+- `ResultAction` case 仍名为 `.revealInFinder`，按钮和右键菜单仍为“在 Finder 中显示”，留给 M3 动态文案。
+- 未发现 QSpace 私有 API、QSpace bundle id、QSpace URL scheme 或 AppleScript。
 
 ## 本轮验证
 
@@ -48,23 +50,22 @@ codesign -dv dist/SwiftSeek.app
 观察结果：
 
 - `swift build --disable-sandbox`：通过。
-- `SwiftSeekSmokeTest`：229/229 通过。
+- `SwiftSeekSmokeTest`：245/245 通过，M1 / L1-L4 / K1-K6 覆盖项仍通过。
 - `package-app.sh --sandbox`：通过。
-- `Info.plist`：`GitCommit=fdae471`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`。
+- `Info.plist`：`GitCommit=4ef32c0`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`。
 - `codesign -dv`：`Signature=adhoc`、`Identifier=com.local.swiftseek`。
-- L1-L4 / K1-K6 相关 smoke 覆盖项仍通过。
 
 ## 下一阶段
 
-M2 任务书已写入 `docs/next_stage.md`。
+M3 任务书已写入 `docs/next_stage.md`。
 
-M2 验收时重点检查：
+M3 验收时重点检查：
 
-- Finder 模式仍使用 `NSWorkspace.shared.activateFileViewerSelecting([url])`，不回退。
-- custom app 模式按 `item` / `parentFolder` 解析并打开正确 URL。
-- app path 空、失效、非 `.app`、打开失败时有用户可见反馈、NSLog，并 fallback 到 Finder。
-- reveal / show 不增加 `file_usage.open_count`。
-- 没有 QSpace 私有 API、bundle id、URL scheme 或 AppleScript。
+- 搜索窗口按钮、右键菜单和 hint 随 reveal target 动态变化。
+- fallback toast 能表达具体 app 与回退 Finder。
+- diagnostics / About 能显示 reveal target type、custom app path、display name、open mode。
+- manual test / release checklist 覆盖 Finder、QSpace/custom app、fallback、`.item` / `.parentFolder`、Run Count 不变。
+- 继续禁止 QSpace 私有 API、bundle id、URL scheme、AppleScript。
 
 ## 历史归档轨道
 
