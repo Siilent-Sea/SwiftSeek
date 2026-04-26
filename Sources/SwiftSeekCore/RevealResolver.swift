@@ -111,4 +111,18 @@ public enum RevealResolver {
         let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
         return (exists, isDir.boolValue)
     }
+
+    /// M2 round 2: Finder fallback URL after a custom-app open
+    /// failure. The fallback **must** select the user's original
+    /// `target` in Finder, NOT the URL we resolved for the external
+    /// app. Concretely: when `openMode == .parentFolder` and the
+    /// target is a file, the resolved external-app URL is the parent
+    /// directory; falling back to that would make Finder select the
+    /// directory instead of restoring "show this file in Finder",
+    /// which breaks the contract "fallback 后用户仍能定位原目标".
+    /// This helper makes the choice explicit and unit-testable so
+    /// the runner can't accidentally drift.
+    public static func finderFallbackURL(target: ResultTarget) -> URL {
+        return URL(fileURLWithPath: target.path)
+    }
 }

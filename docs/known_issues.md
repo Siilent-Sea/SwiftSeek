@@ -21,7 +21,7 @@
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 新增 `RevealTargetType { .finder, .customApp }` / `ExternalRevealOpenMode { .item, .parentFolder }` / `RevealTarget` 结构体；DB key `reveal_target_type` / `reveal_custom_app_path` / `reveal_external_open_mode`；`Database.getRevealTarget() / setRevealTarget(_:)` 任一字段 malformed 单独 fallback 到 `RevealTarget.defaultTarget`（Finder + 空路径 + parentFolder）。
 - `Sources/SwiftSeek/UI/SettingsWindowController.swift` 设置 → 常规 → 最下方"显示位置"行：popup（Finder / 自定义 App…）+ "选择 App…" 按钮（NSOpenPanel 限定 `.app`，默认目录 `/Applications`）+ 当前 app 名称 / 路径 summary（含 QSpace 名称启发式识别）+ "打开目标" segmented（父目录 / 文件本身）+ 多行 note 解释 Finder vs 自定义 App 与两种 open mode 的语义。
 - 默认仍是 Finder + 空路径 + parentFolder；用户切到自定义 App 但未选 .app 时 summary 显示 `⚠️` 提示，UI 不会让用户进入"自定义但路径空"的迷惑状态。
-- M2 才把这套配置接到 `ResultActionRunner` 真正执行；当前 reveal 路径仍是 Finder。
+- M2 已把这套配置接到 `ResultActionRunner` 运行时（详见 §1 "Reveal 路由（M2 已落地）"）；动态按钮 / 右键菜单文案、diagnostics 与最终 release gate 留给 M3-M4。
 
 ### 3. UI 文案仍是 Finder-only
 

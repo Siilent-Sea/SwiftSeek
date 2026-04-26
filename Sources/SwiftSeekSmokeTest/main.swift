@@ -4832,6 +4832,31 @@ reporter.check("M2 decideStrategy: customApp + path is /Applications (not .app) 
     }
 }
 
+reporter.check("M2 round 2: finderFallbackURL of a file is the file itself, NOT its parent") {
+    // Regression guard for the round-1 REJECT bug: when openMode is
+    // .parentFolder and the target is a file, the resolved
+    // external-app URL is the parent directory. After a custom-app
+    // open failure we fallback to Finder — and Finder must select
+    // the ORIGINAL file, not the parent directory. finderFallbackURL
+    // is the single source of truth used by ResultActionRunner.
+    let target = ResultTarget(path: "/tmp/swiftseek-m2/foo.txt", isDirectory: false)
+    let url = RevealResolver.finderFallbackURL(target: target)
+    try reporter.require(url.path == "/tmp/swiftseek-m2/foo.txt",
+                         "fallback URL must be the original file, got \(url.path)")
+    // And critically: it must NOT equal the .parentFolder resolved URL.
+    let resolved = RevealResolver.resolveTargetURL(target: target,
+                                                   openMode: .parentFolder)
+    try reporter.require(url != resolved,
+                         "fallback URL must differ from .parentFolder resolved URL (\(resolved.path)) so Finder selects the file not the dir")
+}
+
+reporter.check("M2 round 2: finderFallbackURL of a directory is the directory itself") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2", isDirectory: true)
+    let url = RevealResolver.finderFallbackURL(target: target)
+    try reporter.require(url.path == "/tmp/swiftseek-m2",
+                         "fallback URL of directory must be the directory itself, got \(url.path)")
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {

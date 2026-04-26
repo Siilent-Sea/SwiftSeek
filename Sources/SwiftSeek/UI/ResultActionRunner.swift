@@ -97,6 +97,13 @@ enum ResultActionRunner {
             // sees it react to the reveal click; activates = true is
             // the documented way to mirror Finder's behaviour.
             config.activates = true
+            // M2 round 2: capture the ORIGINAL target URL outside the
+            // closure so the async-failure Finder fallback selects
+            // the user's actual file, not the resolved external-app
+            // URL (which is the parent dir under .parentFolder mode).
+            // RevealResolver.finderFallbackURL(target:) is the single
+            // source of truth and has dedicated smoke coverage.
+            let fallbackURL = RevealResolver.finderFallbackURL(target: target)
             NSWorkspace.shared.open([targetURL],
                                     withApplicationAt: appURL,
                                     configuration: config) { _, error in
@@ -104,10 +111,10 @@ enum ResultActionRunner {
                     if let error = error {
                         // Open failed at runtime (app crashed, signature
                         // rejection, sandbox refusal, etc.). Log + Finder
-                        // fallback + notify caller so they can show a
-                        // toast.
-                        NSLog("SwiftSeek: NSWorkspace.open failed for app=\(appURL.path) target=\(targetURL.path) — \(error). Falling back to Finder.")
-                        NSWorkspace.shared.activateFileViewerSelecting([targetURL])
+                        // fallback (using ORIGINAL target URL) + notify
+                        // caller so they can show a toast.
+                        NSLog("SwiftSeek: NSWorkspace.open failed for app=\(appURL.path) target=\(targetURL.path) — \(error). Falling back to Finder selecting original target=\(fallbackURL.path).")
+                        NSWorkspace.shared.activateFileViewerSelecting([fallbackURL])
                         onReveal?(.fallback(reason: "用 \(appName) 打开失败：\(error.localizedDescription)"))
                     } else {
                         onReveal?(.customApp(appName: appName))
