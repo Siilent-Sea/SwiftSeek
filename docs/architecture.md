@@ -314,3 +314,46 @@ P5 把 `SettingsWindowController` 的四个占位 pane 换成真正连 `Database
 - 网络盘 / 云盘实时一致性承诺
 - macOS 全局启动次数读取 / 系统隐私数据扫描
 - private API 调用
+
+---
+
+## everything-filemanager-integration 收口（M1-M4）
+
+> 这一段是 M1-M4 落地后的当前状态参考。最新状态以 `docs/stage_status.md` + `docs/install.md` + `docs/release_checklist.md` 为准。
+
+### M1 — Reveal Target 数据模型与设置 UI
+- `Sources/SwiftSeekCore/SettingsTypes.swift`：`RevealTargetType { .finder, .customApp }`、`ExternalRevealOpenMode { .item, .parentFolder }`、`RevealTarget` 结构体（`defaultTarget = (.finder, "", .parentFolder)`）；`SettingsKey.revealTargetType / revealCustomAppPath / revealExternalOpenMode`；`Database.getRevealTarget() / setRevealTarget(_:)` extension（每字段独立 fallback）。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：显示位置 popup（Finder / 自定义 App…）+ "选择 App…" 按钮（`NSOpenPanel` 限定 `.application` content type）+ 当前 app 名称 + 路径 summary（含 QSpace 文件名启发式识别）+ 打开目标 segmented（父目录 / 文件本身）+ 多行 note；popup / segmented / NSOpenPanel 三条保存路径失败都弹 NSAlert。Pane 高度 580。
+
+### M2 — ResultActionRunner 接入 Finder / 自定义 App
+- `Sources/SwiftSeekCore/RevealResolver.swift`（纯函数 / AppKit-free）：
+  - `Strategy { .finder(targetURL) / .customApp(appURL, targetURL) / .fallbackToFinder(targetURL, reason) }`
+  - `CustomAppValidation { .ok(URL) / .empty / .notFound(path) / .notAnApp(path) }`
+  - `resolveTargetURL(target:openMode:)`（`.item` 返回原 URL；`.parentFolder` 文件返回父目录、目录返回自己保持不掉级）
+  - `validateCustomAppPath(_:fileExists:)`（trim / 不存在 / 非 dir / 缺 `.app` 后缀都进对应失败 case）
+  - `decideStrategy(target:revealTarget:fileExists:)`
+  - `finderFallbackURL(target:)`（M2 round-2 不变量：fallback 到 Finder 永远选中**原始**目标 URL，不是外部 app 的 resolved URL）
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift`：`.revealInFinder` 现支持可选 `database` + `onReveal` 回调；保留旧 2 参数入口（database=nil → Finder）。三分支路由 → Finder `activateFileViewerSelecting` / customApp `NSWorkspace.shared.open([targetURL], withApplicationAt: appURL, configuration:)`（`config.activates = true`）/ fallbackToFinder。完成 handler error → NSLog + `finderFallbackURL` Finder fallback + `onReveal(.fallback)`。
+- reveal 路径不调 `recordOpen`，Run Count 仅由 `.open` 成功路径增加。
+
+### M3 — 动态文案、fallback、诊断与手测
+- `RevealResolver` 新增 3 helper：
+  - `displayName(for:)`：Finder → "Finder"；customApp 空 → "自定义 App"；filename lowercased contains "qspace" → "QSpace"；其它 `.app` 去 `.app` 后缀；其它路径 → 文件名原样
+  - `actionTitle(for:)` = `"在 \(displayName) 中显示"`
+  - `fallbackReason(_:for:)` = `"无法用 \(displayName) 显示，已回退到 Finder：\(underlying)"`
+- `Sources/SwiftSeek/UI/SearchViewController.swift`：reveal button + 右键菜单 reveal item 存为属性；`currentRevealTargetSafe()`、`hintTextForReveal(target:)`（短 displayName ≤10 → "在 <name> 中显示"，长 → 中性 "显示位置"）、`refreshRevealLabels()` 同时刷新 button + menu + bottom hint strip。`SearchWindowController.show()` 在 `makeKeyAndOrderFront` 之后调 refresh，确保 Settings 改动隔次生效。`revealSelected` toast 用 `⚠️ \(reason)`，reason 由 `RevealResolver.fallbackReason` 组成。
+- `Sources/SwiftSeekCore/Diagnostics.swift` snapshot 新增 `Reveal target（M3）：` 块，含 type / 显示名称 / 按钮文案 / 打开模式 / 自定义 App 路径。
+- `docs/manual_test.md` §33ac + `docs/release_checklist.md` §5f 覆盖 GUI 验证矩阵。
+
+### M4 — 最终收口
+- `README.md`、`docs/known_issues.md`、`docs/architecture.md`（本段）、`docs/manual_test.md`、`docs/release_checklist.md`、`docs/stage_status.md` 与 M1-M3 真实代码对齐。
+- release_checklist header / smoke baseline / 验证矩阵升到 K6 + L1-L4 + M1-M4。
+- 不引入新搜索 / OCR / AI / 跨平台能力；不重写 ResultActionRunner 公共契约；`.revealInFinder` case 名仍保留（rename 是更高代价的 ABI 变更，留给将来 fresh track 决定）。
+
+### 当前轨道（filemanager-integration）明确不做
+- QSpace 私有 API / 硬编码 QSpace bundle id / 假设 QSpace URL scheme
+- AppleScript 驱动外部 app
+- 改变 macOS 系统默认文件管理器
+- 让 reveal 计入 Run Count
+- 跨用户多实例 / 跨 bundle id 自定义构建间共享设置
+- 承诺所有第三方文件管理器都能"选中具体文件"

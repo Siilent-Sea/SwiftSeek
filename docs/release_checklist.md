@@ -1,8 +1,8 @@
-# SwiftSeek Release Checklist（K6 + L1-L4 单页）
+# SwiftSeek Release Checklist（K6 + L1-L4 + M1-M4 单页）
 
 每次发布本地 ad-hoc bundle 前**必须**从干净 workspace 走完整张表。任何一项失败都不算 release-ready。
 
-**当前 release gate** = K6 收口 + L1 menubar-agent 形态默认 + L2 Dock 显示开关 + L3 菜单栏状态可见性 + L4 单实例防护。未签名 / 未公证 / 无 DMG / 无 auto updater 是当前轨道明确边界，不要在这条路径里夸大交付。L1 起 SwiftSeek 默认 **不显示 Dock 图标**；菜单栏状态项是主入口；L4 起重复打开同一 bundle id 的实例会主动 defer + 唤醒旧实例。
+**当前 release gate** = K6 收口 + L1 menubar-agent 形态默认 + L2 Dock 显示开关 + L3 菜单栏状态可见性 + L4 单实例防护 + M1 Reveal Target 设置 UI + M2 Finder/自定义 App 运行时路由 + M3 动态文案 / fallback / Diagnostics + M4 文档对齐。未签名 / 未公证 / 无 DMG / 无 auto updater 是当前轨道明确边界，不要在这条路径里夸大交付。L1 起 SwiftSeek 默认 **不显示 Dock 图标**；菜单栏状态项是主入口；L4 起重复打开同一 bundle id 的实例会主动 defer + 唤醒旧实例；M1-M3 起 "在 Finder 中显示" 可配置为任意 `.app`，不依赖任何文件管理器私有 API。
 
 ## 0. 前置确认
 

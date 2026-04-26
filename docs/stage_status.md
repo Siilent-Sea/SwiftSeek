@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-filemanager-integration`
 - 当前阶段：`M4`
-- 当前状态：M3 Codex 验收 PASS；M4 待实现最终收口与 release gate
+- 当前状态：M4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -220,6 +220,16 @@
 - release checklist 能直接指导 Finder / QSpace / custom app / fallback / item vs parentFolder / Run Count 不变 / no Dock / menu bar / single-instance 验证。
 - 文档不再互相矛盾，不再残留 Finder-only 旧口径。
 - 无阻塞级回归或越界实现，Codex 可输出 `PROJECT COMPLETE`。
+
+### M4 实现已落地（待 Codex 最终验收）
+
+- `README.md`：Features 段新增 "文件管理器集成（M1-M3）" 行；当前限制段改写为 M1-M3 已落地、M4 收口中；当前进度 / Roadmap 加入 filemanager-integration gap / taskbook 链接。
+- `docs/architecture.md`：在 productization 收口段之后新增 "everything-filemanager-integration 收口（M1-M4）" 段，按 M1/M2/M3/M4 列每阶段交付 + "当前轨道明确不做" 列表（QSpace 私有 API / 硬编码 bundle id / URL scheme 假设 / AppleScript / 改变系统默认文件管理器 / reveal 计入 Run Count / 跨用户多实例 / 承诺所有第三方文件管理器都能选中具体文件）。
+- `docs/known_issues.md` 归档段从 "Productization 已完成；L1-L4 已收口" 扩展为同时涵盖 productization + menubar-agent + filemanager-integration M1-M3-M4，列保留边界（外部文件管理器选中文件由该 app 决定 / 不调私有 API / 不假设 bundle id 与 URL scheme）。
+- `docs/release_checklist.md` header 升到 "K6 + L1-L4 + M1-M4 单页"；smoke baseline 仍为 256；§5b/§5c/§5d/§5e/§5f 共同覆盖菜单栏 + Dock 切换 + 状态可见性 + 单实例 + reveal 动态行为。
+- `docs/stage_status.md`（本文件）M4 实现已落地段 + 状态翻为"M4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）"。
+- 不引入任何新代码，不改 ResultAction case 名（`.revealInFinder` 保留以稳定历史 smoke 与 ABI）；M1-M3 真实代码 / smoke 不变，确保不回退。
+- 受限沙箱下 build OK；SmokeTest 256/256；package-app 仍可重复跑通；GUI 真实 reveal / fallback toast / 菜单栏 / 单实例 / Dock 切换都按 §33ac §33ab §33aa §33z §33y §5b-§5f 作为每次发布手测。
 
 ## 后续阶段索引
 

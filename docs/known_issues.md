@@ -136,12 +136,12 @@
 - 不做完整菜单栏 dashboard 或弹窗控制台；当前 L3 只做只读状态，最近 / 常用入口未在 round 1 实现（taskbook 标"如果实现"）。
 - 读取失败的降级文案：indexMode 读不到 → "—"；listRoots 失败 → "读取 roots 失败"；mainFileBytes < 0 → "DB 大小：—"；DB 不可用（未初始化）→ tooltip 回退为"SwiftSeek 搜索"，菜单状态行保持初始 placeholder。
 
-### Productization 已完成；L1-L4 已把菜单栏 agent 主形态收口
+### Productization / 菜单栏 agent / 文件管理器集成 已完成形态收口
 
 - `everything-productization` 已完成可重复 `.app` 打包、Info.plist / icon / ad-hoc codesign、build identity、diagnostics、install / rollback 文档、Full Disk Access / root 覆盖引导和 release checklist。
-- L1 在 productization 之上把默认 activation policy 切成 `.accessory`，Dock 不再常驻；菜单栏 status item 是主入口；release_checklist §5b 把 no-Dock 验证写成强制项。
-- L2 已补 Dock 显示开关与重启生效策略；L3 已补菜单栏只读状态可见性；L4 已补单实例与多 bundle 防护。`everything-menubar-agent` 已完成。
-- 当前新轨道只处理外部文件管理器集成；ad-hoc / 未公证 / 无 DMG / 无 auto updater 仍是保留边界。
+- `everything-menubar-agent` L1 把默认 activation policy 切成 `.accessory`，Dock 不再常驻；菜单栏 status item 是主入口；L2 Dock 显示开关；L3 菜单栏只读状态可见性；L4 单实例防护。
+- `everything-filemanager-integration` M1 Reveal Target 数据模型 + 设置 UI；M2 ResultActionRunner 接入 RevealResolver + customApp NSWorkspace.open + Finder fallback；M3 动态 button / 右键菜单 / hint + Diagnostics 块 + fallback toast；M4 文档收口（README / known_issues / architecture / release_checklist / manual_test 全对齐）。
+- 仍保留的真实边界：ad-hoc / 未公证 / 无 DMG / 无 auto updater；外部文件管理器是否能"选中具体文件"取决于该 app 自身实现；不调任何文件管理器私有 API；不假设 QSpace bundle id / URL scheme。
 
 ### Run Count 统计范围
 
