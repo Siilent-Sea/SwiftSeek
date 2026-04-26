@@ -28,6 +28,13 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     private let statusLabel = NSTextField(labelWithString: "")
     private let hintLabel = NSTextField(labelWithString: "")
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: "")
+    // M3: retained references so refreshRevealLabels() can update
+    // their titles when the user changes the reveal target in
+    // Settings. The button is stored at loadView time; the row
+    // context-menu item is stored when buildRowContextMenu builds
+    // the menu so we can keep both surfaces in lock-step.
+    private var revealBtn: NSButton?
+    private var revealMenuItem: NSMenuItem?
 
     // E2: sort state. Default to the native ranking order returned by
     // SearchEngine.search. User clicking a column header cycles through
@@ -187,10 +194,15 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
 
         let openBtn = makeActionButton(title: "打开", keyEquivalent: "\r",
                                        keyModifierMask: [], action: #selector(openSelected))
-        let revealBtn = makeActionButton(title: "在 Finder 中显示",
+        // M3: dynamic title based on persisted reveal target. Captured
+        // into self.revealBtn so refreshRevealLabels() can re-title
+        // when the user changes the setting.
+        let initialRevealTitle = RevealResolver.actionTitle(for: currentRevealTargetSafe())
+        let revealBtn = makeActionButton(title: initialRevealTitle,
                                          keyEquivalent: "\r",
                                          keyModifierMask: [.command],
                                          action: #selector(revealSelected))
+        self.revealBtn = revealBtn
         let copyBtn = makeActionButton(title: "复制路径",
                                        keyEquivalent: "c",
                                        keyModifierMask: [.command, .shift],
@@ -505,9 +517,13 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         m.addItem(withTitle: "使用其他应用打开…",
                   action: #selector(openWithSelected),
                   keyEquivalent: "")
-        m.addItem(withTitle: "在 Finder 中显示",
-                  action: #selector(revealSelected),
-                  keyEquivalent: "")
+        // M3: dynamic title; captured into self.revealMenuItem so
+        // refreshRevealLabels() can re-title when settings change.
+        let revealItem = NSMenuItem(title: RevealResolver.actionTitle(for: currentRevealTargetSafe()),
+                                    action: #selector(revealSelected),
+                                    keyEquivalent: "")
+        m.addItem(revealItem)
+        self.revealMenuItem = revealItem
         m.addItem(NSMenuItem.separator())
         // J5: three explicit copy actions so users don't have to
         // guess what "复制" will actually paste. Renamed the old
@@ -789,9 +805,33 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
             case .finder, .customApp:
                 break  // success path; no toast spam
             case .fallback(let reason):
-                self.showToast("⚠️ 已回退到 Finder：\(reason)")
+                // M3: reason text already includes "无法用 <app> 显示" /
+                // "已回退到 Finder：…" wrapping when the runner
+                // composed it via RevealResolver.fallbackReason.
+                self.showToast("⚠️ \(reason)")
             }
         }
+    }
+
+    /// M3: read the persisted RevealTarget with a Finder default on
+    /// any error path. Used by button / menu / hint / diagnostics
+    /// label generation; swallowing the error is correct here because
+    /// every consumer is purely cosmetic — actual reveal routing in
+    /// `ResultActionRunner` does its own DB read with its own
+    /// fallback path, so a transient read failure here just shows the
+    /// safer "Finder" label until the next refresh.
+    fileprivate func currentRevealTargetSafe() -> RevealTarget {
+        return (try? database.getRevealTarget()) ?? RevealTarget.defaultTarget
+    }
+
+    /// M3: re-title the reveal button + row context-menu item to
+    /// match the currently persisted RevealTarget. Called on every
+    /// search-window appearance so a Settings change picked up while
+    /// the window was hidden lands the next time the user pops it.
+    func refreshRevealLabels() {
+        let title = RevealResolver.actionTitle(for: currentRevealTargetSafe())
+        revealBtn?.title = title
+        revealMenuItem?.title = title
     }
 
     @objc func copyPathSelected() {

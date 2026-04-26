@@ -91,7 +91,11 @@ enum ResultActionRunner {
             NSWorkspace.shared.activateFileViewerSelecting([targetURL])
             onReveal?(.finder)
         case .customApp(let appURL, let targetURL):
-            let appName = (appURL.path as NSString).lastPathComponent
+            // M3: prefer the user-facing display name (Finder / QSpace
+            // / <AppName>) for toast wording instead of raw filename
+            // so QSpace.app reads as "QSpace" and Path Finder.app
+            // reads as "Path Finder".
+            let displayName = RevealResolver.displayName(for: revealTarget)
             let config = NSWorkspace.OpenConfiguration()
             // Bring the external app to the foreground so the user
             // sees it react to the reveal click; activates = true is
@@ -115,16 +119,23 @@ enum ResultActionRunner {
                         // caller so they can show a toast.
                         NSLog("SwiftSeek: NSWorkspace.open failed for app=\(appURL.path) target=\(targetURL.path) — \(error). Falling back to Finder selecting original target=\(fallbackURL.path).")
                         NSWorkspace.shared.activateFileViewerSelecting([fallbackURL])
-                        onReveal?(.fallback(reason: "用 \(appName) 打开失败：\(error.localizedDescription)"))
+                        let reason = RevealResolver.fallbackReason(error.localizedDescription,
+                                                                   for: revealTarget)
+                        onReveal?(.fallback(reason: reason))
                     } else {
-                        onReveal?(.customApp(appName: appName))
+                        onReveal?(.customApp(appName: displayName))
                     }
                 }
             }
         case .fallbackToFinder(let targetURL, let reason):
-            NSLog("SwiftSeek: reveal fell back to Finder — \(reason)")
+            // M3: wrap the resolver's bare reason ("自定义 App 不存在：…"
+            // etc.) in the fallbackReason composer so the toast also
+            // names the configured target ("无法用 QSpace 显示，已回退
+            // 到 Finder：自定义 App 不存在：…").
+            let composed = RevealResolver.fallbackReason(reason, for: revealTarget)
+            NSLog("SwiftSeek: reveal fell back to Finder — \(composed)")
             NSWorkspace.shared.activateFileViewerSelecting([targetURL])
-            onReveal?(.fallback(reason: reason))
+            onReveal?(.fallback(reason: composed))
         }
     }
 }

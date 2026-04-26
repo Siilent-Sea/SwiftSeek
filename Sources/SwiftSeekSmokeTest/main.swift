@@ -4857,6 +4857,119 @@ reporter.check("M2 round 2: finderFallbackURL of a directory is the directory it
                          "fallback URL of directory must be the directory itself, got \(url.path)")
 }
 
+// MARK: - M3 dynamic display name + action title
+
+reporter.check("M3 displayName: .finder → 'Finder'") {
+    let t = RevealTarget.defaultTarget
+    try reporter.require(RevealResolver.displayName(for: t) == "Finder",
+                         "expected 'Finder', got '\(RevealResolver.displayName(for: t))'")
+}
+
+reporter.check("M3 displayName: .customApp with empty path → '自定义 App'") {
+    let t = RevealTarget(type: .customApp, customAppPath: "", openMode: .item)
+    try reporter.require(RevealResolver.displayName(for: t) == "自定义 App",
+                         "empty customApp must produce '自定义 App', got '\(RevealResolver.displayName(for: t))'")
+}
+
+reporter.check("M3 displayName: filename containing 'qspace' (case insensitive) → 'QSpace'") {
+    let t1 = RevealTarget(type: .customApp, customAppPath: "/Applications/QSpace.app", openMode: .item)
+    let t2 = RevealTarget(type: .customApp, customAppPath: "/Applications/qspace.app", openMode: .item)
+    let t3 = RevealTarget(type: .customApp, customAppPath: "/Applications/QSpace Pro.app", openMode: .item)
+    try reporter.require(RevealResolver.displayName(for: t1) == "QSpace",
+                         "QSpace.app → QSpace; got '\(RevealResolver.displayName(for: t1))'")
+    try reporter.require(RevealResolver.displayName(for: t2) == "QSpace",
+                         "lowercase qspace.app → QSpace; got '\(RevealResolver.displayName(for: t2))'")
+    try reporter.require(RevealResolver.displayName(for: t3) == "QSpace",
+                         "QSpace Pro.app → QSpace; got '\(RevealResolver.displayName(for: t3))'")
+}
+
+reporter.check("M3 displayName: other .app strips .app suffix") {
+    let t = RevealTarget(type: .customApp,
+                         customAppPath: "/Applications/Path Finder.app",
+                         openMode: .parentFolder)
+    try reporter.require(RevealResolver.displayName(for: t) == "Path Finder",
+                         "Path Finder.app → 'Path Finder', got '\(RevealResolver.displayName(for: t))'")
+}
+
+reporter.check("M3 displayName: path without .app suffix returns last component as-is") {
+    let t = RevealTarget(type: .customApp,
+                         customAppPath: "/Applications/MaybeBundle",
+                         openMode: .item)
+    try reporter.require(RevealResolver.displayName(for: t) == "MaybeBundle",
+                         "no .app suffix → return basename verbatim, got '\(RevealResolver.displayName(for: t))'")
+}
+
+reporter.check("M3 displayName: whitespace-only customAppPath → '自定义 App'") {
+    let t = RevealTarget(type: .customApp, customAppPath: "   \t", openMode: .item)
+    try reporter.require(RevealResolver.displayName(for: t) == "自定义 App",
+                         "whitespace-only must be treated as empty")
+}
+
+reporter.check("M3 actionTitle: Finder → '在 Finder 中显示'") {
+    let t = RevealTarget.defaultTarget
+    try reporter.require(RevealResolver.actionTitle(for: t) == "在 Finder 中显示",
+                         "got '\(RevealResolver.actionTitle(for: t))'")
+}
+
+reporter.check("M3 actionTitle: QSpace.app → '在 QSpace 中显示'") {
+    let t = RevealTarget(type: .customApp,
+                         customAppPath: "/Applications/QSpace.app",
+                         openMode: .parentFolder)
+    try reporter.require(RevealResolver.actionTitle(for: t) == "在 QSpace 中显示",
+                         "got '\(RevealResolver.actionTitle(for: t))'")
+}
+
+reporter.check("M3 actionTitle: Path Finder.app → '在 Path Finder 中显示'") {
+    let t = RevealTarget(type: .customApp,
+                         customAppPath: "/Applications/Path Finder.app",
+                         openMode: .item)
+    try reporter.require(RevealResolver.actionTitle(for: t) == "在 Path Finder 中显示",
+                         "got '\(RevealResolver.actionTitle(for: t))'")
+}
+
+reporter.check("M3 fallbackReason: composes with Finder fallback wording") {
+    let t = RevealTarget(type: .customApp,
+                         customAppPath: "/Applications/QSpace.app",
+                         openMode: .item)
+    let r = RevealResolver.fallbackReason("被系统拒绝", for: t)
+    try reporter.require(r == "无法用 QSpace 显示，已回退到 Finder：被系统拒绝",
+                         "got '\(r)'")
+}
+
+reporter.check("M3 Diagnostics.snapshot includes Reveal target block with current settings") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Default state (Finder): block must exist + identify Finder.
+    let snap1 = Diagnostics.snapshot(database: db)
+    try reporter.require(snap1.contains("Reveal target（M3）："),
+                         "snapshot must contain 'Reveal target（M3）：' marker")
+    try reporter.require(snap1.contains("Finder（默认）"),
+                         "default snapshot must surface 'Finder（默认）'")
+    try reporter.require(snap1.contains("按钮文案：在 Finder 中显示"),
+                         "default snapshot must show button label '在 Finder 中显示'")
+    try reporter.require(snap1.contains("自定义 App 路径：—（Finder 模式）"),
+                         "Finder mode should mark custom path as 不适用")
+    // Flip to a QSpace customApp + item; block must update.
+    try db.setRevealTarget(RevealTarget(type: .customApp,
+                                        customAppPath: "/Applications/QSpace.app",
+                                        openMode: .item))
+    let snap2 = Diagnostics.snapshot(database: db)
+    try reporter.require(snap2.contains("自定义 App"),
+                         "snapshot must surface 自定义 App when type is .customApp")
+    try reporter.require(snap2.contains("显示名称：QSpace"),
+                         "snapshot must show QSpace display name; got '\(snap2.prefix(2000))'")
+    try reporter.require(snap2.contains("按钮文案：在 QSpace 中显示"),
+                         "snapshot must surface 按钮文案 '在 QSpace 中显示'")
+    try reporter.require(snap2.contains("打开模式：文件本身（item）"),
+                         "snapshot must show 打开模式 文件本身（item）")
+    try reporter.require(snap2.contains("/Applications/QSpace.app"),
+                         "snapshot must show full custom app path")
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {

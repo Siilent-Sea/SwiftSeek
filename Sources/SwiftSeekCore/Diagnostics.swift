@@ -115,6 +115,32 @@ public enum Diagnostics {
             lalSystem = "—（headless 报告，无系统查询）"
         }
 
+        // --- M3 reveal target ---------------------------------------
+        // Surfaces the user's current "show file in" target so a
+        // bug-report copy makes it obvious whether reveal clicks
+        // hit Finder, QSpace, or some custom .app — and which open
+        // mode (item vs parent folder) the external app receives.
+        let revealTarget = safe("getRevealTarget", default: RevealTarget.defaultTarget) {
+            try database.getRevealTarget()
+        }
+        let revealTypeLabel: String
+        switch revealTarget.type {
+        case .finder: revealTypeLabel = "Finder（默认）"
+        case .customApp: revealTypeLabel = "自定义 App"
+        }
+        let revealOpenModeLabel: String
+        switch revealTarget.openMode {
+        case .item: revealOpenModeLabel = "文件本身（item）"
+        case .parentFolder: revealOpenModeLabel = "父目录（parentFolder）"
+        }
+        let revealDisplayName = RevealResolver.displayName(for: revealTarget)
+        let revealActionTitle = RevealResolver.actionTitle(for: revealTarget)
+        let revealCustomPathLine: String = revealTarget.type == .customApp
+            ? (revealTarget.customAppPath.isEmpty
+                ? "  自定义 App 路径：（未选择）"
+                : "  自定义 App 路径：\(revealTarget.customAppPath)")
+            : "  自定义 App 路径：—（Finder 模式）"
+
         // --- assemble ----------------------------------------------
         var out = """
         \(identity)
@@ -138,6 +164,12 @@ public enum Diagnostics {
 
         Launch at Login 用户意图：\(lalIntent)
         Launch at Login 系统状态：\(lalSystem)
+
+        Reveal target（M3）：\(revealTypeLabel)
+          显示名称：\(revealDisplayName)
+          按钮文案：\(revealActionTitle)
+          打开模式：\(revealOpenModeLabel)
+        \(revealCustomPathLine)
 
         上次重建时间：\(lastAt)
         上次重建结果：\(lastResult)

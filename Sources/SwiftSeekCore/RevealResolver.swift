@@ -125,4 +125,52 @@ public enum RevealResolver {
     public static func finderFallbackURL(target: ResultTarget) -> URL {
         return URL(fileURLWithPath: target.path)
     }
+
+    // MARK: - M3 user-facing display names
+
+    /// M3: human-readable name of the current reveal target. Used by
+    /// search-window button labels, right-click menu, hint text,
+    /// fallback toasts, and the `Diagnostics` block. Pure helper so
+    /// every UI surface stays in lock-step.
+    ///
+    /// - `.finder`                              → `"Finder"`
+    /// - `.customApp` with empty path           → `"自定义 App"`
+    /// - `.customApp` with filename containing `qspace` (case-insensitive)
+    ///                                          → `"QSpace"`
+    /// - any other `.customApp`                 → app filename minus
+    ///   trailing `.app` (e.g. `Path Finder.app` → `"Path Finder"`)
+    public static func displayName(for revealTarget: RevealTarget) -> String {
+        switch revealTarget.type {
+        case .finder:
+            return "Finder"
+        case .customApp:
+            let trimmed = revealTarget.customAppPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return "自定义 App" }
+            let base = (trimmed as NSString).lastPathComponent
+            if base.lowercased().contains("qspace") {
+                return "QSpace"
+            }
+            if base.hasSuffix(".app") {
+                return String(base.dropLast(".app".count))
+            }
+            return base
+        }
+    }
+
+    /// M3: button / menu / hint title for the reveal action,
+    /// composed from `displayName(for:)`. Centralised so all UI
+    /// surfaces stay consistent.
+    public static func actionTitle(for revealTarget: RevealTarget) -> String {
+        return "在 \(displayName(for: revealTarget)) 中显示"
+    }
+
+    /// M3: short label for fallback toasts and NSLog when a custom-app
+    /// reveal fails. Tells the user which app they configured (so a
+    /// QSpace-vs-Path-Finder confusion is impossible) and that we
+    /// fell back to Finder.
+    public static func fallbackReason(_ underlying: String,
+                                      for revealTarget: RevealTarget) -> String {
+        let name = displayName(for: revealTarget)
+        return "无法用 \(name) 显示，已回退到 Finder：\(underlying)"
+    }
 }

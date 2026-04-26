@@ -57,6 +57,11 @@ final class SearchWindowController: NSWindowController {
         }
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
+        // M3: pull fresh reveal target labels every time the search
+        // window pops, so a Settings change made while the window was
+        // hidden surfaces in the button + right-click menu without
+        // requiring an app relaunch.
+        viewController.refreshRevealLabels()
         viewController.focusInput()
     }
 

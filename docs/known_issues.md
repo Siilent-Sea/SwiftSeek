@@ -23,11 +23,13 @@
 - 默认仍是 Finder + 空路径 + parentFolder；用户切到自定义 App 但未选 .app 时 summary 显示 `⚠️` 提示，UI 不会让用户进入"自定义但路径空"的迷惑状态。
 - M2 已把这套配置接到 `ResultActionRunner` 运行时（详见 §1 "Reveal 路由（M2 已落地）"）；动态按钮 / 右键菜单文案、diagnostics 与最终 release gate 留给 M3-M4。
 
-### 3. UI 文案仍是 Finder-only
+### 3. UI 文案 / Diagnostics（M3 已落地）
 
-- 搜索窗口按钮写“在 Finder 中显示”。
-- 右键菜单也写“在 Finder 中显示”。
-- 如果后续选择 QSpace / 自定义 App，按钮、右键菜单、hint、diagnostics 都必须跟随目标变化。
+- `Sources/SwiftSeekCore/RevealResolver.swift` 提供 `displayName(for:)`、`actionTitle(for:)`、`fallbackReason(_:for:)` 三个纯函数：Finder → "Finder"；customApp 空路径 → "自定义 App"；filename case-insensitive 含 "qspace" → "QSpace"；其他 .app → 去掉 `.app` 后的文件名；其他路径 → 文件名原样。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` 把 reveal button 与右键菜单 reveal item 存为属性；`refreshRevealLabels()` 在 `SearchWindowController.show()` 每次 pop 时调用，确保 Settings 改动隔次生效。
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift` 的 fallback toast 改用 `RevealResolver.fallbackReason` 包装，底层错误前缀变 "无法用 <AppName> 显示，已回退到 Finder：…"；customApp 成功路径 `RevealOutcome.customApp` 用 displayName 而非裸文件名。
+- `Sources/SwiftSeekCore/Diagnostics.swift` 新增 `Reveal target（M3）：` 块，含 type / 显示名称 / 按钮文案 / 打开模式 / 自定义 App 路径，便于 bug-report 复制。
+- 仍保留的真实边界：外部 app 是否能"选中"具体文件由该 app 自身实现决定；M3 只用 `NSWorkspace.open(...withApplicationAt:configuration:)` 公开 API 把目标 URL 交给 app，不调私有 API、不假设 bundle id / URL scheme。
 
 ### 4. 外部 App 的“显示文件”语义不等同于 Finder 选中文件
 
@@ -50,11 +52,11 @@
 - 不允许 silent fail；fallback 后用户仍能在 Finder 中看到目标文件。
 - M3 会把 fallback reason 同时表达到 diagnostics 文本，让 bug-report 模板能复制。
 
-### 7. 手测与 release gate 暂未覆盖文件管理器集成
+### 7. 手测与 release gate（M3 已落地手测；M4 仍待最终收口）
 
-- 当前 release checklist 仍只覆盖 Finder reveal。
-- manual test 仍有“Reveal in Finder / 在 Finder 中显示”的固定预期。
-- M3/M4 必须补 Finder、QSpace/custom app、app path 失效 fallback、item vs parentFolder、Run Count 不变等手测。
+- `docs/manual_test.md` §33ac 写了 M3 完整手测矩阵：默认 Finder / 切 QSpace / 切 Path Finder / fallback toast 文案 / Diagnostics 块 / Run Count 不变 / 不实现项边界。
+- `docs/release_checklist.md` §5f 把上述项变成发布前必须确认项；smoke 基线已升到 256。
+- M4 仍要做：README / known_issues / architecture 与 M3 实际代码最终对齐 + smoke 全绿 + package-app 仍可重复 + L1-L4 / K1-K6 不回退 + Codex 据此判 PROJECT COMPLETE。
 
 ## 已归档能力与仍保留边界
 
