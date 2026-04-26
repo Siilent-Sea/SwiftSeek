@@ -3,12 +3,12 @@
   "stage": "M4",
   "session_id": "019dc959-3bf6-7671-ace6-cf3a3598e592",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state for everything-filemanager-integration. M3 passed on round 2; next acceptance target is M4 final wrap.",
-  "last_verdict": "PASS",
-  "last_verdict_round": "M3 round 2 at HEAD 666c184",
+  "purpose": "Final acceptance state for completed everything-filemanager-integration track.",
+  "last_verdict": "PROJECT COMPLETE",
+  "last_verdict_round": "M4 final acceptance at HEAD 101d0e9",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "M3 dynamic button/menu/hint wording, fallbackReason toast wording, Diagnostics block, manual/release gates, build, smoke, package, plist, and codesign all passed. M4 should perform final docs and release-gate wrap before PROJECT COMPLETE.",
-  "passed_stages": ["M1", "M2", "M3"],
+  "last_verdict_reason": "M1-M4 all passed. M4 was doc-only consolidation, no Sources changes; README, architecture, known_issues, release_checklist, stage_status, build, smoke, package, plist, and codesign all passed. Track is complete.",
+  "passed_stages": ["M1", "M2", "M3", "M4"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -52,7 +52,13 @@
       "final_verdict": "PROJECT COMPLETE",
       "date": "2026-04-26",
       "previous_session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c"
+    },
+    {
+      "track": "everything-filemanager-integration",
+      "final_verdict": "PROJECT COMPLETE",
+      "date": "2026-04-26",
+      "previous_session_id": "019dc959-3bf6-7671-ace6-cf3a3598e592"
     }
   ],
-  "notes": "Active everything-filemanager-integration acceptance session. M4 should continue from session 019dc959-3bf6-7671-ace6-cf3a3598e592. Do not reuse archived menubar-agent session 019dc5fc-... ."
+  "notes": "everything-filemanager-integration is PROJECT COMPLETE. Do not reuse this completed track verdict for a future new track; a new active track must update stage_status and agent-state explicitly."
 }

@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-filemanager-integration`
 - 当前阶段：`M4`
-- 当前状态：M4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）
+- 当前状态：PROJECT COMPLETE（everything-filemanager-integration M1-M4 已全部通过）
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -185,7 +185,7 @@
 - `Sources/SwiftSeekSmokeTest/main.swift`：11 个 M3 用例（displayName Finder / 空 / qspace 大小写 / Path Finder.app strip / 非 .app 文件名 / 仅空白；actionTitle Finder / QSpace / Path Finder；fallbackReason 组装；Diagnostics 块在 Finder 与 QSpace 两态下格式正确）。SmokeTest 总数 245 → 256。
 - `docs/manual_test.md` §33ac：7 节 M3 手测矩阵（Finder 默认 / 切 QSpace / 切 Path Finder / fallback toast 文案 + Finder 选中原文件 / Diagnostics 块 / Run Count 不变 / 不实现项边界）。
 - `docs/release_checklist.md`：smoke 基线 223 → 256；新增 §5f 必跑项；header 仍是 K6 + L1-L4，M3 / M4 完成后 M4 改 header 到 "K6 + L1-L4 + M1-M4"。
-- `docs/known_issues.md` §3 改写为 M3 已落地（含三纯函数 / refreshRevealLabels / Diagnostics 块）；§7 改写为 M3 release gate 已就位、M4 仍待最终收口。
+- `docs/known_issues.md` §3 改写为 M3 已落地（含三纯函数 / refreshRevealLabels / Diagnostics 块）；§7 改写为 M3/M4 release gate 已收口。
 - `ResultAction` case 名仍保留 `.revealInFinder`（rename 涉及历史 smoke 与 ResultActionRunner 公共契约，M4 视情况处理；M3 验收明确不依赖 rename）；`recordOpen` 仍只在 `.open` 成功路径调用。
 - `docs/known_issues.md` §1 / §6 已同步 M3 toast 真实口径：SearchViewController 弹 `⚠️ \(reason)`，其中 `reason` 由 `RevealResolver.fallbackReason(...)` 组成。
 - 受限沙箱下 build OK；SmokeTest 256/256；package-app 仍可重复跑通；打包产物 `GitCommit=666c184`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`、adhoc codesign OK。GUI 真实 reveal / fallback toast / 切外部 app 留为手测（§33ac + release_checklist §5f）。
@@ -221,15 +221,15 @@
 - 文档不再互相矛盾，不再残留 Finder-only 旧口径。
 - 无阻塞级回归或越界实现，Codex 可输出 `PROJECT COMPLETE`。
 
-### M4 实现已落地（待 Codex 最终验收）
+### M4 实现已落地（Codex 验收 PROJECT COMPLETE）
 
-- `README.md`：Features 段新增 "文件管理器集成（M1-M3）" 行；当前限制段改写为 M1-M3 已落地、M4 收口中；当前进度 / Roadmap 加入 filemanager-integration gap / taskbook 链接。
+- `README.md`：Features 段新增 "文件管理器集成（M1-M4）" 行；当前限制段改写为 M1-M4 已完成；当前进度 / Roadmap 加入 filemanager-integration gap / taskbook 链接。
 - `docs/architecture.md`：在 productization 收口段之后新增 "everything-filemanager-integration 收口（M1-M4）" 段，按 M1/M2/M3/M4 列每阶段交付 + "当前轨道明确不做" 列表（QSpace 私有 API / 硬编码 bundle id / URL scheme 假设 / AppleScript / 改变系统默认文件管理器 / reveal 计入 Run Count / 跨用户多实例 / 承诺所有第三方文件管理器都能选中具体文件）。
 - `docs/known_issues.md` 归档段从 "Productization 已完成；L1-L4 已收口" 扩展为同时涵盖 productization + menubar-agent + filemanager-integration M1-M3-M4，列保留边界（外部文件管理器选中文件由该 app 决定 / 不调私有 API / 不假设 bundle id 与 URL scheme）。
 - `docs/release_checklist.md` header 升到 "K6 + L1-L4 + M1-M4 单页"；smoke baseline 仍为 256；§5b/§5c/§5d/§5e/§5f 共同覆盖菜单栏 + Dock 切换 + 状态可见性 + 单实例 + reveal 动态行为。
-- `docs/stage_status.md`（本文件）M4 实现已落地段 + 状态翻为"M4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）"。
+- `docs/stage_status.md`（本文件）M4 实现已落地段 + 状态翻为 `PROJECT COMPLETE`。
 - 不引入任何新代码，不改 ResultAction case 名（`.revealInFinder` 保留以稳定历史 smoke 与 ABI）；M1-M3 真实代码 / smoke 不变，确保不回退。
-- 受限沙箱下 build OK；SmokeTest 256/256；package-app 仍可重复跑通；GUI 真实 reveal / fallback toast / 菜单栏 / 单实例 / Dock 切换都按 §33ac §33ab §33aa §33z §33y §5b-§5f 作为每次发布手测。
+- 受限沙箱下 build OK；SmokeTest 256/256；package-app 仍可重复跑通；打包产物 `GitCommit=101d0e9`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`、adhoc codesign OK。GUI 真实 reveal / fallback toast / 菜单栏 / 单实例 / Dock 切换都按 §33ac §33ab §33aa §33z §33y §5b-§5f 作为每次发布手测。
 
 ## 后续阶段索引
 

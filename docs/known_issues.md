@@ -1,6 +1,6 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前用户真实会感知到的限制。历史轨道 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent` 均已归档；当前活跃轨道是 `everything-filemanager-integration`。
+本文档记录当前用户真实会感知到的限制。历史轨道 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent`、`everything-filemanager-integration` 均已归档。
 
 ## 当前活跃轨道相关限制
 
@@ -21,7 +21,7 @@
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 新增 `RevealTargetType { .finder, .customApp }` / `ExternalRevealOpenMode { .item, .parentFolder }` / `RevealTarget` 结构体；DB key `reveal_target_type` / `reveal_custom_app_path` / `reveal_external_open_mode`；`Database.getRevealTarget() / setRevealTarget(_:)` 任一字段 malformed 单独 fallback 到 `RevealTarget.defaultTarget`（Finder + 空路径 + parentFolder）。
 - `Sources/SwiftSeek/UI/SettingsWindowController.swift` 设置 → 常规 → 最下方"显示位置"行：popup（Finder / 自定义 App…）+ "选择 App…" 按钮（NSOpenPanel 限定 `.app`，默认目录 `/Applications`）+ 当前 app 名称 / 路径 summary（含 QSpace 名称启发式识别）+ "打开目标" segmented（父目录 / 文件本身）+ 多行 note 解释 Finder vs 自定义 App 与两种 open mode 的语义。
 - 默认仍是 Finder + 空路径 + parentFolder；用户切到自定义 App 但未选 .app 时 summary 显示 `⚠️` 提示，UI 不会让用户进入"自定义但路径空"的迷惑状态。
-- M2 已把这套配置接到 `ResultActionRunner` 运行时（详见 §1 "Reveal 路由（M2 已落地）"）；动态按钮 / 右键菜单文案、diagnostics 与最终 release gate 留给 M3-M4。
+- M2 已把这套配置接到 `ResultActionRunner` 运行时（详见 §1 "Reveal 路由（M2 已落地）"）；动态按钮 / 右键菜单 / hint、diagnostics 与 release gate 已在 M3-M4 收口。
 
 ### 3. UI 文案 / Diagnostics（M3 已落地）
 
@@ -36,13 +36,13 @@
 - Finder 模式可保证“打开 Finder 并选中目标文件”。
 - 自定义 App 模式最稳妥的公开 API 语义是“用该 app 打开目标 URL”。
 - 外部 app 是否选中文件、打开文件本身、打开父目录，取决于该 app 自己的行为。
-- 因此后续必须提供 `item` / `parentFolder` open mode，并在 UI / 文档里讲清楚。
+- 因此 SwiftSeek 提供 `item` / `parentFolder` open mode，并在 UI / 文档里讲清楚。
 
 ### 5. 不使用 QSpace 私有 API，也不假设 bundle id / URL scheme
 
 - 当前不会硬编码 QSpace bundle id。
 - 当前不会假设 QSpace 有稳定 URL scheme。
-- 后续最稳妥路径是让用户通过设置选择 `/Applications/QSpace.app` 或任意 `.app`，再用 macOS 公开 API 打开文件或父目录。
+- 当前路径是让用户通过设置选择 `/Applications/QSpace.app` 或任意 `.app`，再用 macOS 公开 API 打开文件或父目录。
 - 这意味着 SwiftSeek 可以支持 QSpace，但不承诺 QSpace 私有级别的“选中文件”能力。
 
 ### 6. 外部 App 失效 fallback（M2 已落地）
@@ -50,13 +50,13 @@
 - 失效路径覆盖：path 空 / 仅空白 / 不存在 / 不是 .app bundle / NSWorkspace.open 异步报错。
 - 失效时统一处理：`NSLog` 一行（含 app path / target path / open mode / error）+ Finder `activateFileViewerSelecting` fallback + `onReveal(.fallback(reason:))` 回调让 SearchViewController 弹 toast `⚠️ \(reason)`。M3 起 `reason` 由 `RevealResolver.fallbackReason(...)` 组成，典型形式："无法用 QSpace 显示，已回退到 Finder：…"。
 - 不允许 silent fail；fallback 后用户仍能在 Finder 中看到目标文件。
-- M3 会把 fallback reason 同时表达到 diagnostics 文本，让 bug-report 模板能复制。
+- M3 已把 reveal target 信息写入 diagnostics，让 bug-report 模板能复制当前配置。
 
-### 7. 手测与 release gate（M3 已落地手测；M4 仍待最终收口）
+### 7. 手测与 release gate（M3-M4 已收口）
 
 - `docs/manual_test.md` §33ac 写了 M3 完整手测矩阵：默认 Finder / 切 QSpace / 切 Path Finder / fallback toast 文案 / Diagnostics 块 / Run Count 不变 / 不实现项边界。
 - `docs/release_checklist.md` §5f 把上述项变成发布前必须确认项；smoke 基线已升到 256。
-- M4 仍要做：README / known_issues / architecture 与 M3 实际代码最终对齐 + smoke 全绿 + package-app 仍可重复 + L1-L4 / K1-K6 不回退 + Codex 据此判 PROJECT COMPLETE。
+- M4 已把 README / known_issues / architecture / release checklist 与 M1-M3 实际代码对齐；最终验收 smoke 256/256、package-app 可重复、L1-L4 / K1-K6 不回退。
 
 ## 已归档能力与仍保留边界
 
