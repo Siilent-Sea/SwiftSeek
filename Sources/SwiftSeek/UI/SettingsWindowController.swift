@@ -620,16 +620,44 @@ private final class GeneralPane: NSViewController {
 
     @objc private func onRevealTargetTypeChanged(_ sender: NSPopUpButton) {
         let target = currentRevealTarget()
-        do { try database.setRevealTarget(target) } catch {
+        do {
+            try database.setRevealTarget(target)
+        } catch {
+            // M1 round 2: surface persistence failure with an NSAlert
+            // (round 1 only logged, which Codex correctly REJECTed —
+            // a silent swallow leaves the user thinking the toggle
+            // worked when DB write failed).
             NSLog("SwiftSeek: failed to persist reveal target type: \(error)")
+            let alert = NSAlert()
+            alert.messageText = "保存「显示位置」设置失败"
+            alert.informativeText = "\(error)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+            // Revert popup to previously-persisted value so UI stops
+            // misrepresenting the saved state.
+            reflectRevealTargetState()
+            return
         }
         reflectRevealTargetState()
     }
 
     @objc private func onRevealOpenModeChanged(_ sender: NSSegmentedControl) {
         let target = currentRevealTarget()
-        do { try database.setRevealTarget(target) } catch {
+        do {
+            try database.setRevealTarget(target)
+        } catch {
+            // M1 round 2: same fix as the popup handler — alert + log,
+            // then revert UI to persisted state.
             NSLog("SwiftSeek: failed to persist reveal open mode: \(error)")
+            let alert = NSAlert()
+            alert.messageText = "保存「打开目标」设置失败"
+            alert.informativeText = "\(error)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+            reflectRevealTargetState()
+            return
         }
         reflectRevealTargetState()
     }
