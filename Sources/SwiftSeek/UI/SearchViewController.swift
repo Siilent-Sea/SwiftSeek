@@ -775,8 +775,22 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
     }
 
     @objc func revealSelected() {
-        if let target = selectedTarget() {
-            ResultActionRunner.perform(.revealInFinder, target: target)
+        guard let target = selectedTarget() else { return }
+        // M2: hand the reveal click to the runner with our database
+        // handle so it can read the persisted RevealTarget and route
+        // to Finder vs custom .app. The onReveal callback surfaces a
+        // toast on fallback so the user knows their custom-app
+        // selection didn't take and we reverted to Finder.
+        ResultActionRunner.perform(.revealInFinder,
+                                   target: target,
+                                   database: database) { [weak self] outcome in
+            guard let self = self else { return }
+            switch outcome {
+            case .finder, .customApp:
+                break  // success path; no toast spam
+            case .fallback(let reason):
+                self.showToast("⚠️ 已回退到 Finder：\(reason)")
+            }
         }
     }
 

@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-filemanager-integration`
 - 当前阶段：`M2`
-- 当前状态：M1 Codex 验收 `PASS`；M2 任务书已发出
+- 当前状态：M2 实现已就位，待 Codex 验收
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -138,6 +138,16 @@
 - 不改变 macOS 系统默认文件管理器。
 - 不让 reveal 计入 Run Count。
 - 不提前展开 M3 的动态文案、diagnostics、release checklist 全量收口。
+
+### M2 实现已落地（待 Codex 验收）
+
+- `Sources/SwiftSeekCore/RevealResolver.swift`（新文件，纯函数 / AppKit-free）：`Strategy { .finder(targetURL) / .customApp(appURL, targetURL) / .fallbackToFinder(targetURL, reason) }`、`CustomAppValidation { .ok(URL) / .empty / .notFound(path) / .notAnApp(path) }`、`resolveTargetURL(target:openMode:)`（`.item` 返回原 URL；`.parentFolder` 文件返回父目录、目录返回自己保持不掉级）、`validateCustomAppPath(_:fileExists:)`（trim 空 / 不存在 / 非 dir / 缺 .app 后缀都进对应失败 case）、`decideStrategy(target:revealTarget:fileExists:)`（组合验证 + URL 解析）、`defaultFileExists` FileManager 探针。
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift`：`.revealInFinder` 现支持可选 `database` + `onReveal` 回调；保留旧 2 参数 `perform(_:target:)` 入口（database=nil 路径 → Finder）。三分支路由 `.finder` → `activateFileViewerSelecting`、`.customApp` → `NSWorkspace.shared.open([targetURL], withApplicationAt: appURL, configuration: ...)`（`config.activates = true`），完成 handler 里 `error != nil` → NSLog + Finder fallback + `onReveal(.fallback)`、`.fallbackToFinder` → NSLog + Finder + `onReveal(.fallback)`。`RevealOutcome { .finder, .customApp(appName), .fallback(reason) }` 暴露给 SearchViewController。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` `revealSelected()`：传 `database` 给 runner；`onReveal` 回调里 `.fallback` 触发 `showToast("⚠️ 已回退到 Finder：<reason>")`。
+- `Sources/SwiftSeekSmokeTest/main.swift`：14 个 M2 用例（resolveTargetURL .item / .parentFolder file / .parentFolder dir / validateCustomAppPath empty / whitespace / notFound / regular file / non-.app dir / .app ok / decideStrategy Finder / customApp+parent / customApp missing→fallback / customApp empty path / customApp non-.app dir）。SmokeTest 总数 229 → 243。
+- `docs/known_issues.md` §1 改写为 M2 路由已落地；§6 改写为 fallback 已落地。
+- `ResultAction` case 名仍是 `.revealInFinder`（M3 与 UI 文案动态化一起处理 rename）；`recordOpen` 仍只在 `.open` 路径调用，reveal 不计 Run Count。
+- 受限沙箱下 build OK；SmokeTest 243/243；package-app 仍可重复跑通；GUI 真实 NSWorkspace.open + 外部 app 行为留为手测。
 
 ## 后续阶段索引
 

@@ -4682,6 +4682,156 @@ reporter.check("M1 RevealTarget.defaultTarget is Finder + empty + parentFolder")
                          "default openMode must be .parentFolder (most file-manager-like)")
 }
 
+// MARK: - M2 RevealResolver helpers
+
+reporter.check("M2 resolveTargetURL: .item returns the file URL itself") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2/foo.txt", isDirectory: false)
+    let url = RevealResolver.resolveTargetURL(target: target, openMode: .item)
+    try reporter.require(url.path == "/tmp/swiftseek-m2/foo.txt",
+                         ".item must return the file URL, got \(url.path)")
+}
+
+reporter.check("M2 resolveTargetURL: .parentFolder of a file returns its parent dir") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2/foo.txt", isDirectory: false)
+    let url = RevealResolver.resolveTargetURL(target: target, openMode: .parentFolder)
+    try reporter.require(url.path == "/tmp/swiftseek-m2",
+                         ".parentFolder of a file must return parent dir, got \(url.path)")
+}
+
+reporter.check("M2 resolveTargetURL: .parentFolder of a directory returns the directory itself") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2", isDirectory: true)
+    let url = RevealResolver.resolveTargetURL(target: target, openMode: .parentFolder)
+    try reporter.require(url.path == "/tmp/swiftseek-m2",
+                         ".parentFolder of a directory must preserve it (don't pop a level), got \(url.path)")
+}
+
+reporter.check("M2 validateCustomAppPath: empty path → .empty") {
+    let v = RevealResolver.validateCustomAppPath("",
+                                                 fileExists: { _ in (false, false) })
+    try reporter.require(v == .empty, "empty path must produce .empty, got \(v)")
+}
+
+reporter.check("M2 validateCustomAppPath: whitespace-only path → .empty") {
+    let v = RevealResolver.validateCustomAppPath("   \t  \n",
+                                                 fileExists: { _ in (false, false) })
+    try reporter.require(v == .empty, "whitespace-only path must produce .empty, got \(v)")
+}
+
+reporter.check("M2 validateCustomAppPath: missing path → .notFound") {
+    let v = RevealResolver.validateCustomAppPath("/no/such/path/Foo.app",
+                                                 fileExists: { _ in (false, false) })
+    try reporter.require(v == .notFound(path: "/no/such/path/Foo.app"),
+                         "missing path must produce .notFound, got \(v)")
+}
+
+reporter.check("M2 validateCustomAppPath: regular file (not a bundle) → .notAnApp") {
+    let v = RevealResolver.validateCustomAppPath("/usr/bin/ls",
+                                                 fileExists: { _ in (true, false) })
+    try reporter.require(v == .notAnApp(path: "/usr/bin/ls"),
+                         "regular file must produce .notAnApp, got \(v)")
+}
+
+reporter.check("M2 validateCustomAppPath: directory without .app suffix → .notAnApp") {
+    let v = RevealResolver.validateCustomAppPath("/Applications",
+                                                 fileExists: { _ in (true, true) })
+    try reporter.require(v == .notAnApp(path: "/Applications"),
+                         "non-.app directory must produce .notAnApp, got \(v)")
+}
+
+reporter.check("M2 validateCustomAppPath: directory with .app suffix → .ok") {
+    let v = RevealResolver.validateCustomAppPath("/Applications/QSpace.app",
+                                                 fileExists: { _ in (true, true) })
+    switch v {
+    case .ok(let url):
+        try reporter.require(url.path == "/Applications/QSpace.app",
+                             "ok URL must match input path, got \(url.path)")
+    default:
+        try reporter.require(false, ".app directory must produce .ok, got \(v)")
+    }
+}
+
+reporter.check("M2 decideStrategy: Finder type → .finder strategy") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2/foo.txt", isDirectory: false)
+    let rev = RevealTarget.defaultTarget  // .finder
+    let strat = RevealResolver.decideStrategy(target: target,
+                                              revealTarget: rev,
+                                              fileExists: { _ in (true, true) })
+    if case .finder(let url) = strat {
+        try reporter.require(url.path == "/tmp/swiftseek-m2/foo.txt",
+                             "finder strategy must carry target file URL")
+    } else {
+        try reporter.require(false, "expected .finder, got \(strat)")
+    }
+}
+
+reporter.check("M2 decideStrategy: customApp + valid app + .parentFolder → custom strategy with parent") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2/foo.txt", isDirectory: false)
+    let rev = RevealTarget(type: .customApp,
+                           customAppPath: "/Applications/QSpace.app",
+                           openMode: .parentFolder)
+    let strat = RevealResolver.decideStrategy(target: target,
+                                              revealTarget: rev,
+                                              fileExists: { _ in (true, true) })
+    if case .customApp(let appURL, let targetURL) = strat {
+        try reporter.require(appURL.path == "/Applications/QSpace.app",
+                             "appURL mismatch: \(appURL.path)")
+        try reporter.require(targetURL.path == "/tmp/swiftseek-m2",
+                             "parentFolder of file should be its parent dir, got \(targetURL.path)")
+    } else {
+        try reporter.require(false, "expected .customApp, got \(strat)")
+    }
+}
+
+reporter.check("M2 decideStrategy: customApp + missing app → .fallbackToFinder with reason") {
+    let target = ResultTarget(path: "/tmp/swiftseek-m2/foo.txt", isDirectory: false)
+    let rev = RevealTarget(type: .customApp,
+                           customAppPath: "/no/such/QSpace.app",
+                           openMode: .item)
+    let strat = RevealResolver.decideStrategy(target: target,
+                                              revealTarget: rev,
+                                              fileExists: { _ in (false, false) })
+    if case .fallbackToFinder(let url, let reason) = strat {
+        try reporter.require(url.path == "/tmp/swiftseek-m2/foo.txt",
+                             "fallback must carry the original target URL")
+        try reporter.require(reason.contains("不存在"),
+                             "reason should mention 不存在, got '\(reason)'")
+    } else {
+        try reporter.require(false, "expected .fallbackToFinder, got \(strat)")
+    }
+}
+
+reporter.check("M2 decideStrategy: customApp + empty path → .fallbackToFinder with empty reason") {
+    let target = ResultTarget(path: "/x", isDirectory: false)
+    let rev = RevealTarget(type: .customApp,
+                           customAppPath: "",
+                           openMode: .item)
+    let strat = RevealResolver.decideStrategy(target: target,
+                                              revealTarget: rev,
+                                              fileExists: { _ in (false, false) })
+    if case .fallbackToFinder(_, let reason) = strat {
+        try reporter.require(reason.contains("未配置"),
+                             "empty path should produce '未配置...' reason, got '\(reason)'")
+    } else {
+        try reporter.require(false, "expected .fallbackToFinder for empty path, got \(strat)")
+    }
+}
+
+reporter.check("M2 decideStrategy: customApp + path is /Applications (not .app) → .fallbackToFinder") {
+    let target = ResultTarget(path: "/x", isDirectory: false)
+    let rev = RevealTarget(type: .customApp,
+                           customAppPath: "/Applications",
+                           openMode: .item)
+    let strat = RevealResolver.decideStrategy(target: target,
+                                              revealTarget: rev,
+                                              fileExists: { _ in (true, true) })
+    if case .fallbackToFinder(_, let reason) = strat {
+        try reporter.require(reason.contains(".app"),
+                             "non-.app directory should produce reason mentioning '.app', got '\(reason)'")
+    } else {
+        try reporter.require(false, "expected .fallbackToFinder for non-.app dir, got \(strat)")
+    }
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {
