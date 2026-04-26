@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M1`
-- 当前状态：M1 实现已就位，待 Codex 验收
+- 当前阶段：`M2`
+- 当前状态：M1 Codex 验收 `PASS`；M2 任务书已发出
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -103,14 +103,41 @@
 - `ResultActionRunner` 行为仍未替换，M2 才做实际接入。
 - SmokeTest 增加对应数据模型测试。
 
-### M1 实现已落地（待 Codex 验收）
+### M1 实现已落地（Codex 验收 PASS）
 
 - `Sources/SwiftSeekCore/SettingsTypes.swift`：新增 `RevealTargetType { .finder, .customApp }`、`ExternalRevealOpenMode { .item, .parentFolder }`、`RevealTarget` 结构（含 `defaultTarget = (.finder, "", .parentFolder)`）；`SettingsKey.revealTargetType / revealCustomAppPath / revealExternalOpenMode`；`Database.getRevealTarget() throws -> RevealTarget` 与 `setRevealTarget(_:)` extension。每个字段独立 fallback：未知 type → `.finder`（保留 customAppPath 不被擦除），未知 openMode → `.parentFolder`，path missing → `""`。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：新增 "显示位置" 行（NSPopUpButton：Finder / 自定义 App…）+ "选择 App…" 按钮（NSOpenPanel 限定 `.app`，默认 `/Applications`）+ 当前 app 名称 + 路径 summary（QSpace 名称启发式识别）+ "打开目标" segmented（父目录 / 文件本身）+ 多行 note 解释 Finder 与外部 app 语义差异。Pane 高度 440 → 580 容纳新 4 行。`reflectRevealTargetState()` / `currentRevealTarget()` / `onRevealTargetTypeChanged` / `onRevealOpenModeChanged` / `onPickRevealApp` 处理读写 + 持久化失败弹 NSAlert。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：新增 "显示位置" 行（NSPopUpButton：Finder / 自定义 App…）+ "选择 App…" 按钮（NSOpenPanel 限定 `.app`，默认 `/Applications`）+ 当前 app 名称 + 路径 summary（QSpace 名称启发式识别）+ "打开目标" segmented（父目录 / 文件本身）+ 多行 note 解释 Finder 与外部 app 语义差异。Pane 高度 440 → 580 容纳新 4 行。`reflectRevealTargetState()` / `currentRevealTarget()` / `onRevealTargetTypeChanged` / `onRevealOpenModeChanged` / `onPickRevealApp` 处理读写；三条保存失败路径均会 `NSLog` + 弹 `NSAlert`，popup / segmented 失败后回滚到已持久化状态。
 - `Sources/SwiftSeekSmokeTest/main.swift`：6 个 M1 用例（fresh DB → Finder/parentFolder/empty / customApp+path+item round-trip / DB reopen 后 persist / malformed type → Finder（保留 path）/ malformed openMode → parentFolder / `defaultTarget` 常量）。SmokeTest 总数 223 → 229。
 - `docs/known_issues.md` §2 改写为 M1 已落地，列 key、UI 元素、QSpace 启发式识别、M2 才接入运行时。
 - `ResultActionRunner` 与 UI 文案 / 实际 reveal 路径仍是 Finder-only，M2 接入。
-- 受限沙箱下 build OK；SmokeTest 229/229；package-app 仍可重复跑通（验收阶段同步）。
+- Round 2 受限沙箱下 build OK；SmokeTest 229/229；package-app OK；打包产物 `GitCommit=fdae471`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`、adhoc codesign OK。
+
+## 当前阶段：M2
+
+### 阶段目标
+
+把 M1 的 Reveal Target 配置接入实际“显示位置”动作，让 Finder 模式继续保留选中文件行为，自定义 App 模式用公开 macOS API 打开目标 URL，并在外部 app 失效时给出可见反馈后 fallback 到 Finder。M2 不负责动态按钮文案、diagnostics 和完整 release gate 收口，这些留给 M3。
+
+### M2 必须完成
+
+- `ResultActionRunner` 或最小必要 helper 读取 `Database.getRevealTarget()`。
+- Finder 模式继续调用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
+- custom app 模式校验 `customAppPath` 非空、存在且是 `.app`。
+- 按 `ExternalRevealOpenMode.item` / `.parentFolder` 解析目标 URL。
+- 使用公开 `NSWorkspace` API 将目标 URL 交给自定义 `.app`。
+- app path 空、失效、非 `.app` 或打开失败时：用户可见反馈 + `NSLog` + fallback 到 Finder。
+- reveal / show 不增加 `file_usage.open_count`。
+- 补 M2 纯 helper smoke；真实外部 app 打开写入手测。
+
+### M2 禁止事项
+
+- 不使用 QSpace 私有 API。
+- 不硬编码未知 QSpace bundle id。
+- 不假设 QSpace URL scheme。
+- 不做 AppleScript。
+- 不改变 macOS 系统默认文件管理器。
+- 不让 reveal 计入 Run Count。
+- 不提前展开 M3 的动态文案、diagnostics、release checklist 全量收口。
 
 ## 后续阶段索引
 

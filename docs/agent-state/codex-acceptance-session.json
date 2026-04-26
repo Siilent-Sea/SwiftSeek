@@ -1,14 +1,14 @@
 {
   "track": "everything-filemanager-integration",
-  "stage": "M1",
+  "stage": "M2",
   "session_id": "019dc959-3bf6-7671-ace6-cf3a3598e592",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state for everything-filemanager-integration. Round 1 of M1 was REJECTed; round 2 will resume this session.",
-  "last_verdict": "REJECT",
-  "last_verdict_round": "M1 round 1 at HEAD dad2bd9",
+  "purpose": "Current active track acceptance state for everything-filemanager-integration. M1 passed on round 2; next acceptance target is M2.",
+  "last_verdict": "PASS",
+  "last_verdict_round": "M1 round 2 at HEAD fdae471",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "M1 data model, UI, docs, build, smoke, and packaging mostly pass, but SettingsWindowController popup/segmented reveal-target persistence failures only NSLog and do not surface NSAlert.",
-  "passed_stages": [],
+  "last_verdict_reason": "M1 data model, settings UI, DB fallback behavior, save-failure NSAlert coverage, docs, build, smoke, and packaging all passed. ResultActionRunner remains Finder-only as required for M1.",
+  "passed_stages": ["M1"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -54,5 +54,5 @@
       "previous_session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c"
     }
   ],
-  "notes": "Active everything-filemanager-integration acceptance session. Round 2 of M1 will resume 019dc959-3bf6-7671-ace6-cf3a3598e592 to retry after the popup/segmented save-failure NSAlert fix. Do not reuse archived menubar-agent session 019dc5fc-... ."
+  "notes": "Active everything-filemanager-integration acceptance session. M2 should continue from session 019dc959-3bf6-7671-ace6-cf3a3598e592. Do not reuse archived menubar-agent session 019dc5fc-... ."
 }

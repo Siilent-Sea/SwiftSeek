@@ -5,38 +5,66 @@
 ## 当前有效状态
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M1`
-- 当前阶段验收结论：尚未验收
-- 当前正式验收 session：待创建
+- 当前阶段：`M2`
+- 最新验收结论：`PASS`
+- 最新通过阶段：`M1`
+- 当前正式验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
 - 日期：2026-04-26
 
-## 当前审计结论
+## M1 round 2 验收结论
 
-本轮是新轨道立项与任务书落盘，不是业务代码实现，也不是 M1 验收。基于当前代码确认：
+`HEAD=fdae4714c987452c9231c2e725a171f9ff2188df` 通过 M1 验收。
 
-- `Sources/SwiftSeekCore/ResultAction.swift` 仍定义 `case revealInFinder`。
-- `Sources/SwiftSeek/UI/ResultActionRunner.swift` 对 `.revealInFinder` 直接调用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
-- `Sources/SwiftSeek/UI/SearchViewController.swift` 的 action button 和 row context menu 都写死“在 Finder 中显示”。
-- `Sources/SwiftSeekCore/SettingsTypes.swift` 没有 `reveal_target_type`、`reveal_custom_app_path`、`reveal_external_open_mode`。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 目前只提供隐藏文件、结果上限、热键、索引模式、Launch at Login、Dock 图标等常规设置，没有 Reveal Target 配置。
-- 当前 release checklist / manual test 仍以 Finder reveal 为唯一目标，没有 QSpace/custom app/fallback/item-vs-parentFolder 验证。
+Round 1 阻塞项已修复：
 
-结论：
-- `everything-menubar-agent` 已归档，不再是当前停止条件。
-- 当前新轨道 `everything-filemanager-integration` 已建立，M1 等待 Claude 执行。
-- Codex 下一次验收应只判断 M1 是否完成 Reveal Target 数据模型与设置 UI，不应要求 M2 的实际外部 app 打开。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `onRevealTargetTypeChanged(_:)` 保存失败时现在会 `NSLog`、弹 `NSAlert`，并调用 `reflectRevealTargetState()` 回滚 UI 到已持久化状态。
+- `onRevealOpenModeChanged(_:)` 同样会 `NSLog`、弹 `NSAlert`，并回滚 segmented 状态。
+- `onPickRevealApp(_:)` 原有保存失败 `NSAlert` 仍保留。
 
-## 当前验收要求
+M1 通过依据：
 
-M1 验收时至少检查：
+- `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `RevealTargetType`、`ExternalRevealOpenMode`、`RevealTarget.defaultTarget = (.finder, "", .parentFolder)`。
+- 已有 `SettingsKey.revealTargetType` / `revealCustomAppPath` / `revealExternalOpenMode`。
+- `Database.getRevealTarget()` / `setRevealTarget(_:)` 已落地；unknown type fallback 到 `.finder` 并保留 custom path，unknown open mode fallback 到 `.parentFolder`，missing path fallback 到 `""`。
+- 设置页常规 pane 已有 Finder / 自定义 App popup、选择 App 按钮、`.application` `NSOpenPanel`、app summary、QSpace 文件名启发式、open mode segmented 和多行说明。
+- 选择 `.app` 会保存为 `.customApp`，不存在隐藏选择状态。
+- `ResultActionRunner.perform(.revealInFinder)` 仍是 Finder-only，M1 没有提前接入外部 app。
+- 搜索窗口按钮和右键菜单仍是“在 Finder 中显示”，留给 M3 动态化。
+- 未发现 QSpace bundle id、URL scheme、AppleScript 或 private API 接入。
 
-- fresh DB 默认 reveal target 为 Finder。
-- custom app path 能通过 settings round-trip。
-- external open mode 能 round-trip。
-- malformed setting fallback 到 Finder。
-- 设置页能选择 Finder / 自定义 App，并显示当前 app 名称和路径。
-- 文档明确 QSpace 通过用户选择 `.app` 支持，不硬编码未知 bundle id / URL scheme。
-- `ResultActionRunner` 行为仍未替换；如果 M1 提前接入外部 app，需要检查是否越界或是否完整。
+## 本轮验证
+
+已运行：
+
+```bash
+HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox
+HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox SwiftSeekSmokeTest
+HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox
+plutil -p dist/SwiftSeek.app/Contents/Info.plist
+plutil -lint dist/SwiftSeek.app/Contents/Info.plist
+codesign -dv dist/SwiftSeek.app
+```
+
+观察结果：
+
+- `swift build --disable-sandbox`：通过。
+- `SwiftSeekSmokeTest`：229/229 通过。
+- `package-app.sh --sandbox`：通过。
+- `Info.plist`：`GitCommit=fdae471`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`。
+- `codesign -dv`：`Signature=adhoc`、`Identifier=com.local.swiftseek`。
+- L1-L4 / K1-K6 相关 smoke 覆盖项仍通过。
+
+## 下一阶段
+
+M2 任务书已写入 `docs/next_stage.md`。
+
+M2 验收时重点检查：
+
+- Finder 模式仍使用 `NSWorkspace.shared.activateFileViewerSelecting([url])`，不回退。
+- custom app 模式按 `item` / `parentFolder` 解析并打开正确 URL。
+- app path 空、失效、非 `.app`、打开失败时有用户可见反馈、NSLog，并 fallback 到 Finder。
+- reveal / show 不增加 `file_usage.open_count`。
+- 没有 QSpace 私有 API、bundle id、URL scheme 或 AppleScript。
 
 ## 历史归档轨道
 
@@ -51,4 +79,4 @@ M1 验收时至少检查：
 
 ## 轨道切换说明
 
-`everything-filemanager-integration` 必须使用新的 Codex 验收 session；不得复用 `everything-menubar-agent` session `019dc5fc-318e-7d31-bb00-2810eaf6642c`，也不得复用更早归档轨道 session。
+`everything-filemanager-integration` 使用当前新的 Codex 验收 session `019dc959-3bf6-7671-ace6-cf3a3598e592`；不得复用 `everything-menubar-agent` session `019dc5fc-318e-7d31-bb00-2810eaf6642c`，也不得复用更早归档轨道 session。

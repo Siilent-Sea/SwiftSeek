@@ -11,9 +11,9 @@
 ## 当前轨道
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M1`
-- 当前验收 session：待创建
-- 要求：`everything-filemanager-integration` 必须使用新的 Codex 验收 session。
+- 当前阶段：`M2`
+- 当前验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
+- 要求：`everything-filemanager-integration` 必须继续使用该 Codex 验收 session。
 - 禁止：不得复用已归档 `everything-menubar-agent` session `019dc5fc-318e-7d31-bb00-2810eaf6642c`，也不得复用更早轨道 session。
 
 ## 约定文件
@@ -21,9 +21,8 @@
 ### `codex-acceptance-session.txt`
 
 - 正常情况下只存当前活跃轨道的 Codex 验收 session id
-- 当前 M1 尚未创建正式验收 session，因此文件内为占位标记 `PENDING_NEW_CODEX_ACCEPTANCE_SESSION`
-- Claude 不得把该占位标记传给 `codex exec resume`
-- 一旦新 session 创建成功，必须用真实 session id 覆盖该文件
+- 当前文件内应为真实 session id：`019dc959-3bf6-7671-ace6-cf3a3598e592`
+- Claude 应优先用该 session 继续当前 M 轨道验收，不得回到归档轨道 session
 
 ### `codex-acceptance-session.json`
 
@@ -34,7 +33,7 @@
   - `session_id`
   - `updated_at`
   - `purpose`
-- 当前 `session_id` 为 `null`，表示新轨道尚未创建正式验收会话
+- 当前 `session_id` 为 `019dc959-3bf6-7671-ace6-cf3a3598e592`
 
 ## 使用规则
 
