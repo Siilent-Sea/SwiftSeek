@@ -4,63 +4,39 @@
 
 ## 当前有效状态
 
-- 当前活跃轨道：`everything-menubar-agent`
-- 当前阶段：`L4`
-- 当前阶段验收结论：`PROJECT COMPLETE`
-- 当前正式验收 session：`019dc5fc-318e-7d31-bb00-2810eaf6642c`
+- 当前活跃轨道：`everything-filemanager-integration`
+- 当前阶段：`M1`
+- 当前阶段验收结论：尚未验收
+- 当前正式验收 session：待创建
 - 日期：2026-04-26
 
-## L4 验收结论
+## 当前审计结论
 
-L4 round 1 基于提交 `73cac42` 验收，结论为 `PROJECT COMPLETE`。
+本轮是新轨道立项与任务书落盘，不是业务代码实现，也不是 M1 验收。基于当前代码确认：
 
-本轮确认成立的事实：
+- `Sources/SwiftSeekCore/ResultAction.swift` 仍定义 `case revealInFinder`。
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift` 对 `.revealInFinder` 直接调用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` 的 action button 和 row context menu 都写死“在 Finder 中显示”。
+- `Sources/SwiftSeekCore/SettingsTypes.swift` 没有 `reveal_target_type`、`reveal_custom_app_path`、`reveal_external_open_mode`。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 目前只提供隐藏文件、结果上限、热键、索引模式、Launch at Login、Dock 图标等常规设置，没有 Reveal Target 配置。
+- 当前 release checklist / manual test 仍以 Finder reveal 为唯一目标，没有 QSpace/custom app/fallback/item-vs-parentFolder 验证。
 
-- `Sources/SwiftSeekCore/SingleInstance.swift` 是 AppKit-free 纯 helper，提供 `Sibling`、`chooseSibling(myPid:candidates:)`、`conflictLogLine(...)` 和稳定 notification name `com.local.swiftseek.menubar-agent.show-settings`。
-- `chooseSibling` 过滤当前 pid，并在多个 sibling 中选择最低 pid 作为 canonical owner。
-- `conflictLogLine` 一行内包含 sibling pid / bundle / exec、our pid / bundle / exec，并明确写出 `deferring to sibling and exiting`。
-- `AppDelegate.applicationDidFinishLaunching` 顺序正确：K1 build identity 三连 → `maybeDeferToExistingInstance()` → `installShowSettingsObserver()` → L1 `.accessory` → main menu / DB / L2 preference / coordinator / status item / search window / hotkey。
-- 检测到 sibling 时，新实例日志记录冲突，激活旧实例，发送 distributed notification 要求旧实例 show settings，并在下一 runloop tick `NSApp.terminate(nil)`；early return 不安装第二套 status item、hotkey 或 DB writer。
-- bundle id 为 nil 的 raw `swift run` dev 路径有明确 skip 日志并正常 fall through。
-- `SwiftSeekSmokeTest` 新增 6 个 L4 用例；总数从 217 提升到 223。
-- `docs/install.md`、`docs/release_checklist.md`、`docs/known_issues.md`、`docs/manual_test.md` 已同步 L4 单实例 / 多 bundle 防护、边界和手测矩阵。
+结论：
+- `everything-menubar-agent` 已归档，不再是当前停止条件。
+- 当前新轨道 `everything-filemanager-integration` 已建立，M1 等待 Claude 执行。
+- Codex 下一次验收应只判断 M1 是否完成 Reveal Target 数据模型与设置 UI，不应要求 M2 的实际外部 app 打开。
 
-自动化验证：
+## 当前验收要求
 
-- `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox` 通过。
-- `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox SwiftSeekSmokeTest` 通过，结果 `223/223`，6 个 L4 用例均通过。
-- `HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox` 通过，并生成 `dist/SwiftSeek.app`。
-- `plutil -p dist/SwiftSeek.app/Contents/Info.plist` 显示 `LSUIElement => false`、`GitCommit => 73cac42`、`CFBundleIdentifier => com.local.swiftseek`。
-- `plutil -lint dist/SwiftSeek.app/Contents/Info.plist` 通过。
-- `codesign -dv --verbose=2 dist/SwiftSeek.app` 显示 `Identifier=com.local.swiftseek`、`Signature=adhoc`、`TeamIdentifier=not set`。
-- `dist/SwiftSeek.app/Contents/Resources/AppIcon.icns` 存在，大小 273908 bytes，`file` 显示 Mac OS X icon / `ic04` type。
+M1 验收时至少检查：
 
-验收侧文档收口：
-
-- `docs/release_checklist.md` smoke baseline 更新为 223。
-- `docs/known_issues.md` 把 L4 相关残留表述改为已落地，保留 ad-hoc / 未公证 / 无 DMG / 无 auto updater 边界。
-- `docs/next_stage.md` 改为无下一阶段任务书。
-- `docs/stage_status.md`、`docs/agent-state/*` 已同步 `PROJECT COMPLETE`。
-
-未在本沙箱执行的验证：
-
-- 真实 GUI 多实例场景。
-- `NSRunningApplication.runningApplications(withBundleIdentifier:)` 在真实 LaunchServices 中的返回。
-- `DistributedNotificationCenter` round-trip。
-- 菜单栏图标去重、旧实例窗口前置、Launch at Login + 手动启动 race。
-
-这些 GUI 项已写入 `docs/manual_test.md` §33ab 与 `docs/release_checklist.md` §5e，发布前仍必须在真实 macOS GUI 环境中手动执行。
-
-## 轨道最终结论
-
-`everything-menubar-agent` 达到 `PROJECT COMPLETE`：
-
-- L1：默认隐藏 Dock + 菜单栏主入口，已通过。
-- L2：Dock 显示开关与激活策略稳定化，已通过。
-- L3：菜单栏菜单增强与状态可见性，已通过。
-- L4：单实例 / 多 bundle 防护与最终收口，已通过。
-- K1-K6 productization 能力没有回退。
-- 当前仍明确不承诺正式 Developer ID 签名、公证、DMG、auto updater、跨用户单实例、private API 或新搜索能力。
+- fresh DB 默认 reveal target 为 Finder。
+- custom app path 能通过 settings round-trip。
+- external open mode 能 round-trip。
+- malformed setting fallback 到 Finder。
+- 设置页能选择 Finder / 自定义 App，并显示当前 app 名称和路径。
+- 文档明确 QSpace 通过用户选择 `.app` 支持，不硬编码未知 bundle id / URL scheme。
+- `ResultActionRunner` 行为仍未替换；如果 M1 提前接入外部 app，需要检查是否越界或是否完整。
 
 ## 历史归档轨道
 
@@ -73,6 +49,6 @@ L4 round 1 基于提交 `73cac42` 验收，结论为 `PROJECT COMPLETE`。
 - `everything-productization`：K1-K6 / PROJECT COMPLETE 2026-04-26，session `019dc54e-017d-7de3-a24f-35c23f09ce08`
 - `everything-menubar-agent`：L1-L4 / PROJECT COMPLETE 2026-04-26，session `019dc5fc-318e-7d31-bb00-2810eaf6642c`
 
-## 后续说明
+## 轨道切换说明
 
-当前没有下一阶段任务书。后续如果开启新轨道，必须重新更新 `docs/stage_status.md` 与对应 gap / taskbook；历史 `PROJECT COMPLETE` 不自动传递给新轨道。
+`everything-filemanager-integration` 必须使用新的 Codex 验收 session；不得复用 `everything-menubar-agent` session `019dc5fc-318e-7d31-bb00-2810eaf6642c`，也不得复用更早归档轨道 session。

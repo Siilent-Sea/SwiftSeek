@@ -55,9 +55,14 @@ SwiftSeek 不再是“一次性做完即停止”的单轨项目，后续按 tra
 - 状态：历史上已经拿到 `PROJECT COMPLETE`
 - 结论边界：不覆盖默认隐藏 Dock、菜单栏 agent 主入口、Dock 显示开关、菜单栏状态增强和单实例防护
 
+### 已归档轨道：`everything-menubar-agent`
+- 含义：默认 no Dock 菜单栏常驻、Dock 显示开关、菜单栏状态可见性、单实例 / 多 bundle 防护（L1 ~ L4）
+- 状态：历史上已经拿到 `PROJECT COMPLETE`
+- 结论边界：不覆盖 Finder hardcode、QSpace / 自定义文件管理器集成、Reveal target 设置、动态文案和外部 app fallback
+
 ### 当前活跃轨道
 - 一律以 `docs/stage_status.md` 为准
-- 本轮如果 `docs/stage_status.md` 指向 `everything-menubar-agent`，你就按该轨道验收
+- 本轮如果 `docs/stage_status.md` 指向 `everything-filemanager-integration`，你就按该轨道验收
 - 不允许因为历史上出现过一次 `PROJECT COMPLETE`，就让新轨道直接停止
 
 ---
@@ -82,7 +87,7 @@ SwiftSeek 是一个面向 macOS 的本地极速文件搜索器。
 
 ### 当前后续轨道目标
 当前主线由 `docs/stage_status.md` 与对应轨道任务书定义。
-如果当前活跃轨道是 `everything-menubar-agent`，其目标是在不承诺正式签名 / 公证、不使用 private API 的前提下，把 SwiftSeek 从普通 Dock App 推进为默认菜单栏常驻工具，补齐 no Dock、菜单栏主入口、退出路径、Dock 恢复策略、菜单栏状态可见性和单实例防护，但仍保持：
+如果当前活跃轨道是 `everything-filemanager-integration`，其目标是在不使用 QSpace 私有 API、不假设未知 bundle id / URL scheme 的前提下，把 SwiftSeek 的“显示位置 / Reveal”动作从 Finder-only 扩展为可配置 Finder / QSpace / 自定义文件管理器，并保留 Finder fallback，但仍保持：
 - 本地
 - 原生 macOS
 - 文件名 / 路径搜索为主
@@ -100,6 +105,7 @@ SwiftSeek 是一个面向 macOS 的本地极速文件搜索器。
 - APFS 底层原始解析
 - Finder 插件
 - App Store 沙盒适配
+- QSpace 私有 API / 未验证 URL scheme / 未验证 bundle id 硬编码
 - 花哨但无验收价值的扩 scope
 
 ---
@@ -194,7 +200,7 @@ Codex 验收会话必须优先使用项目内显式 session id。
 4. 文档齐全到“不是只有作者自己会用”的程度
 
 注意：
-- `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
+- `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent` 的历史 `PROJECT COMPLETE` 都不会自动传递给新轨道
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，该轨道才允许停止
 
 ---
@@ -203,8 +209,8 @@ Codex 验收会话必须优先使用项目内显式 session id。
 你的回复必须以如下格式输出，字段名不要改：
 
 VERDICT: REJECT | PASS | PROJECT COMPLETE
-TRACK: v1-baseline | everything-alignment | everything-performance | everything-footprint | everything-usage | everything-ux-parity | everything-productization | everything-menubar-agent | <docs/stage_status.md 当前轨道名>
-STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | G1 | G2 | G3 | G4 | G5 | H1 | H2 | H3 | H4 | H5 | J1 | J2 | J3 | J4 | J5 | J6 | K1 | K2 | K3 | K4 | K5 | K6 | L1 | L2 | L3 | L4 | <当前阶段名>
+TRACK: v1-baseline | everything-alignment | everything-performance | everything-footprint | everything-usage | everything-ux-parity | everything-productization | everything-menubar-agent | everything-filemanager-integration | <docs/stage_status.md 当前轨道名>
+STAGE: P0 | P1 | P2 | P3 | P4 | P5 | P6 | E1 | E2 | E3 | E4 | E5 | F1 | F2 | F3 | F4 | F5 | G1 | G2 | G3 | G4 | G5 | H1 | H2 | H3 | H4 | H5 | J1 | J2 | J3 | J4 | J5 | J6 | K1 | K2 | K3 | K4 | K5 | K6 | L1 | L2 | L3 | L4 | M1 | M2 | M3 | M4 | <当前阶段名>
 SUMMARY:
 - ...
 
@@ -266,6 +272,8 @@ NEXT_STAGE_TASKBOOK:
 - `docs/everything_productization_taskbook.md`
 - `docs/everything_menubar_agent_gap.md`
 - `docs/everything_menubar_agent_taskbook.md`
+- `docs/everything_filemanager_integration_gap.md`
+- `docs/everything_filemanager_integration_taskbook.md`
 - `docs/agent-state/README.md`
 
 要求：

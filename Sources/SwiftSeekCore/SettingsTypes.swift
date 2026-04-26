@@ -91,6 +91,27 @@ public enum SettingsKey {
     /// is responsible for telling the user that. "1" = show Dock,
     /// "0" / missing = no Dock (L1 default).
     public static let dockIconVisible = "dock_icon_visible"
+
+    /// M1 (everything-filemanager-integration): Reveal target selection.
+    /// "finder" = default, use Finder's `activateFileViewerSelecting`;
+    /// "customApp" = use the .app at `revealCustomAppPath` to open the
+    /// target. Any other / missing value falls back to Finder.
+    public static let revealTargetType = "reveal_target_type"
+
+    /// M1: absolute path to a user-chosen `.app` bundle when
+    /// `revealTargetType == "customApp"`. Empty / missing means the
+    /// user has not picked one yet → effectively forces fallback to
+    /// Finder (callers must check before invoking custom-app reveal).
+    public static let revealCustomAppPath = "reveal_custom_app_path"
+
+    /// M1: when reveal target is a custom external app, what URL do we
+    /// hand it? "item" = the file/dir itself. "parentFolder" = the
+    /// parent directory. Default "parentFolder" since most third-party
+    /// file managers don't have an inbound "select this file" API and
+    /// landing the user in the containing folder is the closest
+    /// approximation to Finder reveal. Any other / missing value
+    /// falls back to "parentFolder".
+    public static let revealExternalOpenMode = "reveal_external_open_mode"
 }
 
 /// G3 index modes defined in `docs/everything_footprint_v5_proposal.md` § 3/4.
@@ -103,6 +124,55 @@ public enum IndexMode: String, Equatable, Sendable {
     /// `file_bigrams`. Users who need "match any substring of path"
     /// opt into this explicitly.
     case fullpath
+}
+
+// MARK: - M1 Reveal Target (everything-filemanager-integration)
+
+/// M1: choice of where the "show file" / reveal action sends the user.
+/// Default `.finder` keeps every existing UI path working; `.customApp`
+/// hands the target URL off to a user-chosen `.app` bundle (e.g.
+/// QSpace). `String` raw value is what we persist in the settings table.
+public enum RevealTargetType: String, Equatable, Sendable {
+    case finder
+    case customApp = "customApp"
+}
+
+/// M1: when reveal target is a custom external app, decide which URL
+/// we hand it. `.item` = the file or directory itself; some external
+/// apps (text editors, image viewers) can usefully open the file
+/// directly. `.parentFolder` = the file's containing directory; the
+/// closest approximation to Finder's "reveal" semantics for file
+/// managers that lack an inbound "select this file" API.
+public enum ExternalRevealOpenMode: String, Equatable, Sendable {
+    case item
+    case parentFolder = "parentFolder"
+}
+
+/// M1: composite Reveal Target. `customAppPath` is meaningful only
+/// when `type == .customApp`; the UI must guard against passing a
+/// `.customApp` target with empty path through to the runner.
+public struct RevealTarget: Equatable, Sendable {
+    public let type: RevealTargetType
+    public let customAppPath: String
+    public let openMode: ExternalRevealOpenMode
+
+    public init(type: RevealTargetType,
+                customAppPath: String,
+                openMode: ExternalRevealOpenMode) {
+        self.type = type
+        self.customAppPath = customAppPath
+        self.openMode = openMode
+    }
+
+    /// Conservative default applied to fresh DBs and to any malformed
+    /// settings row: Finder, no custom path, parentFolder mode (so a
+    /// future flip to `.customApp` keeps the most file-manager-like
+    /// reveal semantics).
+    public static let defaultTarget = RevealTarget(
+        type: .finder,
+        customAppPath: "",
+        openMode: .parentFolder
+    )
 }
 
 // MARK: - E5 hotkey presets
@@ -284,6 +354,30 @@ public extension Database {
 
     func setDockIconVisible(_ visible: Bool) throws {
         try setSetting(SettingsKey.dockIconVisible, value: visible ? "1" : "0")
+    }
+
+    /// M1: read the persisted Reveal Target. Each field individually
+    /// falls back to the conservative default if missing or malformed
+    /// — never throws on bad data, never returns nil. The composite
+    /// can therefore mix-and-match: e.g. a corrupted `revealTargetType`
+    /// + a valid customAppPath yields `(type=.finder, customAppPath=...)`,
+    /// which UI uses to repopulate the picker without losing the
+    /// user's previously chosen `.app`.
+    func getRevealTarget() throws -> RevealTarget {
+        let rawType = try getSetting(SettingsKey.revealTargetType) ?? ""
+        let type = RevealTargetType(rawValue: rawType) ?? RevealTarget.defaultTarget.type
+        let path = try getSetting(SettingsKey.revealCustomAppPath) ?? RevealTarget.defaultTarget.customAppPath
+        let rawMode = try getSetting(SettingsKey.revealExternalOpenMode) ?? ""
+        let mode = ExternalRevealOpenMode(rawValue: rawMode) ?? RevealTarget.defaultTarget.openMode
+        return RevealTarget(type: type, customAppPath: path, openMode: mode)
+    }
+
+    /// M1: persist a Reveal Target. Writes all three fields together;
+    /// caller need not pre-clear stale values.
+    func setRevealTarget(_ target: RevealTarget) throws {
+        try setSetting(SettingsKey.revealTargetType, value: target.type.rawValue)
+        try setSetting(SettingsKey.revealCustomAppPath, value: target.customAppPath)
+        try setSetting(SettingsKey.revealExternalOpenMode, value: target.openMode.rawValue)
     }
 
     /// J2: clear all persisted result-column widths so the next

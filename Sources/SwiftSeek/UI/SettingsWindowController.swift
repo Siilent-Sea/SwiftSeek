@@ -245,6 +245,23 @@ private final class GeneralPane: NSViewController {
     private let dockIconCheckbox = NSButton(checkboxWithTitle: "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）",
                                             target: nil, action: nil)
     private let dockIconNote = NSTextField(wrappingLabelWithString: "")
+
+    // M1 (everything-filemanager-integration): Reveal Target controls.
+    // Top row: 显示位置 popup (Finder / 自定义 App) + 选择 App… button.
+    // Second row: current app summary (filename + path) — only meaningful
+    // when popup = 自定义 App. Third row: 打开目标 segmented control
+    // (文件本身 / 父目录). Fourth row: hint about the QSpace path and
+    // "Finder is the only mode that can guarantee selecting the file"
+    // disclaimer.
+    private let revealLabel = NSTextField(labelWithString: "显示位置：")
+    private let revealPopup = NSPopUpButton()
+    private let revealPickAppBtn = NSButton(title: "选择 App…", target: nil, action: nil)
+    private let revealAppSummary = NSTextField(wrappingLabelWithString: "")
+    private let revealOpenModeLabel = NSTextField(labelWithString: "打开目标：")
+    private let revealOpenModeSegmented = NSSegmentedControl(labels: ["父目录", "文件本身"],
+                                                             trackingMode: .selectOne,
+                                                             target: nil, action: nil)
+    private let revealNote = NSTextField(wrappingLabelWithString: "")
     /// Closure injected by AppDelegate so this pane can trigger
     /// re-registration of the Carbon hotkey without reaching through
     /// the view hierarchy. Returns true iff the new combo registered
@@ -260,8 +277,10 @@ private final class GeneralPane: NSViewController {
 
     override func loadView() {
         // L2 grew the pane: extra Dock-visibility checkbox + multiline note;
-        // bumped from 360 to 440 so the bottom rows aren't clipped on first paint.
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 440))
+        // bumped from 360 to 440. M1 grew it again with reveal target picker
+        // + app summary + open mode + multi-line note; bumped 440 → 580 so
+        // the bottom rows aren't clipped on first paint.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 580))
 
         let title = NSTextField(labelWithString: "常规")
         title.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
@@ -383,6 +402,40 @@ private final class GeneralPane: NSViewController {
         dockIconNote.textColor = .secondaryLabelColor
         dockIconNote.stringValue = "默认不勾选：SwiftSeek 仅在菜单栏常驻，不出现在 Dock / Command+Tab。勾选后下次启动 SwiftSeek 会以普通 App 形态运行（保留菜单栏入口）。**切换需重启 SwiftSeek 生效**：菜单栏 → 退出 SwiftSeek → 重新打开 dist/SwiftSeek.app。"
 
+        // M1 reveal target row
+        revealLabel.translatesAutoresizingMaskIntoConstraints = false
+        revealPopup.translatesAutoresizingMaskIntoConstraints = false
+        revealPopup.removeAllItems()
+        revealPopup.addItems(withTitles: ["Finder", "自定义 App…"])
+        revealPopup.target = self
+        revealPopup.action = #selector(onRevealTargetTypeChanged(_:))
+        revealPickAppBtn.translatesAutoresizingMaskIntoConstraints = false
+        revealPickAppBtn.target = self
+        revealPickAppBtn.action = #selector(onPickRevealApp(_:))
+        revealAppSummary.translatesAutoresizingMaskIntoConstraints = false
+        revealAppSummary.font = NSFont.systemFont(ofSize: 11)
+        revealAppSummary.textColor = .secondaryLabelColor
+        revealOpenModeLabel.translatesAutoresizingMaskIntoConstraints = false
+        revealOpenModeSegmented.translatesAutoresizingMaskIntoConstraints = false
+        revealOpenModeSegmented.target = self
+        revealOpenModeSegmented.action = #selector(onRevealOpenModeChanged(_:))
+        revealNote.translatesAutoresizingMaskIntoConstraints = false
+        revealNote.font = NSFont.systemFont(ofSize: 11)
+        revealNote.textColor = .secondaryLabelColor
+        revealNote.stringValue = "Finder 模式：在 Finder 中选中并显示文件（macOS 标准行为）。\n自定义 App 模式：用你选择的 .app 打开目标（例：QSpace.app、Path Finder.app）。\n— SwiftSeek 不依赖任何文件管理器的私有 API；外部 app 是否能选中具体文件取决于该 app 自身实现。\n— 打开目标 = 父目录：把文件所在目录交给外部 app（适合多数三方文件管理器）。打开目标 = 文件本身：把文件 URL 直接交给外部 app（适合编辑器 / 查看器）。"
+
+        let revealTopRow = NSStackView(views: [revealLabel, revealPopup, revealPickAppBtn])
+        revealTopRow.orientation = .horizontal
+        revealTopRow.spacing = 8
+        revealTopRow.alignment = .centerY
+        revealTopRow.translatesAutoresizingMaskIntoConstraints = false
+
+        let revealOpenModeRow = NSStackView(views: [revealOpenModeLabel, revealOpenModeSegmented])
+        revealOpenModeRow.orientation = .horizontal
+        revealOpenModeRow.spacing = 8
+        revealOpenModeRow.alignment = .centerY
+        revealOpenModeRow.translatesAutoresizingMaskIntoConstraints = false
+
         root.addSubview(title)
         root.addSubview(row)
         root.addSubview(note)
@@ -396,6 +449,10 @@ private final class GeneralPane: NSViewController {
         root.addSubview(launchAtLoginNote)
         root.addSubview(dockIconCheckbox)
         root.addSubview(dockIconNote)
+        root.addSubview(revealTopRow)
+        root.addSubview(revealAppSummary)
+        root.addSubview(revealOpenModeRow)
+        root.addSubview(revealNote)
 
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
@@ -441,7 +498,18 @@ private final class GeneralPane: NSViewController {
             dockIconNote.topAnchor.constraint(equalTo: dockIconCheckbox.bottomAnchor, constant: 6),
             dockIconNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             dockIconNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            dockIconNote.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
+
+            revealTopRow.topAnchor.constraint(equalTo: dockIconNote.bottomAnchor, constant: 18),
+            revealTopRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            revealAppSummary.topAnchor.constraint(equalTo: revealTopRow.bottomAnchor, constant: 6),
+            revealAppSummary.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            revealAppSummary.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            revealOpenModeRow.topAnchor.constraint(equalTo: revealAppSummary.bottomAnchor, constant: 8),
+            revealOpenModeRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            revealNote.topAnchor.constraint(equalTo: revealOpenModeRow.bottomAnchor, constant: 6),
+            revealNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            revealNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            revealNote.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -16),
         ])
         self.view = root
     }
@@ -499,6 +567,103 @@ private final class GeneralPane: NSViewController {
         // note can warn the user when they last toggled but didn't
         // restart yet.
         reflectDockIconState()
+
+        // M1: reflect persisted Reveal Target.
+        reflectRevealTargetState()
+    }
+
+    private func reflectRevealTargetState() {
+        let target = (try? database.getRevealTarget()) ?? RevealTarget.defaultTarget
+        switch target.type {
+        case .finder:
+            revealPopup.selectItem(at: 0)
+        case .customApp:
+            revealPopup.selectItem(at: 1)
+        }
+        // 选择 App… button only meaningful in customApp mode; keep it
+        // enabled in Finder mode too so the user can pre-pick before
+        // flipping the popup, which feels less restrictive.
+        let isCustom = (target.type == .customApp)
+        revealPickAppBtn.isEnabled = true
+        revealAppSummary.isHidden = false
+        if target.customAppPath.isEmpty {
+            revealAppSummary.stringValue = isCustom
+                ? "⚠️ 已选「自定义 App」但未选择 .app — 在被点击时会回退到 Finder。"
+                : "尚未选择自定义 App。"
+        } else {
+            // Display: filename + full path. Detect QSpace heuristically
+            // by case-insensitive substring match on the filename so
+            // the UI reads "QSpace" without us hardcoding a bundle id.
+            let appName = (target.customAppPath as NSString).lastPathComponent
+            let displayName: String
+            if appName.lowercased().contains("qspace") {
+                displayName = "QSpace（已识别）"
+            } else {
+                displayName = appName
+            }
+            revealAppSummary.stringValue = "已选 App：\(displayName)\n路径：\(target.customAppPath)"
+        }
+        revealOpenModeSegmented.isEnabled = true
+        // Segmented order: 0 = 父目录, 1 = 文件本身.
+        revealOpenModeSegmented.selectedSegment = (target.openMode == .parentFolder) ? 0 : 1
+    }
+
+    private func currentRevealTarget() -> RevealTarget {
+        let typeIdx = revealPopup.indexOfSelectedItem
+        let type: RevealTargetType = (typeIdx == 1) ? .customApp : .finder
+        let openMode: ExternalRevealOpenMode = (revealOpenModeSegmented.selectedSegment == 1) ? .item : .parentFolder
+        // Preserve any previously-saved customAppPath so flipping the
+        // popup back and forth doesn't drop the user's choice.
+        let existingPath = (try? database.getRevealTarget())?.customAppPath ?? ""
+        return RevealTarget(type: type, customAppPath: existingPath, openMode: openMode)
+    }
+
+    @objc private func onRevealTargetTypeChanged(_ sender: NSPopUpButton) {
+        let target = currentRevealTarget()
+        do { try database.setRevealTarget(target) } catch {
+            NSLog("SwiftSeek: failed to persist reveal target type: \(error)")
+        }
+        reflectRevealTargetState()
+    }
+
+    @objc private func onRevealOpenModeChanged(_ sender: NSSegmentedControl) {
+        let target = currentRevealTarget()
+        do { try database.setRevealTarget(target) } catch {
+            NSLog("SwiftSeek: failed to persist reveal open mode: \(error)")
+        }
+        reflectRevealTargetState()
+    }
+
+    @objc private func onPickRevealApp(_ sender: NSButton) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.message = "选择一个 .app（例如 /Applications/QSpace.app）。SwiftSeek 不依赖该 app 的私有 API；选中文件能力取决于该 app 是否支持。"
+        panel.prompt = "使用此 App"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        // Save merged target: keep current popup/open-mode values, set path.
+        let existing = (try? database.getRevealTarget()) ?? RevealTarget.defaultTarget
+        let openMode: ExternalRevealOpenMode = (revealOpenModeSegmented.selectedSegment == 1) ? .item : .parentFolder
+        // Picking an app implies the user wants customApp mode; flip
+        // the popup so the Finder path doesn't silently retain the
+        // newly-picked app while still calling Finder.
+        let merged = RevealTarget(type: .customApp,
+                                  customAppPath: url.path,
+                                  openMode: openMode)
+        _ = existing
+        do { try database.setRevealTarget(merged) } catch {
+            let alert = NSAlert()
+            alert.messageText = "保存自定义 App 失败"
+            alert.informativeText = "\(error)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+            return
+        }
+        reflectRevealTargetState()
     }
 
     private func reflectDockIconState() {

@@ -4585,6 +4585,103 @@ reporter.check("L4 SingleInstance.showSettingsNotificationName: stable + scoped 
                          "notification name must be stable across builds")
 }
 
+// MARK: - M1 Reveal Target persistence (everything-filemanager-integration)
+
+reporter.check("M1 getRevealTarget: fresh DB defaults to Finder + parentFolder + empty path") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let t = try db.getRevealTarget()
+    try reporter.require(t.type == .finder, "fresh default must be .finder, got \(t.type)")
+    try reporter.require(t.customAppPath == "", "fresh default customAppPath must be empty, got '\(t.customAppPath)'")
+    try reporter.require(t.openMode == .parentFolder, "fresh default openMode must be .parentFolder, got \(t.openMode)")
+}
+
+reporter.check("M1 setRevealTarget / getRevealTarget round-trip: customApp + path + item") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let want = RevealTarget(type: .customApp,
+                            customAppPath: "/Applications/QSpace.app",
+                            openMode: .item)
+    try db.setRevealTarget(want)
+    let got = try db.getRevealTarget()
+    try reporter.require(got == want, "round-trip mismatch: got \(got), want \(want)")
+}
+
+reporter.check("M1 RevealTarget survives DB reopen") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let want = RevealTarget(type: .customApp,
+                            customAppPath: "/Applications/Path Finder.app",
+                            openMode: .parentFolder)
+    do {
+        let db = try Database.open(at: paths.databaseURL)
+        try db.migrate()
+        try db.setRevealTarget(want)
+        db.close()
+    }
+    let db2 = try Database.open(at: paths.databaseURL)
+    defer { db2.close() }
+    try db2.migrate()
+    let got = try db2.getRevealTarget()
+    try reporter.require(got == want, "value should persist across DB reopen; got \(got), want \(want)")
+}
+
+reporter.check("M1 malformed reveal_target_type falls back to Finder, keeps custom path") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Save a clean customApp first so we have a path to keep.
+    try db.setRevealTarget(RevealTarget(type: .customApp,
+                                        customAppPath: "/Applications/QSpace.app",
+                                        openMode: .item))
+    // Now stomp the type with junk via raw setSetting.
+    try db.setSetting(SettingsKey.revealTargetType, value: "bogus_value_xyz")
+    let got = try db.getRevealTarget()
+    try reporter.require(got.type == .finder,
+                         "malformed type should fall back to .finder, got \(got.type)")
+    try reporter.require(got.customAppPath == "/Applications/QSpace.app",
+                         "fallback should NOT erase the user's previously chosen path; got '\(got.customAppPath)'")
+    try reporter.require(got.openMode == .item,
+                         "valid openMode should pass through even when type is malformed; got \(got.openMode)")
+}
+
+reporter.check("M1 malformed reveal_external_open_mode falls back to parentFolder") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setSetting(SettingsKey.revealTargetType, value: RevealTargetType.customApp.rawValue)
+    try db.setSetting(SettingsKey.revealCustomAppPath, value: "/tmp/Foo.app")
+    try db.setSetting(SettingsKey.revealExternalOpenMode, value: "garbage")
+    let got = try db.getRevealTarget()
+    try reporter.require(got.openMode == .parentFolder,
+                         "malformed openMode should fall back to .parentFolder, got \(got.openMode)")
+    try reporter.require(got.type == .customApp, "valid type field should pass through")
+    try reporter.require(got.customAppPath == "/tmp/Foo.app", "valid path field should pass through")
+}
+
+reporter.check("M1 RevealTarget.defaultTarget is Finder + empty + parentFolder") {
+    let d = RevealTarget.defaultTarget
+    try reporter.require(d.type == .finder, "default type must be .finder")
+    try reporter.require(d.customAppPath == "", "default customAppPath must be empty")
+    try reporter.require(d.openMode == .parentFolder,
+                         "default openMode must be .parentFolder (most file-manager-like)")
+}
+
 // MARK: - J5 path helpers (context menu primitives)
 
 reporter.check("J5 PathHelpers.fileName: last component of typical path") {

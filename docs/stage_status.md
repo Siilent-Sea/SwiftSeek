@@ -4,9 +4,9 @@
 
 ## 当前活跃轨道
 
-- 当前活跃轨道：`everything-menubar-agent`
-- 当前阶段：`L4`
-- 当前状态：`PROJECT COMPLETE`
+- 当前活跃轨道：`everything-filemanager-integration`
+- 当前阶段：`M1`
+- 当前状态：M1 实现已就位，待 Codex 验收
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -18,246 +18,105 @@
 - `everything-usage`：H1-H5，已归档，历史上已拿到 `PROJECT COMPLETE`
 - `everything-ux-parity`：J1-J6，已归档，历史上已拿到 `PROJECT COMPLETE`
 - `everything-productization`：K1-K6，已归档，历史上已拿到 `PROJECT COMPLETE`
+- `everything-menubar-agent`：L1-L4，已归档，历史上已拿到 `PROJECT COMPLETE`
 
-## 轨道立项依据（历史）
+## 新轨道立项依据
 
-`everything-menubar-agent` 立项时，`everything-productization` 已补齐可重复 `.app` 打包、build identity、安装/升级/回滚文档、诊断与 release gate。但当时代码和脚本仍显示 SwiftSeek 的产品形态是普通 Dock App：
+`everything-menubar-agent` 已完成 no Dock 菜单栏工具形态、Dock 显示开关、菜单栏状态和单实例防护。但当前真实代码仍把“显示位置”能力固定在 Finder：
 
-- `scripts/package-app.sh` 写入 `LSUIElement=false`，打包出的 `SwiftSeek.app` 会常驻 Dock。
-- `AppDelegate.installStatusItem()` 已安装 `NSStatusItem`，菜单栏已有"搜索…"、"设置…"、"索引状态"、"退出 SwiftSeek"，但它仍是辅助入口，不是主入口。
-- `AppDelegate.applicationShouldHandleReopen` 与 `docs/release_checklist.md` 仍依赖 Dock reopen 路径；隐藏 Dock 后这条路径不再存在。
-- `SearchWindowController.show()` 与 `AppDelegate.showSettings()` 都依赖 `NSApp.activate(ignoringOtherApps:)` 前置窗口，必须在 `LSUIElement` / `.accessory` 模式下重新验证。
-- 隐藏 Dock 后，退出路径必须从 Dock 右键迁移到菜单栏 Quit / 热键 / 文档化 fallback。
-- 当前没有单实例保护；菜单栏 agent 形态下，多 bundle / stale bundle / 多实例更容易造成用户混淆。
+- `Sources/SwiftSeekCore/ResultAction.swift` 的动作仍命名为 `revealInFinder`。
+- `Sources/SwiftSeek/UI/ResultActionRunner.swift` 对 `.revealInFinder` 直接调用 Finder 专用 API：`NSWorkspace.shared.activateFileViewerSelecting([url])`。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` 的按钮和右键菜单仍写死“在 Finder 中显示”。
+- `Sources/SwiftSeekCore/SettingsTypes.swift` 只有 hidden/search limit/hotkey/index mode/usage/query history/Dock 等设置，没有 `reveal_target_type`、`reveal_custom_app_path`、`reveal_external_open_mode`。
+- `SettingsWindowController` 的常规设置页没有“显示位置 / Reveal Target”配置 UI。
+- release checklist 和 manual test 仍只覆盖 Finder reveal，没有 QSpace / custom app / fallback / item vs parentFolder 语义验证。
 
-因此该轨道命名为 `everything-menubar-agent`：目标是把 SwiftSeek 从"带 Dock 的普通 App"推进到"菜单栏常驻工具 / tray-like agent"，而不是继续扩展搜索功能。L1-L4 已完成这些收口。
+因此新轨道命名为 `everything-filemanager-integration`：目标是把 SwiftSeek 的 Reveal / Show action 从 Finder-only 扩展为可配置 Finder / QSpace / 自定义文件管理器集成，同时保持稳健 fallback 和清晰语义。
 
 ## 当前轨道目标
 
-`everything-menubar-agent` 要在不做正式签名 / 公证、不使用 private API、不重写窗口系统的前提下，完成：
+`everything-filemanager-integration` 要在不使用 QSpace 私有 API、不假设未知 bundle id / URL scheme、不读取系统隐私数据的前提下，完成：
 
-- 默认隐藏 Dock 图标
-- 菜单栏 status item 成为主入口
-- 搜索、设置、退出和全局热键在无 Dock 模式下可靠
-- Dock 显示可恢复或至少有清晰的恢复策略
-- 菜单栏状态足够表达当前索引 / 构建 / DB 简况
-- 菜单栏 agent 形态下的多实例 / stale bundle 风险可检测、可解释、可收口
+- 默认仍使用 Finder，保持向后兼容
+- 设置页支持选择自定义 `.app`，例如 `/Applications/QSpace.app`
+- 自定义 app 路径、打开模式可持久化
+- Finder 模式继续支持选中文件
+- 自定义 app 模式使用 macOS 公开 API 打开文件本身或父目录
+- 外部 app 不存在 / 被移动 / 打不开时有可见反馈，并 fallback 到 Finder
+- 搜索窗口按钮、右键菜单、hint、diagnostics、manual test 与 release gate 同步
 
-## 已通过阶段：L1
-
-### 阶段目标
-
-让 SwiftSeek 默认以菜单栏工具方式运行，不常驻 Dock，并确保最小可用入口链路成立。
-
-### L1 必须完成
-
-- 选择并落地默认隐藏 Dock 的实现方案：
-  - 优先评估 `NSApp.setActivationPolicy(.accessory)`；
-  - 或在 package 时把 `LSUIElement` 改为 `true`；
-  - 必须说明取舍。
-- 菜单栏 status item 必须成为主入口。
-- 以下入口必须可用：
-  - 菜单栏"搜索…"
-  - 菜单栏"设置…"
-  - 菜单栏"退出 SwiftSeek"
-  - 全局热键搜索
-- 设置窗口和搜索窗口打开时必须能前置。
-- 更新 package / Info.plist / activation policy 相关文档与 release checklist。
-- 增加 L1 手测记录：
-  1. package app
-  2. 启动后 Dock 不出现 SwiftSeek 图标
-  3. 菜单栏图标存在
-  4. 菜单栏打开搜索成功
-  5. 菜单栏打开设置成功
-  6. 全局热键打开搜索成功
-  7. 菜单栏退出可正常退出
-
-### L1 禁止事项
-
-- 不做 Dock 显示开关
-- 不做单实例保护
-- 不做正式 Apple Developer ID 签名 / notarization / DMG
-- 不重写搜索窗口或设置窗口系统
-- 不提前扩展菜单栏复杂功能
-- 不修改搜索、索引、DB schema 或业务逻辑
-
-### L1 完成判定标准
-
-只有同时满足以下条件，L1 才能提交 Codex 验收：
-
-- 打包后的 `SwiftSeek.app` 默认不显示 Dock 图标。
-- 菜单栏 status item 存在且是可发现的主入口。
-- 菜单栏搜索、菜单栏设置、菜单栏退出和全局热键均能在隐藏 Dock 模式下工作。
-- 设置窗口 / 搜索窗口能前置，不出现打开但不可见或在后台的问题。
-- release checklist / install / known issues / manual test 中不再把 Dock reopen 当作默认必备入口。
-- 文档明确隐藏 Dock 后的退出路径和限制。
-- 没有修改超出 L1 的业务能力。
-
-### L1 Codex 验收结论：PASS
-
-- `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 在 NSLog build identity 三连之后立即调 `NSApp.setActivationPolicy(.accessory)`，再做 mainMenu / DB / status item / search window / hotkey 安装；删除原 `showSettings(nil)` 自动调用，让菜单栏成为 discovery 入口。`applicationShouldHandleReopen` comment 更新，说明 menubar-agent 形态下仅作为双击 fallback。
-- `scripts/package-app.sh`：`LSUIElement` 保留 `false`，附 12 行注释说明 L1 选择运行时 activation policy 而非 plist；改 plist 之前必须先撤运行时调用 + 更新 docs。
-- `docs/release_checklist.md`：开头改写为 K6 + L1 双阶段说明；新增 §5b "L1 menubar-agent 形态验证"（必跑 8 项）；§6 把 Dock reopen 改成菜单栏 + applicationShouldHandleReopen fallback；§12 App Icon 不再期望 Dock 显示。
-- `docs/install.md`：新增"默认形态：菜单栏常驻工具（L1）"段，写清启动后看到什么、退出路径、找不到菜单栏图标的排查矩阵、双击已运行的 fallback 与 L4 单实例边界。升级流程的 "Dock 右键退出" 改为菜单栏退出。
-- `docs/known_issues.md` §1-§3 改写为 L1 已落地；§7-§8 仍标 L2/L3 待做；归档段说明 productization 已完成、L1 在其上切默认形态。
-- `docs/manual_test.md` §33y：L1 8 节手测矩阵（Dock 不显示、菜单栏图标、入口三连、热键独立、reopen fallback、反复起停、swift run 路径、Dock 出现 = ❌）。
-- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 209/209 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=d5cad2b`，`codesign` 显示 ad-hoc 签名。
-- 受限沙箱不能执行真实 GUI Dock 可见性和菜单栏点击模拟；这些仍按 `docs/manual_test.md` §33y 作为每次发布必跑手测。
-
-## 已通过阶段：L2
+## 当前阶段：M1
 
 ### 阶段目标
 
-给用户恢复 Dock 图标的能力，并让隐藏 Dock / 显示 Dock 两种模式下的激活、前置、重启提示和设置持久化稳定。
+先建立 Reveal Target 数据模型与设置 UI，让用户能在设置里选择 Finder 或自定义文件管理器，并保存目标 app 与打开模式。M1 不替换实际 reveal 动作。
 
-### L2 必须完成
+### M1 必须完成
 
-- 新增 Dock 可见性或菜单栏模式设置，默认仍保持 L1 no Dock。
-- 设置页增加清晰开关，并说明是否需要重启生效。
-- 启动早期根据设置应用 `.accessory` 或 `.regular` activation policy。
-- 验证 no Dock 与 Dock visible 两种模式下，菜单栏搜索、菜单栏设置、菜单栏退出、全局热键和窗口前置均可用。
-- 更新 install / manual test / release checklist / known issues。
+- 新增设置项：
+  - `reveal_target_type`
+  - `reveal_custom_app_path`
+  - `reveal_external_open_mode`
+- 推荐类型：
+  - `RevealTarget`
+  - `RevealTargetType`
+  - `ExternalRevealOpenMode`
+- 默认：
+  - target = Finder
+  - open mode 按设计说明选择 `item` 或 `parentFolder`，但必须解释取舍
+- 设置页增加 UI：
+  - “显示位置” / “Reveal Target”
+  - Finder
+  - 自定义 App…
+  - 选择 App 按钮
+  - 当前已选 App 显示名称和路径
+  - 打开目标：文件本身 / 父目录
+- QSpace 支持方式：
+  - 不硬编码未知 bundle id
+  - 不假设 URL scheme
+  - 支持用户选择 `/Applications/QSpace.app`
+  - 若检测到 app 名称包含 QSpace，可在 UI 显示为 QSpace
+- 补 smoke：
+  - 默认 Finder
+  - custom app path round-trip
+  - open mode round-trip
+  - malformed setting fallback to Finder
 
-### L2 禁止事项
+### M1 禁止事项
 
-- 不做单实例 / 多 bundle 防护
-- 不做菜单栏复杂状态增强
-- 不做正式签名 / notarization / DMG / auto updater
-- 不重写搜索窗口或设置窗口系统
-- 不修改搜索、索引、DB schema 或业务逻辑
+- 不改 `ResultActionRunner` 的实际执行路径
+- 不做实际外部 app 打开
+- 不用 QSpace 私有 API
+- 不硬编码未经验证的 QSpace bundle id 或 URL scheme
+- 不改变 Finder reveal 的现有行为
+- 不改搜索、索引、DB schema、Run Count、菜单栏 agent 或单实例逻辑
 
-### L2 完成判定标准
+### M1 完成判定标准
 
-只有同时满足以下条件，L2 才能提交 Codex 验收：
+只有同时满足以下条件，M1 才能提交 Codex 验收：
 
-- 新安装默认仍是菜单栏 agent / no Dock。
-- 用户能在设置页看到并修改 Dock 可见性选项。
-- 设置持久化且重启后生效；如果实时切换被声明支持，真实行为必须匹配。
-- no Dock 与 Dock visible 两种模式下的搜索、设置、退出、热键和窗口前置均通过。
-- 文档同步，不再把 Dock 显示开关写成未完成项。
-- 没有提前实现 L3/L4。
+- 新设置项和类型存在，默认 Finder 可安全读取。
+- 自定义 app path 与 open mode 能通过 DB settings 持久化并 round-trip。
+- malformed / missing 设置会 fallback 到 Finder，不会崩。
+- 设置页能选择 Finder / 自定义 App，并显示当前选择。
+- UI 文案明确：QSpace 通过用户选择 app 支持，不依赖私有协议。
+- `ResultActionRunner` 行为仍未替换，M2 才做实际接入。
+- SmokeTest 增加对应数据模型测试。
 
-### L2 Codex 验收结论：PASS
+### M1 实现已落地（待 Codex 验收）
 
-- `Sources/SwiftSeekCore/SettingsTypes.swift`：新增 `SettingsKey.dockIconVisible`（DB key `dock_icon_visible`），值 `"1"` = 显示 Dock，`"0"` / 缺失 = L1 默认 no Dock；`Database` extension 加 `getDockIconVisible() throws -> Bool` / `setDockIconVisible(_ visible: Bool) throws`，与 hidden / launch-at-login 等已有 settings 同模式。
-- `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 顺序固定为 — 先 `.accessory` 兜底 → DB 打开 → 读 `getDockIconVisible()` → 若为 true 切 `.regular` 并 NSLog `Dock icon visible (user preference)`，否则 NSLog `Dock icon hidden (L1 default)`；读失败保持 L1 默认 + NSLog 错误。声明实时切换不可靠：runtime `.regular` ↔ `.accessory` transition 在 ad-hoc 包上不稳定，因此 L2 是"持久化设置 + 重启生效"路径。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：新增 "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）" 复选框 + 多行 note；`reflectDockIconState()` 比较 intent 与 `NSApp.activationPolicy()`，未重启时显示 `⚠️` 警告，已对齐时显示 `✓` 确认；`onDockIconToggle(_:)` 持久化失败时弹 NSAlert + 复位复选框。GeneralPane root view 高度从 360 提到 440 容纳新行。
-- `Sources/SwiftSeekSmokeTest/main.swift`：3 个 L2 用例（默认 false / setter+getter round-trip / DB reopen 后 persist）。SmokeTest 总数 209 → 212。
-- `docs/install.md`：默认形态段补 "L2 让 Dock 图标重新显示" 子段，4 步流程 + "为什么需要重启而不是实时切" 解释。
-- `docs/release_checklist.md`：新增 §5c "L2 Dock 显示开关验证"（10 项必跑）。
-- `docs/known_issues.md` §7 改写为 L2 已落地，写明持久化 key、应用时机、为什么不做 live transition、release_checklist §5c 强制手测。
-- `docs/manual_test.md` §33z：8 节 L2 手测矩阵（全新 DB 默认 / 切到 Dock visible / Dock visible 入口 / 切回 no Dock / 反复切换稳定性 / DB 异常值 fallback / 与其他设置无干扰 / 边界）。
-- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 212/212 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=5ff1334`，`codesign` 显示 ad-hoc 签名。
-- 受限沙箱不能执行真实 GUI Dock visible/hidden 跨启动切换、菜单栏点击、设置 note 文本和跨模式入口验证；这些仍按 `docs/manual_test.md` §33z 与 `docs/release_checklist.md` §5c 作为每次发布必跑手测。
-
-## 已通过阶段：L3
-
-### 阶段目标
-
-让菜单栏成为真正主入口：用户不用先打开设置窗口，也能快速确认当前构建、索引状态、索引模式、root 健康和 DB 简况，并能直达现有最近 / 常用能力。
-
-### L3 必须完成
-
-- 增强菜单栏菜单结构，保留搜索 / 设置 / 索引状态 / 退出，同时新增 build identity、index mode、root 简况、DB 大小等只读状态。
-- 增强 status item tooltip，短文本展示版本 / commit、索引状态、索引模式和 root 简况。
-- 菜单打开前或状态变化时刷新菜单状态；读取失败时显示可理解的降级文案，不 crash。
-- 如接入最近打开 / 常用，只能基于 SwiftSeek 内部 `file_usage` 表，不读系统全局历史。
-- 更新 install / manual test / release checklist / known issues。
-
-### L3 禁止事项
-
-- 不做单实例 / 多 bundle 防护
-- 不做正式签名 / notarization / DMG / auto updater
-- 不做完整菜单栏 dashboard 或复杂弹窗控制台
-- 不新增全文搜索、AI、OCR、云盘一致性、Finder 插件或系统全局历史读取
-- 不提前实现 L4
-
-### L3 完成判定标准
-
-只有同时满足以下条件，L3 才能提交 Codex 验收：
-
-- 菜单栏搜索、设置、退出和 L1/L2 行为不回归。
-- tooltip 与菜单能展示 build identity、索引状态、索引模式、root/DB 简况。
-- 索引状态变化能更新到菜单或 tooltip。
-- 状态读取失败有降级文案，不破坏主入口。
-- 最近 / 常用若实现，必须受 usage history 数据和隐私设置约束。
-- 文档同步，且没有提前实现 L4。
-
-### L3 Codex 验收结论：PASS
-
-- `Sources/SwiftSeekCore/MenubarStatus.swift`（新文件，纯函数 / AppKit-free）：`MenubarStatus.snapshot(database:indexingDescription:)` 返回 `Snapshot { buildSummary, indexingDescription, indexModeLabel, rootsLabel, dbSizeLabel }`；`tooltipText(snapshot:)` 组装 5 行 tooltip；`formatRoots(rows:database:)` 统一计算 "N 个（M 启用[，K 不健康]）" / "暂无 root"。读取失败 fall back 到 "—" / "读取 roots 失败"。
-- `Sources/SwiftSeek/App/AppDelegate.swift`：`installStatusItem` 增加 4 个 disabled NSMenuItem（build / 模式 / roots / DB 大小），位置在 `索引：…` 下方；`refreshMenubarStatus()` 把 MenubarStatus.snapshot 文本写到状态行 + button.toolTip；NSMenuDelegate `menuNeedsUpdate(_:)` 每次菜单打开刷新；`reflectRebuildState(_:)` 同时把 lastIndexingDescription 写回 Core 调用并刷新 tooltip，让索引中状态在菜单关闭时也更新。
-- `Sources/SwiftSeekSmokeTest/main.swift`：5 个 L3 用例（empty DB / roots count / unhealthy roots / tooltip 5-line format / formatRoots empty）。SmokeTest 总数 212 → 217。
-- `docs/install.md`：默认形态段更新"启动后看到什么"列出 tooltip 5 行 + 菜单状态行；说明刷新时机；强调不读系统全局历史 / private API。
-- `docs/release_checklist.md`：新增 §5d "L3 菜单栏状态可见性验证"（10+ 项必跑）。
-- `docs/known_issues.md` §8 改写为 L3 已落地，列结构、刷新时机、fallback 文案、不做项。
-- `docs/manual_test.md` §33aa：9 节 L3 手测矩阵（tooltip / 菜单结构 / 索引状态切换 / roots 变化 / 模式切换 / DB 大小 / Dock visible 模式不破坏 / 读取失败 fallback / 不实现项边界）。
-- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 217/217 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false` 且 `GitCommit=75d3a79`，`codesign` 显示 ad-hoc 签名。
-- 受限沙箱不能执行真实 GUI tooltip 弹出、菜单打开刷新、索引状态图标切换和跨 Dock 模式菜单栏验证；这些仍按 `docs/manual_test.md` §33aa 与 `docs/release_checklist.md` §5d 作为每次发布必跑手测。
-- L3 round 1 **不接入** 最近打开 / 常用子菜单（taskbook 标 "如果实现"）；如 Codex 验收要求补再做 round 2。
-
-## 当前阶段：L4
-
-### 阶段目标
-
-菜单栏 agent 形态下，减少多开、旧 bundle、登录项和手动启动并存造成的混乱，并完成本轨道最终验收准备。
-
-### L4 必须完成
-
-- 实现单实例 / 多 bundle 防护，至少覆盖同一 `.app` 重复打开、`dist` 与 `/Applications` 并存、Launch at Login + 手动启动。
-- 检测到已有实例时，新实例不应继续长期常驻；能唤醒旧实例则唤醒，不能唤醒则日志清楚并退出。
-- 日志或诊断中保留 build identity、bundle path、executable path 和冲突处理信息。
-- 更新 release checklist / manual test / install / known issues / stage status / acceptance docs。
-- 完成 L1-L4 最终文档一致性收口，为 `PROJECT COMPLETE` 验收准备。
-
-### L4 禁止事项
-
-- 不做正式签名 / notarization / DMG / auto updater
-- 不做跨用户多实例支持
-- 不使用 private API 或绕过 macOS 权限
-- 不新增搜索、索引、AI、OCR、云盘一致性或 Finder 插件能力
-- 不重写窗口系统或菜单栏 dashboard
-
-### L4 完成判定标准
-
-只有同时满足以下条件，L4 才能提交 Codex 最终验收：
-
-- 常见多开路径不会产生两个长期常驻菜单栏实例。
-- 旧 bundle / 新 bundle 并存时，行为可解释且有日志或文档化处理路径。
-- Launch at Login 与手动启动并发不造成重复常驻。
-- L1 no Dock、L2 Dock 显示开关、L3 菜单栏状态不回归。
-- 文档足够让非作者执行安装、升级、回滚、排查和 release QA。
-- 没有越界到正式发行机制或新搜索能力。
-
-### L4 Codex 验收结论：PASS
-
-- `Sources/SwiftSeekCore/SingleInstance.swift`（新文件，纯函数 / AppKit-free）：`Sibling { pid, bundlePath, executablePath }`、`chooseSibling(myPid:candidates:)`（过滤掉自己 + 选最低 pid 作 canonical owner）、`conflictLogLine(...)`（一行 NSLog 文本，包含两 pid + 两 bundle path + 两 executable path + "deferring to sibling and exiting"）、`showSettingsNotificationName = "com.local.swiftseek.menubar-agent.show-settings"`（DistributedNotification name）。
-- `Sources/SwiftSeek/App/AppDelegate.swift`：`applicationDidFinishLaunching` 在 K1 build identity 三连之后立即跑 `maybeDeferToExistingInstance()`：用 `NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier!)` 拉同 bundle id 进程列表 → `SingleInstance.chooseSibling` → 命中时 NSLog `conflictLogLine`，调 `older.activate(options: [.activateAllWindows])` 直接前置旧实例，`DistributedNotificationCenter.default().postNotificationName(...)` 广播让旧实例弹设置窗口，然后 `DispatchQueue.main.async { NSApp.terminate(nil) }` 自杀；返回 true 后整个 `applicationDidFinishLaunching` early return，不安装 statusItem / hotkey / DB。Bundle id 为 nil（`swift run` 直跑）时 NSLog 跳过提示并 fall through 到正常启动。`installShowSettingsObserver()` 注册 DistributedNotification 监听把后续 "show settings" 请求接到现有 `showSettings(_:)` 路径（J1 顺序保留）。
-- `Sources/SwiftSeekSmokeTest/main.swift`：6 个 L4 用例（chooseSibling 空列表 / 仅自己 / 多 sibling 取最低 pid / conflictLogLine 包含两 pid 两 bundle / nil sibling 路径 → "?" fallback / showSettingsNotificationName 稳定）。SmokeTest 总数 217 → 223。
-- `docs/install.md`：默认形态段 "双击 app 已经在跑会怎样" 改写为 L4 已落地，列出冲突日志格式 + 适用场景 + 不在范围（自定义 bundle id / dev swift run / 跨用户）。
-- `docs/release_checklist.md`：header 改成 "K6 + L1-L4"；新增 §5e "L4 单实例 / 多 bundle 防护验证"，覆盖场景 A-D + dev 路径降级。
-- `docs/known_issues.md` §6 改写为 L4 已落地，列触发路径 / NSLog 行 / 不防护边界 / 排查路径。
-- `docs/manual_test.md` §33ab：8 节 L4 手测矩阵（同 .app 双击 / dist+/Applications 并存 / Launch at Login + 手动 / 旧实例不回归 L1/L2/L3 / swift run 降级 / 重启稳定性 / 不防护边界 / 失败处置）。
-- Codex 在受限沙箱下完成代码/文档级验收：`swift build --disable-sandbox` 通过，`SwiftSeekSmokeTest` 223/223 通过，`./scripts/package-app.sh --sandbox` 通过，`Info.plist` 显示 `LSUIElement=false`、`GitCommit=73cac42`、`CFBundleIdentifier=com.local.swiftseek`，`codesign` 显示 ad-hoc 签名。
-- 受限沙箱不能执行真实 GUI 多实例、DistributedNotification round-trip、菜单栏图标去重、Launch at Login + 手动启动 race；这些仍按 `docs/manual_test.md` §33ab 与 `docs/release_checklist.md` §5e 作为每次发布必跑手测。
-
-## 轨道最终结论
-
-`everything-menubar-agent` 达到 `PROJECT COMPLETE`：
-
-- L1 默认 no Dock + 菜单栏主入口通过。
-- L2 Dock 显示开关与重启生效策略通过。
-- L3 菜单栏状态可见性通过。
-- L4 单实例 / 多 bundle 防护通过。
-- K1-K6 productization 能力没有回退。
-- 文档已同步到 install / release checklist / known issues / manual test / acceptance / stage status / agent-state。
-- 未承诺正式签名、公证、DMG、auto updater、跨用户单实例、private API 或新搜索能力。
+- `Sources/SwiftSeekCore/SettingsTypes.swift`：新增 `RevealTargetType { .finder, .customApp }`、`ExternalRevealOpenMode { .item, .parentFolder }`、`RevealTarget` 结构（含 `defaultTarget = (.finder, "", .parentFolder)`）；`SettingsKey.revealTargetType / revealCustomAppPath / revealExternalOpenMode`；`Database.getRevealTarget() throws -> RevealTarget` 与 `setRevealTarget(_:)` extension。每个字段独立 fallback：未知 type → `.finder`（保留 customAppPath 不被擦除），未知 openMode → `.parentFolder`，path missing → `""`。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：新增 "显示位置" 行（NSPopUpButton：Finder / 自定义 App…）+ "选择 App…" 按钮（NSOpenPanel 限定 `.app`，默认 `/Applications`）+ 当前 app 名称 + 路径 summary（QSpace 名称启发式识别）+ "打开目标" segmented（父目录 / 文件本身）+ 多行 note 解释 Finder 与外部 app 语义差异。Pane 高度 440 → 580 容纳新 4 行。`reflectRevealTargetState()` / `currentRevealTarget()` / `onRevealTargetTypeChanged` / `onRevealOpenModeChanged` / `onPickRevealApp` 处理读写 + 持久化失败弹 NSAlert。
+- `Sources/SwiftSeekSmokeTest/main.swift`：6 个 M1 用例（fresh DB → Finder/parentFolder/empty / customApp+path+item round-trip / DB reopen 后 persist / malformed type → Finder（保留 path）/ malformed openMode → parentFolder / `defaultTarget` 常量）。SmokeTest 总数 223 → 229。
+- `docs/known_issues.md` §2 改写为 M1 已落地，列 key、UI 元素、QSpace 启发式识别、M2 才接入运行时。
+- `ResultActionRunner` 与 UI 文案 / 实际 reveal 路径仍是 Finder-only，M2 接入。
+- 受限沙箱下 build OK；SmokeTest 229/229；package-app 仍可重复跑通（验收阶段同步）。
 
 ## 后续阶段索引
 
-- L1：默认隐藏 Dock + 菜单栏主入口
-- L2：Dock 显示开关与激活策略稳定化
-- L3：菜单栏菜单增强与状态可见性
-- L4：单实例 / 多 bundle 防护与最终收口
+- M1：Reveal Target 数据模型与设置 UI
+- M2：ResultActionRunner 接入 Finder / QSpace / 自定义 App
+- M3：动态文案、fallback、诊断与手测
+- M4：最终收口与 release gate
 
-完整任务书见：`docs/everything_menubar_agent_taskbook.md`。
+完整任务书见：`docs/everything_filemanager_integration_taskbook.md`。

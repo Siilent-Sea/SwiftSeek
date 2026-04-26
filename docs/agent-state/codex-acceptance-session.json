@@ -1,14 +1,14 @@
 {
-  "track": "everything-menubar-agent",
-  "stage": "PROJECT_COMPLETE",
-  "session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c",
+  "track": "everything-filemanager-integration",
+  "stage": "M1",
+  "session_id": null,
   "updated_at": "2026-04-26",
-  "purpose": "Final acceptance state for everything-menubar-agent. L1-L4 passed in this session; track reached PROJECT COMPLETE.",
-  "last_verdict": "PROJECT COMPLETE",
-  "last_verdict_round": "L4 round 1",
-  "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "L4 delivered AppKit-free SingleInstance helpers, AppDelegate early duplicate deferral, DistributedNotification show-settings handoff, 6 smoke tests, and docs/manual/release gates. Build, 223/223 smoke, package, plist, codesign, and icon checks passed at HEAD 73cac42. GUI multi-process and Launch at Login checks remain manual per docs/manual_test.md §33ab.",
-  "passed_stages": ["L1", "L2", "L3", "L4"],
+  "purpose": "Current active track acceptance state. New M-track will use a fresh Codex acceptance session for everything-filemanager-integration; do not reuse archived everything-menubar-agent session.",
+  "last_verdict": null,
+  "last_verdict_round": null,
+  "last_verdict_date": null,
+  "last_verdict_reason": "Track initialized from code-first audit. M1 is the next acceptance target: Reveal Target data model and Settings UI only.",
+  "passed_stages": [],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -46,7 +46,13 @@
       "final_verdict": "PROJECT COMPLETE",
       "date": "2026-04-26",
       "previous_session_id": "019dc54e-017d-7de3-a24f-35c23f09ce08"
+    },
+    {
+      "track": "everything-menubar-agent",
+      "final_verdict": "PROJECT COMPLETE",
+      "date": "2026-04-26",
+      "previous_session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c"
     }
   ],
-  "notes": "The .txt file mirrors this session id. everything-menubar-agent is complete; do not resume archived everything-productization session 019dc54e-017d-7de3-a24f-35c23f09ce08 for L-track acceptance."
+  "notes": "Session txt currently contains a placeholder, not a resumable id. Replace it with the real everything-filemanager-integration Codex acceptance session id after the first M1 acceptance call."
 }
