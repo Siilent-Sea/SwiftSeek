@@ -5,34 +5,31 @@
 ## 当前有效状态
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M3`
+- 当前阶段：`M4`
 - 最新验收结论：`PASS`
-- 最新通过阶段：`M2`
+- 最新通过阶段：`M3`
 - 当前正式验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
 - 日期：2026-04-26
 
-## M2 round 2 验收结论
+## M3 round 2 验收结论
 
-`HEAD=4ef32c0f0c3ef5d0adec6ea7be6545a1d560416f` 通过 M2 验收。
+`HEAD=666c184df501d3f9c701041bd4ff1300f9aa3c49` 通过 M3 验收。
 
 Round 1 阻塞项已修复：
 
-- `Sources/SwiftSeekCore/RevealResolver.swift` 新增 `finderFallbackURL(target:)`，作为 Finder fallback URL 的纯函数单一来源，始终返回原始 `target.path` URL。
-- `Sources/SwiftSeek/UI/ResultActionRunner.swift` custom app 分支在 closure 外捕获 `fallbackURL`，`NSWorkspace.open` error 分支现在用该原始 target URL 调 `activateFileViewerSelecting`，不会在 `.parentFolder` 文件场景误选父目录。
-- `NSLog` 同时记录 external-app `targetURL` 与 Finder fallback 原始 URL，便于诊断。
-- `Sources/SwiftSeekSmokeTest/main.swift` 增加 2 个 M2 round 2 回归用例，覆盖 file fallback 不等于 parentFolder resolved URL，以及 directory fallback 保持目录本身。
-- `docs/known_issues.md` §2 已去掉“当前 reveal 路径仍是 Finder”的旧句子，改为指向 §1 的 M2 已落地事实。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` 新增 `hintTextForReveal(target:)`，loadView 初始 hint 与 `refreshRevealLabels()` 刷新 hint 都使用当前 `RevealTarget`。
+- hint 的 `⌘⏎` 槽位与 button / menu 同源：短 displayName 显示“在 <displayName> 中显示”，长 displayName 降级为中性“显示位置”，避免底部单行 hint 溢出。
+- `docs/known_issues.md` §1 / §6 已改成 `showToast("⚠️ \(reason)")`，并说明 `reason` 由 `RevealResolver.fallbackReason(...)` 组成。
 
-M2 通过依据：
+M3 通过依据：
 
-- `RevealResolver` 仍保持 AppKit-free，覆盖 strategy、custom app validation、target URL 解析、fallback URL 和 FileManager 探针。
-- `ResultActionRunner.perform(_:target:)` 两参数入口仍保留，兼容无 DB 路径；四参数入口能在有 DB 时读取 `RevealTarget` 并路由 Finder / custom app / fallback。
-- Finder 模式仍调用 `NSWorkspace.shared.activateFileViewerSelecting([url])`。
-- custom app 模式使用公开 `NSWorkspace.shared.open([targetURL], withApplicationAt: appURL, configuration:)`，`config.activates = true`。
-- app path 空、失效、非 `.app`、异步打开失败均有 fallback；fallback 会通知 `SearchViewController` 显示 toast。
-- `recordOpen` 仍只在 `.open` 成功路径调用，reveal 不增加 Run Count。
-- `ResultAction` case 仍名为 `.revealInFinder`，按钮和右键菜单仍为“在 Finder 中显示”，留给 M3 动态文案。
-- 未发现 QSpace 私有 API、QSpace bundle id、QSpace URL scheme 或 AppleScript。
+- `RevealResolver.displayName(for:)` / `actionTitle(for:)` / `fallbackReason(_:for:)` 三个纯 helper 存在且 smoke 覆盖。
+- 搜索窗口 reveal button、右键菜单项、hint 三个表面都能从当前 persisted `RevealTarget` 刷新。
+- `SearchWindowController.show()` 在 focus 前刷新 reveal 文案，Settings 里改动后下次呼出能生效。
+- `ResultActionRunner` custom app success 用 displayName，fallback 用 `fallbackReason`，并保留 M2 round 2 的 Finder fallback 原始 target URL 不变量。
+- `Diagnostics.snapshot` 包含 `Reveal target（M3）：` 块，暴露 type / 显示名称 / 按钮文案 / 打开模式 / 自定义 App 路径。
+- `docs/manual_test.md` §33ac 与 `docs/release_checklist.md` §5f 已覆盖 M3 GUI 手测 / release gate。
+- `ResultAction` case 仍名为 `.revealInFinder`；`recordOpen` 仍只在 `.open` 成功路径调用；未发现 QSpace 私有 API、QSpace bundle id、QSpace URL scheme 或 AppleScript。
 
 ## 本轮验证
 
@@ -50,21 +47,22 @@ codesign -dv dist/SwiftSeek.app
 观察结果：
 
 - `swift build --disable-sandbox`：通过。
-- `SwiftSeekSmokeTest`：245/245 通过，M1 / L1-L4 / K1-K6 覆盖项仍通过。
+- `SwiftSeekSmokeTest`：256/256 通过，M1 / M2 / L1-L4 / K1-K6 覆盖项仍通过。
 - `package-app.sh --sandbox`：通过。
-- `Info.plist`：`GitCommit=4ef32c0`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`。
+- `Info.plist`：`GitCommit=666c184`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`。
 - `codesign -dv`：`Signature=adhoc`、`Identifier=com.local.swiftseek`。
+- `git status --short`：仅有既存未跟踪 `.claude/`；本轮验收只改验收 / 状态 / 下一阶段任务书文档。
 
 ## 下一阶段
 
-M3 任务书已写入 `docs/next_stage.md`。
+M4 任务书已写入 `docs/next_stage.md`。
 
-M3 验收时重点检查：
+M4 验收重点：
 
-- 搜索窗口按钮、右键菜单和 hint 随 reveal target 动态变化。
-- fallback toast 能表达具体 app 与回退 Finder。
-- diagnostics / About 能显示 reveal target type、custom app path、display name、open mode。
-- manual test / release checklist 覆盖 Finder、QSpace/custom app、fallback、`.item` / `.parentFolder`、Run Count 不变。
+- README / known_issues / architecture / manual_test / release_checklist 全部从 Finder-only 旧表述收口到 M1-M3 真实能力。
+- release checklist header 更新到 `K6 + L1-L4 + M1-M4`。
+- smoke / package / plist / codesign 继续通过。
+- L1-L4、K1-K6、M1-M3 不回退。
 - 继续禁止 QSpace 私有 API、bundle id、URL scheme、AppleScript。
 
 ## 历史归档轨道

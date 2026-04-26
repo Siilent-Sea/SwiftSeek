@@ -1,14 +1,14 @@
 {
   "track": "everything-filemanager-integration",
-  "stage": "M3",
+  "stage": "M4",
   "session_id": "019dc959-3bf6-7671-ace6-cf3a3598e592",
   "updated_at": "2026-04-26",
-  "purpose": "Current active track acceptance state for everything-filemanager-integration. M2 passed on round 2; next acceptance target is M3.",
+  "purpose": "Current active track acceptance state for everything-filemanager-integration. M3 passed on round 2; next acceptance target is M4 final wrap.",
   "last_verdict": "PASS",
-  "last_verdict_round": "M2 round 2 at HEAD 4ef32c0",
+  "last_verdict_round": "M3 round 2 at HEAD 666c184",
   "last_verdict_date": "2026-04-26",
-  "last_verdict_reason": "M2 reveal routing, custom-app validation, fallback-to-original-target fix, docs, build, smoke, and packaging all passed. M3 should cover dynamic UI wording, diagnostics, and manual/release gates.",
-  "passed_stages": ["M1", "M2"],
+  "last_verdict_reason": "M3 dynamic button/menu/hint wording, fallbackReason toast wording, Diagnostics block, manual/release gates, build, smoke, package, plist, and codesign all passed. M4 should perform final docs and release-gate wrap before PROJECT COMPLETE.",
+  "passed_stages": ["M1", "M2", "M3"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -54,5 +54,5 @@
       "previous_session_id": "019dc5fc-318e-7d31-bb00-2810eaf6642c"
     }
   ],
-  "notes": "Active everything-filemanager-integration acceptance session. M3 should continue from session 019dc959-3bf6-7671-ace6-cf3a3598e592. Do not reuse archived menubar-agent session 019dc5fc-... ."
+  "notes": "Active everything-filemanager-integration acceptance session. M4 should continue from session 019dc959-3bf6-7671-ace6-cf3a3598e592. Do not reuse archived menubar-agent session 019dc5fc-... ."
 }

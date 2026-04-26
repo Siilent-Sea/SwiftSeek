@@ -11,8 +11,9 @@
 ## 当前轨道
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M3`
+- 当前阶段：`M4`
 - 当前验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
+- 当前状态：M3 round 2 验收 `PASS`，等待 M4 最终收口验收。
 - 要求：`everything-filemanager-integration` 必须继续使用该 Codex 验收 session。
 - 禁止：不得复用已归档 `everything-menubar-agent` session `019dc5fc-318e-7d31-bb00-2810eaf6642c`，也不得复用更早轨道 session。
 

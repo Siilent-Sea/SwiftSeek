@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M3`
-- 当前状态：M3 实现已就位，待 Codex 验收
+- 当前阶段：`M4`
+- 当前状态：M3 Codex 验收 PASS；M4 待实现最终收口与 release gate
 - 状态日期：2026-04-26
 
 ## 历史归档轨道
@@ -175,10 +175,10 @@
 - 不让 reveal 计入 Run Count。
 - 不输出轨道 `PROJECT COMPLETE`；M3 通过后才进入 M4 最终收口。
 
-### M3 实现已落地（待 Codex 验收）
+### M3 实现已落地（Codex 验收 PASS）
 
 - `Sources/SwiftSeekCore/RevealResolver.swift`：新增三个纯函数 `displayName(for:)` / `actionTitle(for:)` / `fallbackReason(_:for:)`。displayName 规则：`.finder`→"Finder"；customApp 空路径→"自定义 App"；filename 含 "qspace" (case-insensitive)→"QSpace"；其它 .app → 去 `.app` 后缀；其它路径 → 文件名原样。actionTitle = "在 \(displayName) 中显示"；fallbackReason = "无法用 \(displayName) 显示，已回退到 Finder：\(underlying)"。
-- `Sources/SwiftSeek/UI/SearchViewController.swift`：把 reveal button 与右键菜单 reveal item 存为 `revealBtn` / `revealMenuItem` 属性；新增 `currentRevealTargetSafe()`（DB 读失败 → defaultTarget）+ `refreshRevealLabels()`；revealSelected 现使用 RevealResolver-composed reason 文案。
+- `Sources/SwiftSeek/UI/SearchViewController.swift`：把 reveal button 与右键菜单 reveal item 存为 `revealBtn` / `revealMenuItem` 属性；新增 `currentRevealTargetSafe()`（DB 读失败 → defaultTarget）+ `hintTextForReveal(target:)` + `refreshRevealLabels()`；button / 右键菜单 / hint 三个表面同源刷新。短 displayName（≤10 chars）在 hint 里显示“在 <displayName> 中显示”，长 displayName 降级为中性“显示位置”以避免底部单行 hint 溢出。revealSelected 现使用 RevealResolver-composed reason 文案。
 - `Sources/SwiftSeek/UI/SearchWindowController.swift`：`show()` 在 `makeKeyAndOrderFront` 之后调 `viewController.refreshRevealLabels()`，确保 Settings 改动隔次生效。
 - `Sources/SwiftSeek/UI/ResultActionRunner.swift`：customApp 成功路径 `RevealOutcome.customApp(appName:)` 用 displayName；failure / .fallbackToFinder 路径用 `RevealResolver.fallbackReason` 包装文案，toast 看到 "无法用 QSpace 显示，已回退到 Finder：…"。
 - `Sources/SwiftSeekCore/Diagnostics.swift`：snapshot 新增 `Reveal target（M3）：` 块，含 type / 显示名称 / 按钮文案 / 打开模式 / 自定义 App 路径（Finder 模式标 "—（Finder 模式）"）。
@@ -187,7 +187,39 @@
 - `docs/release_checklist.md`：smoke 基线 223 → 256；新增 §5f 必跑项；header 仍是 K6 + L1-L4，M3 / M4 完成后 M4 改 header 到 "K6 + L1-L4 + M1-M4"。
 - `docs/known_issues.md` §3 改写为 M3 已落地（含三纯函数 / refreshRevealLabels / Diagnostics 块）；§7 改写为 M3 release gate 已就位、M4 仍待最终收口。
 - `ResultAction` case 名仍保留 `.revealInFinder`（rename 涉及历史 smoke 与 ResultActionRunner 公共契约，M4 视情况处理；M3 验收明确不依赖 rename）；`recordOpen` 仍只在 `.open` 成功路径调用。
-- 受限沙箱下 build OK；SmokeTest 256/256；package-app 仍可重复跑通；GUI 真实 reveal / fallback toast / 切外部 app 留为手测（§33ac + release_checklist §5f）。
+- `docs/known_issues.md` §1 / §6 已同步 M3 toast 真实口径：SearchViewController 弹 `⚠️ \(reason)`，其中 `reason` 由 `RevealResolver.fallbackReason(...)` 组成。
+- 受限沙箱下 build OK；SmokeTest 256/256；package-app 仍可重复跑通；打包产物 `GitCommit=666c184`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`、adhoc codesign OK。GUI 真实 reveal / fallback toast / 切外部 app 留为手测（§33ac + release_checklist §5f）。
+
+## 当前阶段：M4
+
+### 阶段目标
+
+最终收口 `everything-filemanager-integration`：把 README、known issues、architecture、manual test、release checklist 与 M1-M3 真实能力对齐，确认 release gate 可执行，并让 Codex 能据此判断是否输出本轨道 `PROJECT COMPLETE`。
+
+### M4 必须完成
+
+- README 不再把 reveal 能力描述成 Finder-only；应说明 Finder 默认、可选择 QSpace / 自定义 `.app`、外部 app 语义与真实边界。
+- `docs/known_issues.md` 清理 M1/M2/M3 阶段性旧句子，只保留当前真实限制：外部 app 不保证选中文件、不用私有 API、不保证所有文件管理器语义一致。
+- `docs/architecture.md` 增补 filemanager integration 结构：SettingsTypes / RevealResolver / ResultActionRunner / SearchViewController / Diagnostics 的职责边界。
+- `docs/manual_test.md` 与 `docs/release_checklist.md` 保留 M3 GUI 项，并把 release gate header / baseline 改到 `K6 + L1-L4 + M1-M4`。
+- 重新跑 build / smoke / package / plist / codesign，确认 L1-L4、K1-K6、M1-M3 不回退。
+- `docs/codex_acceptance.md`、`docs/stage_status.md`、`docs/agent-state/README.md` 与本轮最终状态保持一致。
+
+### M4 禁止事项
+
+- 不做 QSpace 私有 API、bundle id、URL scheme、AppleScript。
+- 不做正式签名、notarization、DMG、auto updater。
+- 不改变 `.open` Run Count 语义。
+- 不改变 macOS 系统默认文件管理器。
+- 不扩展到全文搜索、OCR、AI 搜索、跨平台或 Finder 插件。
+
+### M4 完成判定标准
+
+- M1-M3 已通过且 M4 文档 / release gate 收口完成。
+- 自动化验证全绿：build、SmokeTest、package-app、Info.plist、codesign。
+- release checklist 能直接指导 Finder / QSpace / custom app / fallback / item vs parentFolder / Run Count 不变 / no Dock / menu bar / single-instance 验证。
+- 文档不再互相矛盾，不再残留 Finder-only 旧口径。
+- 无阻塞级回归或越界实现，Codex 可输出 `PROJECT COMPLETE`。
 
 ## 后续阶段索引
 
