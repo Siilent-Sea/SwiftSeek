@@ -12,7 +12,7 @@
   - `.customApp` → `NSWorkspace.shared.open([targetURL], withApplicationAt: appURL, configuration: ...)` （`config.activates = true`）；completion handler 里如果有 error → NSLog + Finder fallback + `onReveal(.fallback)`
   - `.fallbackToFinder` → NSLog + Finder + `onReveal(.fallback)`
 - DB 读取失败 / 无 DB 句柄 → 自动 Finder fallback。
-- `Sources/SwiftSeek/UI/SearchViewController.swift` `revealSelected()` 把 `database` 传给 runner，fallback 路径触发 `showToast("⚠️ 已回退到 Finder：<reason>")`。
+- `Sources/SwiftSeek/UI/SearchViewController.swift` `revealSelected()` 把 `database` 传给 runner，fallback 路径触发 `showToast("⚠️ \(reason)")`，其中 `reason` 由 M3 `RevealResolver.fallbackReason(...)` 组成（典型："无法用 QSpace 显示，已回退到 Finder：自定义 App 不存在：…"）。
 - `ResultAction` case 名仍是 `.revealInFinder`（M3 才考虑重命名 / 文案动态化；rename 牵动 SmokeTest 与外部契约，M3 与 UI 文案一起处理）。
 - `.revealInFinder` 不调 `recordOpen` / 不增加 `file_usage.open_count`（H1 起就由 `.open` 路径独占，M2 不变）。
 
@@ -48,7 +48,7 @@
 ### 6. 外部 App 失效 fallback（M2 已落地）
 
 - 失效路径覆盖：path 空 / 仅空白 / 不存在 / 不是 .app bundle / NSWorkspace.open 异步报错。
-- 失效时统一处理：`NSLog` 一行（含 app path / target path / open mode / error）+ Finder `activateFileViewerSelecting` fallback + `onReveal(.fallback(reason:))` 回调让 SearchViewController 弹 toast `⚠️ 已回退到 Finder：<reason>`。
+- 失效时统一处理：`NSLog` 一行（含 app path / target path / open mode / error）+ Finder `activateFileViewerSelecting` fallback + `onReveal(.fallback(reason:))` 回调让 SearchViewController 弹 toast `⚠️ \(reason)`。M3 起 `reason` 由 `RevealResolver.fallbackReason(...)` 组成，典型形式："无法用 QSpace 显示，已回退到 Finder：…"。
 - 不允许 silent fail；fallback 后用户仍能在 Finder 中看到目标文件。
 - M3 会把 fallback reason 同时表达到 diagnostics 文本，让 bug-report 模板能复制。
 

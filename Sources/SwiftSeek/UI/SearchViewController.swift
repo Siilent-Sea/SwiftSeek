@@ -231,7 +231,12 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         hintLabel.font = NSFont.systemFont(ofSize: 10)
         hintLabel.textColor = .tertiaryLabelColor
         hintLabel.alignment = .center
-        hintLabel.stringValue = "↑↓ 移动 · ⏎ 打开 · ⌘⏎ Reveal · ⌘⇧C 复制 · ⌘Y 预览 · ESC 关闭"
+        // M3 round 2: hint reads the persisted reveal target so the
+        // ⌘⏎ slot says where the file will actually go (Finder /
+        // QSpace / <AppName>). hintTextForReveal builds the
+        // Reveal-Target-aware substring; refreshRevealLabels()
+        // re-renders the whole hint when the user changes settings.
+        hintLabel.stringValue = hintTextForReveal(target: currentRevealTargetSafe())
         root.addSubview(hintLabel)
 
         NSLayoutConstraint.activate([
@@ -824,14 +829,37 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
         return (try? database.getRevealTarget()) ?? RevealTarget.defaultTarget
     }
 
-    /// M3: re-title the reveal button + row context-menu item to
-    /// match the currently persisted RevealTarget. Called on every
-    /// search-window appearance so a Settings change picked up while
-    /// the window was hidden lands the next time the user pops it.
+    /// M3 round 2: hint substring for the ⌘⏎ slot. Falls back to a
+    /// neutral "显示位置" wording when the display name itself
+    /// becomes too long for the bottom hint strip — the bottom hint
+    /// strip is single-line and we don't want a long QSpace-Pro-Beta
+    /// app name to push other key hints off-screen.
+    fileprivate func hintTextForReveal(target: RevealTarget) -> String {
+        let displayName = RevealResolver.displayName(for: target)
+        // Anything past ~10 chars in a single hint chip starts to
+        // crowd the strip on a 600-pt search window. Use a neutral
+        // "显示位置" fallback in that case so the hint stays scannable.
+        let revealHint: String
+        if displayName.count <= 10 {
+            revealHint = "在 \(displayName) 中显示"
+        } else {
+            revealHint = "显示位置"
+        }
+        return "↑↓ 移动 · ⏎ 打开 · ⌘⏎ \(revealHint) · ⌘⇧C 复制 · ⌘Y 预览 · ESC 关闭"
+    }
+
+    /// M3: re-title the reveal button + row context-menu item + the
+    /// bottom hint strip to match the currently persisted
+    /// RevealTarget. Called on every search-window appearance so a
+    /// Settings change picked up while the window was hidden lands
+    /// the next time the user pops it.
     func refreshRevealLabels() {
-        let title = RevealResolver.actionTitle(for: currentRevealTargetSafe())
+        let target = currentRevealTargetSafe()
+        let title = RevealResolver.actionTitle(for: target)
         revealBtn?.title = title
         revealMenuItem?.title = title
+        // M3 round 2: hint follows the same target.
+        hintLabel.stringValue = hintTextForReveal(target: target)
     }
 
     @objc func copyPathSelected() {
