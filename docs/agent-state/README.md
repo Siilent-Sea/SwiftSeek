@@ -11,9 +11,9 @@
 ## 当前轨道
 
 - 当前活跃轨道：`everything-dockless-hardening`
-- 当前阶段：`N1`
-- 当前验收 session：`PENDING_NEW_CODEX_ACCEPTANCE_SESSION`
-- 当前状态：新轨道已建立，等待创建新的 Codex 验收 session。
+- 当前阶段：`N2`
+- 当前验收 session：`be0f0316-31b1-479f-be88-6069e185762c`
+- 当前状态：N1 已通过 Codex 验收，N2 待执行。
 - 要求：不得复用已归档 `everything-filemanager-integration` session `019dc959-3bf6-7671-ace6-cf3a3598e592`。
 
 ## 约定文件
@@ -33,7 +33,7 @@
   - `session_id`
   - `updated_at`
   - `purpose`
-- 当前 `session_id` 为 `null`，表示 N 轨道正式验收 session 尚未创建。
+- 当前 `session_id` 必须指向 `everything-dockless-hardening` 的正式验收 session。
 
 ## 使用规则
 

@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-dockless-hardening`
-- 当前阶段：`N1`
-- 当前状态：N1 实现已就位，待 Codex 验收
+- 当前阶段：`N2`
+- 当前状态：N1 已通过 Codex 验收，N2 待 Claude 执行
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -37,8 +37,8 @@
 - `scripts/package-app.sh` 当前仍生成 `LSUIElement=false` 的 `Info.plist`，包体层面仍是普通 App。
 - `Sources/SwiftSeek/App/AppDelegate.swift` 启动时先调用 `NSApp.setActivationPolicy(.accessory)`，但 DB 打开后读取 `dock_icon_visible`；如果该设置为 `1`，会调用 `NSApp.setActivationPolicy(.regular)` 并让 Dock 出现。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `SettingsKey.dockIconVisible = "dock_icon_visible"`，默认缺失/`0` 为隐藏 Dock，`1` 为显示 Dock。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有“在 Dock 显示 SwiftSeek 图标”复选框，并明确切换需重启；但当前没有一键恢复菜单栏模式、没有完整 Dock 状态诊断，也不足以解释旧 DB / 测试状态污染。
-- `Sources/SwiftSeekCore/Diagnostics.swift` 已显示 build identity、bundle、binary、DB、Launch at Login、Reveal target 等，但还没有专门的 Dock 状态块：persisted `dock_icon_visible`、effective activation policy、Info.plist `LSUIElement`。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有“在 Dock 显示 SwiftSeek 图标”复选框，并明确切换需重启；N1 已让 About / Diagnostics 暴露完整 Dock 状态，但当前还没有一键恢复菜单栏模式。
+- `Sources/SwiftSeekCore/Diagnostics.swift` 已显示 build identity、bundle、binary、DB、Launch at Login、Reveal target，并已在 N1 增加 Dock 状态块：persisted `dock_icon_visible`、intended mode、effective activation policy、Info.plist `LSUIElement`、bundle path、executable path。
 - `docs/release_checklist.md` 已有 no-Dock 手测，但它仍基于 L1/L2 的历史实现，不足以覆盖 fresh DB、`dock_icon_visible=1` 旧 DB、package plist 和 stale bundle 的硬验收组合。
 
 ## N1：Dock 常驻根因审计与诊断暴露
@@ -90,14 +90,15 @@
 - smoke / 可自动化测试覆盖新增诊断字段。
 - 文档同步说明 N1 只是诊断暴露，不是假装最终修复。
 
-### N1 实现已落地（待 Codex 验收）
+### N1 验收结论：PASS
 
 - `Sources/SwiftSeekCore/Diagnostics.swift`：新增 `DockStatusReport { activationPolicyLabel, lsUIElement: Bool? }` 与 `DockStatusProbe` typealias；`snapshot(...)` 增加 `dockStatus: DockStatusProbe? = nil` 可选参数；输出新增 "Dock 状态（N1）：" 块，含 persisted `dock_icon_visible`、intended mode、effective activation policy、Info.plist LSUIElement、bundle path、executable path；headless 路径渲染 `—（headless ...）` 占位，不会假装有真值。
 - `Sources/SwiftSeek/App/AppDelegate.swift`：新增 4 个静态 helper：`lsUIElementValueLabel()`（log 友好字符串）、`lsUIElementBool()`（Bool? for probe）、`activationPolicyLabel()`、`currentDockStatusReport()`；`applicationDidFinishLaunching` 启动日志改为统一 `Dock — Info.plist LSUIElement=...; persisted dock_icon_visible=...; chosen activation policy=...` 一行；`dock_icon_visible=1` 时多打一行明确说明 Dock 是用户设置导致并给出关闭路径；DB 读失败 / 无 DB 时也保留对应分支日志，不静默。
 - `Sources/SwiftSeek/UI/SettingsWindowController.swift` `AboutPane.buildDiagnostics()` 把 `dockStatus: { AppDelegate.currentDockStatusReport() }` 传入，让"复制诊断信息"包含 live activation policy + Info.plist LSUIElement。
 - `Sources/SwiftSeekSmokeTest/main.swift`：6 个 N1 用例（fresh DB headless / `dock_icon_visible=1` 翻转 / 带 probe accessory+false / 带 probe regular+true / probe LSUIElement=nil → "—（Info.plist 未声明该 key）" / `DockStatusReport` 值语义）。SmokeTest 总数 256 → 262。
 - N1 严格不改 `scripts/package-app.sh`（`LSUIElement=false` 不变）、不删 `dock_icon_visible` 设置、不强改用户 DB；只是诊断暴露阶段。
-- 受限沙箱下 build OK；SmokeTest 262/262；package-app 仍可重复跑通。
+- Codex 验收确认：build OK；SmokeTest 262/262；package-app OK；打包产物 `GitCommit=9741d52`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
+- 受限沙箱不能做 GUI 启动 Console 手测；该项保留到 N4 release-time gate。
 
 ## 后续阶段概览
 
