@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-dockless-hardening`
 - 当前阶段：`N4`
-- 当前状态：N3 round 1 已通过 Codex 验收，N4 待 Claude 执行
+- 当前状态：N4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -145,6 +145,28 @@
 - 验证：受限沙箱下 `swift build` OK；SmokeTest 270/270；package-app 默认 agent 模式 `LSUIElement=true` OK；`--dock-app` 模式 `LSUIElement=false` OK；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
 - GUI 真实点击恢复按钮 / Settings detail 块 / 重启后行为留为 N4 release-time 手测。
 
+## N4：真实 `.app` 手测 gate 与最终收口
+
+### N4 实现已落地（待 Codex 最终验收）
+
+- `docs/release_checklist.md`：
+  - header 升级为 "K6 + L1-L4 + M1-M4 + N1-N4 单页"，描述段重写指向 N1-N4 实际行为而非历史声明。
+  - 新增 §5g "N1-N4 Dockless hardening 硬 gate"，包含自动化前置 + 6 个 scenario A-F：fresh DB + agent / `dock_icon_visible=1` 旧 DB / N3 一键恢复 / `--dock-app` 包 / stale bundle / 菜单栏 + 热键不回归。每条都有具体期望（Console 日志格式 / Diagnostics 块 / Settings detail 文案）。
+- `docs/install.md`：
+  - 顶部告示更新为 N1-N4 已落地，指向 "Dock 仍常驻 — 三步定位" 子段。
+  - 新增 "Dock 仍常驻 — 三步定位" 子段：Step 1 看启动日志矩阵（4 行表格区分用户设置 / 包体 / stale bundle / 异常分支）、Step 2 用户设置导致 → N3 自救、Step 3 stale bundle 排查、Step 4 包体模式导致 → 重打 agent 包。
+- `docs/known_issues.md`：
+  - §1 改写为 "用户反馈 Dock 仍常驻（N1-N4 已硬化）"，列 N1-N4 各阶段交付。
+  - "默认隐藏 Dock 图标" 子段同步 N2 默认 `LSUIElement=true` 事实，删去旧 "LSUIElement 一直是 false" 错误叙述。
+- `docs/architecture.md`：尾部新增 "everything-dockless-hardening 收口（N1-N4）" 段，按 N1/N2/N3/N4 列每阶段交付 + 当前轨道明确不做。
+- `README.md`：当前能力 "菜单栏 agent" 行更新为 L1-L4 历史 + N1-N4 已硬化；当前限制段同步 N1-N4 事实；当前进度 N1-N3 PASS + N4 等待 PROJECT COMPLETE。
+- `docs/stage_status.md`（本文件）N4 实现已落地段 + 状态翻为"N4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）"。
+- 不引入新代码（Sources/ 不变）；smoke 总数仍为 270；package-app 行为不变；ResultAction / Diagnostics / DockSettingsState 全部保留 N1-N3 PASS 时的契约。
+- 验证：受限沙箱下 `swift build` OK；SmokeTest 270/270；默认 `package-app.sh --sandbox` 与 `--dock-app` 包都通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
+- GUI 真实 .app Scenario A-F 手测仍按 release_checklist §5g 与 manual_test §33ad 作为每次发布手测；N4 不假装已自动验证 GUI。
+
+如 Codex 接受 N4，本轨道 `everything-dockless-hardening` 满足 `PROJECT COMPLETE` 条件：N1 暴露根因 + N2 硬化默认包 + N3 设置页自救 + N4 release gate 收口；K1-K6 / L1-L4 / M1-M4 不回退。
+
 ## 后续阶段概览
 
-- `N4`：真实 `.app` 手测 gate 与最终收口。
+（无；本轨道 N4 是最终阶段。）

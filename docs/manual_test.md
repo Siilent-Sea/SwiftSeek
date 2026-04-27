@@ -1572,6 +1572,90 @@ M3 把 M2 的运行时路由真正暴露到用户可见层：搜索窗口按钮 
 - M3 **不**调用 QSpace 私有 API、不假设 QSpace bundle id、不假设 URL scheme、不调 AppleScript
 - 用户重命名 `.app` 内容但保留同路径时，下次 reveal 会以新 app 打开（这是 macOS Launch Services 行为，M3 不绕过）
 
+### 33ad. N1-N4 Dockless hardening 全场景手测（everything-dockless-hardening）
+
+`everything-dockless-hardening` 把 Dock 隐藏从历史声明升级为真实 release gate。本节是 `docs/release_checklist.md` §5g 的展开版，列出每个 scenario 的具体步骤、预期 console / Diagnostics / Settings 输出。
+
+#### 准备
+- 干净 workspace；HEAD 已通过 build + smoke
+- `pkill -f SwiftSeek` 确认无残留
+- 推荐用 release QA 机器（非主开发机），因为 Scenario B 需要清 DB
+
+#### Scenario A：Fresh DB + 默认 agent 包
+1. `./scripts/package-app.sh`（默认）→ banner 应是 `mode: agent ... LSUIElement: true`
+2. 备份 + 清 DB：`mv "$HOME/Library/Application Support/SwiftSeek" "$HOME/Library/Application Support/SwiftSeek.bak.$(date +%s)" || true`
+3. `open dist/SwiftSeek.app`
+4. 期望：
+   - Dock 中**无** SwiftSeek 图标
+   - 菜单栏右上角放大镜图标可见
+   - Console 过滤 SwiftSeek，启动头 5 行包含 `Dock — Info.plist LSUIElement=true; persisted dock_icon_visible=0; chosen activation policy=.accessory`
+   - **不**出现 `Dock visible because user setting dock_icon_visible=1`
+5. 设置 → 关于 → 复制诊断信息 → 检查 `Dock 状态（N1）：` 块
+   - `intended mode：隐藏 Dock`
+   - `effective activation policy：accessory`
+   - `Info.plist LSUIElement：true`
+6. 设置 → 常规 → Dock 详情块
+   - `✓ 当前以菜单栏 agent 形态运行（默认）`
+   - 无 ⚠️ 警告
+   - "恢复菜单栏模式" 按钮**隐藏**
+
+#### Scenario B：旧 DB `dock_icon_visible=1`（污染场景）
+1. 接 A：菜单栏 → 退出 SwiftSeek
+2. `sqlite3 "$HOME/Library/Application Support/SwiftSeek/index.sqlite3" "INSERT OR REPLACE INTO settings(key,value) VALUES('dock_icon_visible','1');"`
+3. `open dist/SwiftSeek.app`
+4. 期望：
+   - Dock 中**出现** SwiftSeek 图标（这是用户设置导致，非包体回归）
+   - Console 启动日志包含 `Dock — Info.plist LSUIElement=true; persisted dock_icon_visible=1; chosen activation policy=.regular` + `Dock visible because user setting dock_icon_visible=1; toggle off in Settings → ...`
+5. 设置 → 常规 → Dock 详情块
+   - `用户意图：用户希望显示 Dock`
+   - `effective activation policy：regular（Dock 可见）`
+   - `Info.plist LSUIElement：true（包体声明 agent）`
+   - 无 ⚠️ 警告（intent 与 policy 一致）
+   - "恢复菜单栏模式" 按钮**可见**
+
+#### Scenario C：N3 一键恢复
+1. 接 B：设置 → 常规 → 点 "恢复菜单栏模式（隐藏 Dock）"
+2. 期望 NSAlert "已恢复菜单栏模式（dock_icon_visible=false）"，点 "好"
+3. **此时**：
+   - Settings detail 块切到 `用户意图：用户希望隐藏 Dock（默认）`
+   - 但 `effective activation policy` 仍是 `regular（Dock 可见）`
+   - 出现 ⚠️ 偏离警告："当前进程已是 .regular，但 dock_icon_visible 已是 0；下次启动会回到 agent 模式"
+4. 菜单栏 → 退出 SwiftSeek → `open dist/SwiftSeek.app`
+5. 重启后期望：
+   - Dock 中**再无** SwiftSeek 图标
+   - Settings detail 块回到 Scenario A 状态（无 ⚠️）
+   - sqlite3 verify：`SELECT value FROM settings WHERE key='dock_icon_visible';` 返回 `0`
+   - **没有**索引数据 / 其他设置被改动（diagnostics 中 files / file_usage / roots 行数与 B 一致）
+
+#### Scenario D：`--dock-app` 包
+1. `./scripts/package-app.sh --dock-app` → banner 应是 `mode: dock_app ... LSUIElement: false`
+2. `cp -R dist/SwiftSeek.app /tmp/SwiftSeek-dockapp.app`（不要污染 /Applications/）
+3. `open /tmp/SwiftSeek-dockapp.app`
+4. 期望：
+   - Dock 中**出现** SwiftSeek 图标
+   - 菜单栏图标也存在
+   - Console 启动日志包含 `Dock — Info.plist LSUIElement=false; ...`
+   - Diagnostics + Settings detail 都显示 `Info.plist LSUIElement：false（包体允许 Dock）`
+5. 菜单栏 → 退出；删 `/tmp/SwiftSeek-dockapp.app`
+
+#### Scenario E：Stale bundle 识别
+1. 在 `/Applications/` 中保留一个旧 commit 的 SwiftSeek.app（可手动 `git stash` 后打个旧版，或备份当前 dist）
+2. 当前 HEAD 重打 dist：`./scripts/package-app.sh`
+3. `open dist/SwiftSeek.app` → Console 启动头三行 `bundle=/Users/.../dist/...`
+4. 退出 → `open /Applications/SwiftSeek.app` → bundle path 反过来
+5. 在每种情况下打开诊断，确认 `Dock 状态（N1）：` 块的 `bundle path：` 与你**实际**双击的路径一致；不一致 → stale bundle 风险
+
+#### Scenario F：菜单栏 + 热键不回归
+- [ ] Scenario A 包：菜单栏 → 搜索…（⌥Space）打开搜索窗
+- [ ] 菜单栏 → 设置… 打开设置窗（前置）
+- [ ] 菜单栏 → 退出 SwiftSeek 干净退出（无残留进程）
+- [ ] 全局热键 `⌥Space` 独立可呼出搜索窗
+- [ ] Scenario D（`--dock-app` 包）下重复以上全部 — 都通过
+
+#### 失败处置
+- 任何 Scenario 失败 → release ❌；记入 release notes 已知边界并修复后重跑
+- Scenario B 后忘记恢复（DB 仍有 `dock_icon_visible=1`）→ 见 Scenario C 完整流程；如错过 N3 按钮，可用 sqlite 直接 set 0（fallback，不是主路径）
+
 ### 33. 已知限制文档对照
 手动与 [docs/known_issues.md](known_issues.md) 对照一遍：
 - macOS 13+ 要求

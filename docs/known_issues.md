@@ -4,11 +4,15 @@
 
 ## 当前活跃轨道相关限制
 
-### 1. 用户反馈 Dock 仍常驻
+### 1. 用户反馈 Dock 仍常驻（N1-N4 已硬化）
 
-- 真实反馈：尽管 `everything-menubar-agent` 已归档并曾拿到 `PROJECT COMPLETE`，用户实际打包/使用时仍看到 SwiftSeek 常驻 Dock。
-- 在 `everything-dockless-hardening` 完成前，仓库不能再声称 Dock 隐藏已经完全稳定。
-- 当前应把“默认 no Dock”视为需要重新硬化的产品形态目标，而不是已无条件成立的事实。
+- 触发原因：`everything-menubar-agent` 历史 PROJECT COMPLETE 后用户仍报 Dock 常驻；`everything-dockless-hardening` 接手处理。
+- 当前状态：
+  - N1 暴露完整 Dock 状态诊断（启动日志 + Diagnostics 块）
+  - N2 默认 `package-app.sh` 写 `LSUIElement=true`；`--dock-app` 写 `false`
+  - N3 设置页 Dock 详情块 + "恢复菜单栏模式" 一键自救按钮
+  - N4 release_checklist §5g 把所有组合纳入硬手测 gate
+- 仍保留的诚实边界：runtime `.regular` ↔ `.accessory` 不做 live transition（持久化 + 重启生效）；`dock_icon_visible=1` 优先于 `LSUIElement=true`（runtime 是真正控制源）。
 
 ### 2. Dock 来源：plist + runtime activation policy + persisted setting（N2 已硬化默认包）
 
@@ -115,12 +119,12 @@
 
 ## 已归档能力与仍保留边界
 
-### 默认隐藏 Dock 图标（L1 历史实现，N 轨道重新硬化中）
+### 默认隐藏 Dock 图标（L1-L2 历史 + N1-N4 已硬化）
 
 - `AppDelegate.applicationDidFinishLaunching` 在最早期（NSLog build identity 三连之后）调用 `NSApp.setActivationPolicy(.accessory)`，这是 L1 的历史 no-Dock 实现。
-- `Info.plist` 仍保留 `LSUIElement=false`：选择运行时 activation policy 而非 plist `LSUIElement=true` 的取舍写在 `scripts/package-app.sh` 注释和 `docs/install.md` 默认形态段。
-- L2 已基于 runtime activation policy 加 "显示 Dock 图标" 设置开关；如果 DB 中 `dock_icon_visible=1`，下次启动会切 `.regular` 并显示 Dock。
-- 当前 N 轨道会重新硬化这条路径；在 N4 完成前，release checklist §5b 的历史 no-Dock 手测不能单独证明真实用户环境稳定。
+- N2 起 `scripts/package-app.sh` 默认写 `LSUIElement=true`（agent 包），`--dock-app` 写 `false`（Dock 包）。**不再**保留 "Info.plist 一直是 false" 的旧叙述。
+- L2 / N3 提供 runtime "显示 Dock 图标" 设置 + N3 设置页 Dock 详情块 + 一键恢复菜单栏模式按钮。如果 DB 中 `dock_icon_visible=1`，下次启动会切 `.regular` 并显示 Dock — 此时 N1 启动日志会多打一行解释 "Dock visible because user setting dock_icon_visible=1; toggle off in Settings → ..."。
+- N4 release gate §5g 把 fresh DB / `dock_icon_visible=1` / `dock_icon_visible=0` / 默认 agent 包 / `--dock-app` 包 / stale bundle / 菜单栏 + 热键 全部纳入手测；Dock 隐藏不再依赖文档声明。
 
 ### 菜单栏 status item 是默认主入口（L1 已落地）
 

@@ -1,6 +1,6 @@
 # SwiftSeek 安装 / 升级 / 回滚
 
-> 当前活跃轨道是 `everything-dockless-hardening`。历史 L1/L2 文档说明了 no-Dock 设计，但用户已反馈真实 `.app` 仍可能常驻 Dock。N 轨道完成前，遇到 Dock 常驻应同时检查 `Info.plist` 的 `LSUIElement`、DB 中 `dock_icon_visible`、启动日志和 bundle path，不要只按“默认 no Dock”判断。
+> `everything-dockless-hardening` N1-N4 已落地：默认 `./scripts/package-app.sh` 生成 agent 包（`LSUIElement=true`，no-Dock）；`--dock-app` 显式生成 Dock 包（`LSUIElement=false`）；设置页有 Dock 详情块 + "恢复菜单栏模式" 一键自救按钮；release gate §5g 把 fresh DB / `dock_icon_visible=1` / `dock_icon_visible=0` / `--dock-app` / stale bundle 全部纳入手测。如果 Dock 仍出现，看 §"Dock 仍常驻 — 三步定位" 排查（用户设置 / 包体模式 / stale bundle 三选一）。
 
 K4 流程文档。涵盖：本地构建产物如何安装到日常使用位置、升级时如何替换、回滚到旧版本时的数据库 schema 约束、Launch at Login 在未签名 / ad-hoc 构建下的真实边界、stale bundle / 多实例风险及排查路径。
 
@@ -146,6 +146,57 @@ open dist/SwiftSeek.app
 - macOS `NSApp.setActivationPolicy(.regular)` ↔ `.accessory` 在未签名 / ad-hoc bundle 上可能让主菜单、key window、Dock 状态不一致
 - 持久化意图 + 重启生效是当前轨道的诚实契约；UI note 会明确告诉用户需要重启
 - N2 起默认包写 `LSUIElement=true`；`--dock-app` 包写 `LSUIElement=false`。无论 plist 哪种值，runtime activation policy（由 `dock_icon_visible` 决定）才是真正的控制源
+
+### Dock 仍常驻 — 三步定位
+
+Dock 出现 SwiftSeek 图标只可能由以下三种原因之一引起。N1-N3 的诊断已经足以一眼区分：
+
+#### Step 1：看启动日志
+
+Console.app 过滤 `SwiftSeek`，找到最近一次启动的 `Dock — Info.plist LSUIElement=...; persisted dock_icon_visible=...; chosen activation policy=...` 行。三个字段对应三种根因：
+
+| `chosen activation policy` | `persisted dock_icon_visible` | `Info.plist LSUIElement` | 根因 |
+|---|---|---|---|
+| `.accessory` | `0` | `true` | 不会出 Dock — 如果你看到 Dock，bundle 不是这个进程（去 Step 3 排查 stale bundle） |
+| `.regular` | `1` | `true` | **用户设置导致**：dock_icon_visible=1。走 Step 2 自救 |
+| `.regular` | `0` | `true` | 异常分支（runtime 读失败 fallback 到 .regular？）：看启动日志有没有 `getDockIconVisible failed...` |
+| `.regular` | `0/1` | `false` | **包体导致**：你装的是 `--dock-app` 包。走 Step 4 |
+
+#### Step 2：用户设置导致 → 用 N3 设置页一键自救
+
+见上方 "N3 一键恢复菜单栏模式（隐藏 Dock）"。点 "恢复菜单栏模式" → 退出 → 重新打开。完成。
+
+#### Step 3：Stale bundle / 路径混淆
+
+设置 → 关于 → "复制诊断信息" → 找 `bundle path：` 和 `executable path：` 行。它们必须指向你**期望**正在运行的 bundle。常见情况：
+
+- 你 `cp -R dist/SwiftSeek.app /Applications/` 但仍 `open dist/SwiftSeek.app` → bundle path = `/Users/.../dist/...`
+- 反过来：以为在跑新 dist，实际 LaunchServices 复用了旧 `/Applications/SwiftSeek.app` → bundle path = `/Applications/SwiftSeek.app` 但你期望是 dist
+
+排查：
+1. `pkill -f SwiftSeek` 干掉所有实例
+2. **明确**用绝对路径再跑：`open /Applications/SwiftSeek.app` 或 `open ~/code/.../dist/SwiftSeek.app`
+3. 重新看 Diagnostics `bundle path：` 行确认
+
+L4 单实例防护会让重复打开同 bundle id 的第二份实例自动 defer，所以 Dock 即使闪一下也不会留下两个图标。
+
+#### Step 4：包体模式导致（你装的是 --dock-app 包）
+
+设置 → 关于 → 诊断信息看 `Info.plist LSUIElement：`：
+- `true（包体声明 agent）` → 当前是默认 agent 包，Dock 出现是用户设置（回 Step 2）
+- `false（包体允许 Dock）` → 当前是 `--dock-app` 包
+
+想换回 agent 包：
+
+```bash
+pkill -f SwiftSeek
+./scripts/package-app.sh           # 默认 agent 模式，banner 应显示 "mode: agent ... LSUIElement: true"
+rm -rf /Applications/SwiftSeek.app
+cp -R dist/SwiftSeek.app /Applications/
+open /Applications/SwiftSeek.app
+```
+
+回 Step 1 重新看 Console，应是 `LSUIElement=true; persisted dock_icon_visible=0; chosen activation policy=.accessory`。
 
 ### 退出路径（重要）
 

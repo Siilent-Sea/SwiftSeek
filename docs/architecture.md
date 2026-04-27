@@ -357,3 +357,35 @@ P5 把 `SettingsWindowController` 的四个占位 pane 换成真正连 `Database
 - 让 reveal 计入 Run Count
 - 跨用户多实例 / 跨 bundle id 自定义构建间共享设置
 - 承诺所有第三方文件管理器都能"选中具体文件"
+
+---
+
+## everything-dockless-hardening 收口（N1-N4）
+
+> 这一段是 N1-N4 落地后的当前状态参考。最新状态以 `docs/stage_status.md` + `docs/install.md` + `docs/release_checklist.md` §5g 为准。
+
+### N1 — Dock 状态诊断暴露
+- `Sources/SwiftSeekCore/Diagnostics.swift`：`DockStatusReport { activationPolicyLabel, lsUIElement: Bool? }` + `DockStatusProbe` typealias；`snapshot(...)` 新增 `dockStatus:` 可选参数；输出新增 "Dock 状态（N1）：" 块（persisted dock_icon_visible / intended mode / effective activation policy / Info.plist LSUIElement / bundle path / executable path）。
+- `Sources/SwiftSeek/App/AppDelegate.swift`：4 个 static helper（`lsUIElementValueLabel` / `lsUIElementBool` / `activationPolicyLabel` / `currentDockStatusReport`）；`applicationDidFinishLaunching` 启动日志统一为 `Dock — Info.plist LSUIElement=...; persisted dock_icon_visible=...; chosen activation policy=...`；`dock_icon_visible=1` 时多打一行用户设置导致的解释。
+- `AboutPane.buildDiagnostics()` 把 `dockStatus: { AppDelegate.currentDockStatusReport() }` 传入 snapshot。
+
+### N2 — 默认 no-Dock 包 / `--dock-app` opt-in
+- `scripts/package-app.sh` 新增 `--dock-app` flag（与 `--no-dock` / `--agent` 别名同义）。默认 `package_mode=agent` → `LSUIElement=true`；`--dock-app` → `package_mode=dock_app` → `LSUIElement=false`。banner 打印 mode / LSUIElement / commit / bundle id / bundle path；plist 写完做 `plutil -p` 断言失败 exit 4；`-h/--help` 列出所有 mode flag。
+- AppDelegate / Diagnostics 不变（N1 启动日志会自然读到 N2 写入的真实值）。
+
+### N3 — 设置页 Dock 详情 + 一键恢复
+- `Sources/SwiftSeekCore/DockSettingsState.swift`（纯函数）：`Status` 结构 + `compose(...)` + `detailText(...)`；偏离判定（intent ≠ effective policy 时多打 ⚠️）；字段词汇与 N1 Diagnostics 块同源。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：在 dockIconNote 之后加 `dockDetailLabel`（等宽多行）+ `dockRestoreBtn`（"恢复菜单栏模式（隐藏 Dock）"）。`reflectDockIconState()` 调 `DockSettingsState.compose(...)` 渲染 detail text + 按是否需要自救显示按钮。`onDockRestoreMenuBarMode(_:)` 写 `dock_icon_visible=false`，弹 NSAlert 指引重启；不做 live policy transition。Pane 高度 580 → 720。
+
+### N4 — 真实 `.app` release gate + 文档收口
+- `docs/release_checklist.md` §5g：6 个 scenario A-F（fresh DB + agent / `dock_icon_visible=1` 旧 DB / N3 一键恢复 / `--dock-app` 包 / stale bundle / 菜单栏热键不回归）；header retitled "K6 + L1-L4 + M1-M4 + N1-N4 单页"；smoke 基线 270。
+- `docs/install.md`：默认形态段 + "N3 一键恢复" 子段 + "Dock 仍常驻 — 三步定位" 子段（启动日志矩阵 / 用户设置自救 / stale bundle / 包体模式）；顶部告示更新。
+- `docs/known_issues.md` §1 / §"默认隐藏 Dock 图标" 子段同步 N1-N4 已硬化事实，删去旧 "LSUIElement 一直是 false" 错误叙述。
+- 本段 + `docs/stage_status.md` 为 architecture / status 同源。
+
+### 当前轨道（dockless-hardening）明确不做
+- Developer ID 签名 / notarization / DMG / auto updater
+- 移除 `dock_icon_visible` 设置或强改用户 DB
+- live `.regular` ↔ `.accessory` transition（runtime 不稳定，重启生效是契约）
+- 跨用户 / 跨 bundle id 自定义构建间共享设置
+- 任何 Finder 插件 / QSpace 私有 API / 全文搜索 / OCR / AI 等新 scope

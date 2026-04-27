@@ -27,11 +27,11 @@ macOS 原生本地极速文件搜索器。
 - **Footprint**：500k 实测 compact 1.07 GB vs fullpath 3.46 GB；首次索引 44.87s vs 197.62s
 - **Usage**（H1-H5）：`file_usage` 表记录 SwiftSeek 内部 `.open` 次数；结果表"打开次数" / "最近打开"两列；同 score tie-break (openCount → lastOpenedAt)；`recent:` / `frequent:` 查询前缀；设置 → 维护 tab 的记录开关 + 清空入口；500k+100k usage bench：3+char(+usage) 94.33ms 中位，`recent:` 89.44ms，`recordOpen` 8μs
 - **UX parity**（J1-J6）：设置窗口 hide-only 生命周期、Dock / reopen 行为、搜索窗宽度与列恢复、wildcard / quote / OR / NOT、recent queries / Saved Filters、首次使用 banner、设置 tab 记忆、设置窗 frame 记忆、Launch at Login 公开 API 包装
-- **菜单栏 agent**（L1-L4 历史归档）：菜单栏常驻、Dock 显示开关、菜单栏 tooltip / menu 状态、同 bundle id 单实例防护已实现；但真实用户反馈 Dock 仍可能常驻，当前 `everything-dockless-hardening` 会重新硬化 package / activation policy / `dock_icon_visible` 诊断与验收
+- **菜单栏 agent**（L1-L4 历史归档 + N1-N4 已硬化）：菜单栏常驻、Dock 显示开关、菜单栏 tooltip / menu 状态、同 bundle id 单实例防护已实现；N1-N4 把"默认 no-Dock" 从声明升级为真实 release gate（默认包 `LSUIElement=true`，`--dock-app` opt-in；Diagnostics + Settings detail 块同源；一键"恢复菜单栏模式"按钮；`docs/release_checklist.md` §5g 6 个 scenario 硬手测）
 - **文件管理器集成**（M1-M4）：设置 → 常规 → "显示位置" 可选 Finder（默认）或 自定义 App…（如 `/Applications/QSpace.app`、Path Finder.app 等任意 `.app`）；打开模式可选「父目录」或「文件本身」；搜索结果按钮 / 右键菜单 / hint 跟随当前 reveal target 动态变化；customApp 不存在 / 非 .app / 打开失败时 toast `⚠️ 无法用 <AppName> 显示，已回退到 Finder：…` 并 fallback 到 Finder 选中**原始**目标；reveal 不计入 Run Count；不调任何文件管理器私有 API、不假设 bundle id / URL scheme；外部 app 是否能"选中"具体文件由该 app 自身实现决定
 
 ## 当前限制
-`everything-menubar-agent` 和 `everything-filemanager-integration` 已归档，但当前用户反馈表明 no-Dock 体验仍不够稳定：`scripts/package-app.sh` 仍写 `LSUIElement=false`，实际 Dock 形态由 runtime activation policy 和 DB 中 `dock_icon_visible` 决定。如果该设置被旧状态 / 测试 / 用户操作写成 `1`，SwiftSeek 会在启动后切到 `.regular` 并显示 Dock。`everything-dockless-hardening` 完成前，不再把“Dock 隐藏已完全稳定”作为无条件结论。本项目仍不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater；跨用户多实例、不同 bundle id 的自定义构建、系统全局最近项目 / Finder 历史、外部文件管理器的「选中具体文件」语义、私有 API 都不在当前承诺范围。
+`everything-dockless-hardening` N1-N4 已落地：默认 `./scripts/package-app.sh` 生成 `LSUIElement=true` 的 agent 包，`--dock-app` 显式生成 `LSUIElement=false` 的 Dock 包；启动日志 + Diagnostics + Settings detail 三处同源暴露 Dock 状态；设置页有 "恢复菜单栏模式（隐藏 Dock）" 一键自救按钮；`docs/release_checklist.md` §5g 6 个 scenario（fresh DB / `dock_icon_visible=1` / 一键恢复 / `--dock-app` / stale bundle / 菜单栏热键）已写成硬 release gate。如果用户曾勾选"在 Dock 显示"，`dock_icon_visible=1` 会让下次启动 runtime 切到 `.regular` 并显示 Dock — 这是用户设置导致，不是包体回归。本项目仍不做正式 Apple Developer ID 签名 / notarization / DMG / auto updater；不做 live `.regular` ↔ `.accessory` 切换（重启生效是契约）；跨用户多实例、不同 bundle id 的自定义构建、系统全局最近项目 / Finder 历史、外部文件管理器的「选中具体文件」语义、私有 API 都不在当前承诺范围。
 
 **确认是否运行最新构建**：设置 → 关于 → 看顶部一行 `SwiftSeek <version> commit=<hash> build=<date>`，下方诊断块的 `bundle:` / `binary:` 行和你正在编辑的源码路径对比；不一致就是 stale bundle。详细排查见 [docs/manual_test.md](docs/manual_test.md) §33s。完整限制见 [docs/known_issues.md](docs/known_issues.md)。
 
@@ -42,8 +42,7 @@ macOS 原生本地极速文件搜索器。
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent`、`everything-filemanager-integration`
-- 当前活跃轨道：`everything-dockless-hardening`
-- 当前阶段：`N1`（Dock 常驻根因审计与诊断暴露）
+- 当前活跃轨道：`everything-dockless-hardening`（N1-N3 已通过 Codex 验收，N4 最终收口待 Codex `PROJECT COMPLETE` 验收）
 - Release gate：[docs/release_checklist.md](docs/release_checklist.md) + [docs/release_notes_template.md](docs/release_notes_template.md)
 - Dockless hardening 文档：[docs/everything_dockless_hardening_gap.md](docs/everything_dockless_hardening_gap.md) + [docs/everything_dockless_hardening_taskbook.md](docs/everything_dockless_hardening_taskbook.md)
 - File-manager integration 文档（归档）：[docs/everything_filemanager_integration_gap.md](docs/everything_filemanager_integration_gap.md) + [docs/everything_filemanager_integration_taskbook.md](docs/everything_filemanager_integration_taskbook.md)
