@@ -111,18 +111,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // are swallowed (logged) rather than fatal — the L1 default is
         // already in effect, so a settings read failure leaves
         // SwiftSeek as a menubar agent rather than crashing the app.
+        //
+        // N1 (everything-dockless-hardening): regardless of the user
+        // setting, log a unified Dock-state line so a Console paste
+        // immediately reveals which input is responsible — Info.plist
+        // `LSUIElement`, persisted `dock_icon_visible`, or the
+        // resulting activation policy. When the setting is true we
+        // also emit a second line explaining that Dock visibility is
+        // a user-driven choice (not a packaging regression) so a bug
+        // report doesn't blame the packager.
+        let plistLSUIElementForLog = AppDelegate.lsUIElementValueLabel()
         if let db = database {
             do {
                 let dockVisible = try db.getDockIconVisible()
                 if dockVisible {
                     NSApp.setActivationPolicy(.regular)
-                    NSLog("SwiftSeek: Dock icon visible (user preference); activation policy = .regular")
+                    NSLog("SwiftSeek: Dock — Info.plist LSUIElement=\(plistLSUIElementForLog); persisted dock_icon_visible=1; chosen activation policy=.regular")
+                    NSLog("SwiftSeek: Dock visible because user setting dock_icon_visible=1; toggle off in Settings → 常规 → 在 Dock 显示 SwiftSeek 图标 → 退出 → 重新打开 to hide on next launch.")
                 } else {
-                    NSLog("SwiftSeek: Dock icon hidden (L1 default); activation policy = .accessory")
+                    NSLog("SwiftSeek: Dock — Info.plist LSUIElement=\(plistLSUIElementForLog); persisted dock_icon_visible=0; chosen activation policy=.accessory")
                 }
             } catch {
-                NSLog("SwiftSeek: getDockIconVisible failed, keeping L1 .accessory default: \(error)")
+                NSLog("SwiftSeek: Dock — Info.plist LSUIElement=\(plistLSUIElementForLog); persisted dock_icon_visible=<read failed: \(error)>; chosen activation policy=.accessory (L1 default)")
             }
+        } else {
+            NSLog("SwiftSeek: Dock — Info.plist LSUIElement=\(plistLSUIElementForLog); persisted dock_icon_visible=<no DB>; chosen activation policy=.accessory (L1 default)")
         }
 
         if let db = database {
@@ -490,6 +503,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // glance always reflects the current indexing state, even
         // when the user hasn't popped the menu yet.
         refreshMenubarStatus()
+    }
+
+    /// N1: read the Info.plist `LSUIElement` value and return a
+    /// log-friendly string. AppKit-side because `Bundle.main` is the
+    /// authoritative source and we don't want Core to depend on
+    /// AppKit. Returns "true" / "false" / "<absent>" / "<not Bool>".
+    static func lsUIElementValueLabel() -> String {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "LSUIElement") else {
+            return "<absent>"
+        }
+        if let b = raw as? Bool { return b ? "true" : "false" }
+        // Some plists store the value as NSNumber 0/1 instead of bool.
+        if let n = raw as? NSNumber { return n.boolValue ? "true" : "false" }
+        return "<not Bool>"
+    }
+
+    /// N1: optional `LSUIElement` as Bool? for `Diagnostics.snapshot`'s
+    /// `DockStatusProbe`. nil when the key is absent or non-Bool.
+    static func lsUIElementBool() -> Bool? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "LSUIElement") else { return nil }
+        if let b = raw as? Bool { return b }
+        if let n = raw as? NSNumber { return n.boolValue }
+        return nil
+    }
+
+    /// N1: human-readable label for `NSApp.activationPolicy()`.
+    static func activationPolicyLabel() -> String {
+        switch NSApp.activationPolicy() {
+        case .regular: return "regular"
+        case .accessory: return "accessory"
+        case .prohibited: return "prohibited"
+        @unknown default: return "unknown"
+        }
+    }
+
+    /// N1: convenience builder for the AppKit-bound Dock probe
+    /// consumed by `Diagnostics.snapshot`. AboutPane uses this.
+    static func currentDockStatusReport() -> Diagnostics.DockStatusReport {
+        return Diagnostics.DockStatusReport(activationPolicyLabel: activationPolicyLabel(),
+                                lsUIElement: lsUIElementBool())
     }
 
     private func presentFatal(error: Error) {

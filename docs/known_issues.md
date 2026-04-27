@@ -1,8 +1,51 @@
 # SwiftSeek 已知问题 / 当前限制
 
-本文档记录当前用户真实会感知到的限制。历史轨道 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent`、`everything-filemanager-integration` 均已归档。
+本文档记录当前用户真实会感知到的限制。历史轨道 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent`、`everything-filemanager-integration` 均已归档。当前活跃轨道是 `everything-dockless-hardening`。
 
 ## 当前活跃轨道相关限制
+
+### 1. 用户反馈 Dock 仍常驻
+
+- 真实反馈：尽管 `everything-menubar-agent` 已归档并曾拿到 `PROJECT COMPLETE`，用户实际打包/使用时仍看到 SwiftSeek 常驻 Dock。
+- 在 `everything-dockless-hardening` 完成前，仓库不能再声称 Dock 隐藏已经完全稳定。
+- 当前应把“默认 no Dock”视为需要重新硬化的产品形态目标，而不是已无条件成立的事实。
+
+### 2. 当前 Dock 隐藏依赖 runtime activation policy 和持久化设置
+
+- `scripts/package-app.sh` 仍写 `LSUIElement=false`，包体层面仍是普通 App。
+- `AppDelegate.applicationDidFinishLaunching` 先调用 `NSApp.setActivationPolicy(.accessory)`，随后读取 DB 设置 `dock_icon_visible`。
+- 如果 DB 中 `dock_icon_visible=1`，AppDelegate 会调用 `NSApp.setActivationPolicy(.regular)`，Dock 图标会出现。
+- 这意味着 Dock 常驻可能来自旧 DB / 测试状态 / 用户曾勾选“显示 Dock 图标”，不一定是单纯的 package 脚本问题。
+
+### 3. Dock 根因排查（N1 已落地）
+
+- About / Diagnostics 现在直接给出 `Dock 状态（N1）：` 块，包含 `persisted dock_icon_visible` / `intended mode` / `effective activation policy` / `Info.plist LSUIElement` / `bundle path` / `executable path`。bug-report 复制即可定位是 plist、runtime policy 还是用户设置导致 Dock 出现。
+- 启动日志（Console.app 过滤 `SwiftSeek`）现在固定打两 / 三行 Dock 状态：
+  - `Dock — Info.plist LSUIElement=<true/false/<absent>>; persisted dock_icon_visible=<0/1/读失败>; chosen activation policy=.<accessory/regular>`
+  - 当 `dock_icon_visible=1` 时多打一行：`Dock visible because user setting dock_icon_visible=1; toggle off in Settings → 常规 → 在 Dock 显示 SwiftSeek 图标 → 退出 → 重新打开 to hide on next launch.`
+- 仍可通过 SQLite 直接查设置（fallback，不再是主路径）：
+  ```bash
+  sqlite3 ~/Library/Application\ Support/SwiftSeek/index.sqlite3 \
+    "select key, value from settings where key='dock_icon_visible';"
+  ```
+- 仍可通过 plutil 查 package plist（fallback，与 Diagnostics 同源）：
+  ```bash
+  plutil -p dist/SwiftSeek.app/Contents/Info.plist | grep LSUIElement
+  ```
+- N1 不改 package 默认 `LSUIElement=false`，不强改用户 DB；只暴露真相。N2/N3/N4 处理默认包体硬化、设置页自救、release gate。
+
+### 4. 设置页目前还不是完整自救入口
+
+- 设置页已有“在 Dock 显示 SwiftSeek 图标”复选框，并提示切换需重启。
+- 但它还没有一键“恢复菜单栏模式 / 隐藏 Dock”的强引导，也没有直接展示 effective activation policy 和 Info.plist `LSUIElement`。
+- 如果用户被 `dock_icon_visible=1` 污染，N3 前仍可能需要开发者指导排查。
+
+### 5. release gate 仍需加强
+
+- 现有 release checklist 已包含 L1/L2 no-Dock 手测，但不足以覆盖 fresh DB、`dock_icon_visible=1` 旧 DB、`dock_icon_visible=0` 旧 DB、no-Dock package、Dock package、stale bundle 组合。
+- N4 前，不能只凭 smoke 或源码审查宣称 Dock 隐藏稳定。
+
+## 已归档 file-manager integration 相关边界
 
 ### 1. Reveal 路由（M2 已落地）
 
@@ -60,12 +103,12 @@
 
 ## 已归档能力与仍保留边界
 
-### 默认隐藏 Dock 图标（L1 已落地）
+### 默认隐藏 Dock 图标（L1 历史实现，N 轨道重新硬化中）
 
-- `AppDelegate.applicationDidFinishLaunching` 在最早期（NSLog build identity 三连之后）调用 `NSApp.setActivationPolicy(.accessory)`，使 Dock 不显示 SwiftSeek 图标。
+- `AppDelegate.applicationDidFinishLaunching` 在最早期（NSLog build identity 三连之后）调用 `NSApp.setActivationPolicy(.accessory)`，这是 L1 的历史 no-Dock 实现。
 - `Info.plist` 仍保留 `LSUIElement=false`：选择运行时 activation policy 而非 plist `LSUIElement=true` 的取舍写在 `scripts/package-app.sh` 注释和 `docs/install.md` 默认形态段。
-- L2 已基于 runtime activation policy 加 "显示 Dock 图标" 设置开关；plist 路径保留，用户不需要重打包就能切换下次启动的 Dock 可见性。
-- 在 ad-hoc / 未签名 bundle 上，不同 macOS 版本对 activation policy 的稳定性仍需手测；release checklist §5b 强制每次发布手动确认。
+- L2 已基于 runtime activation policy 加 "显示 Dock 图标" 设置开关；如果 DB 中 `dock_icon_visible=1`，下次启动会切 `.regular` 并显示 Dock。
+- 当前 N 轨道会重新硬化这条路径；在 N4 完成前，release checklist §5b 的历史 no-Dock 手测不能单独证明真实用户环境稳定。
 
 ### 菜单栏 status item 是默认主入口（L1 已落地）
 

@@ -1,46 +1,45 @@
 # `docs/agent-state/`
 
-这个目录存放**当前活跃轨道专用**的验收会话状态文件。
+这个目录存放**当前活跃轨道专用**的 Codex 验收会话状态文件。
 
 用途：
-- 让 Claude 与 Codex 在长期迭代里优先续接同一条验收会话
-- 避免回到“默认只靠 `resume --last`”的旧路径
+- 让 Claude 与 Codex 在长期迭代里优先续接同一条正式验收会话
+- 避免回到默认只靠 `resume --last` 的旧路径
 - 避免把正式验收会话和临时分析会话混在一起
-- 轨道切换时明确隔离历史 session，避免把已归档轨道的 `PROJECT COMPLETE` 误当成当前轨道结论
+- 轨道切换时隔离历史 session，避免把已归档轨道的 `PROJECT COMPLETE` 误当成当前轨道结论
 
 ## 当前轨道
 
-- 当前活跃轨道：`everything-filemanager-integration`
-- 当前阶段：`M4`
-- 当前验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
-- 当前状态：`everything-filemanager-integration` 已 `PROJECT COMPLETE`。
-- 要求：后续若开启新轨道，必须显式更新本目录状态文件；不得把本轨道的完成结论自动传递给新轨道。
-- 禁止：不得复用已归档 `everything-menubar-agent` session `019dc5fc-318e-7d31-bb00-2810eaf6642c`，也不得复用更早轨道 session。
+- 当前活跃轨道：`everything-dockless-hardening`
+- 当前阶段：`N1`
+- 当前验收 session：`PENDING_NEW_CODEX_ACCEPTANCE_SESSION`
+- 当前状态：新轨道已建立，等待创建新的 Codex 验收 session。
+- 要求：不得复用已归档 `everything-filemanager-integration` session `019dc959-3bf6-7671-ace6-cf3a3598e592`。
 
 ## 约定文件
 
 ### `codex-acceptance-session.txt`
 
-- 正常情况下只存当前活跃轨道的 Codex 验收 session id
-- 当前文件内应为真实 session id：`019dc959-3bf6-7671-ace6-cf3a3598e592`
-- Claude 应优先用该 session 继续当前 M 轨道验收，不得回到归档轨道 session
+- 正常情况下只存当前活跃轨道的 Codex 验收 session id。
+- 新轨道刚切换且尚未创建正式验收 session 时，允许临时写入 `PENDING_NEW_CODEX_ACCEPTANCE_SESSION`。
+- `PENDING_NEW_CODEX_ACCEPTANCE_SESSION` 不是可 resume 的真实 id；Claude / Codex 必须创建或记录新的正式 session 后再替换。
 
 ### `codex-acceptance-session.json`
 
-- 存结构化状态
+- 存结构化状态。
 - 至少应包含：
   - `track`
   - `stage`
   - `session_id`
   - `updated_at`
   - `purpose`
-- 当前 `session_id` 为 `019dc959-3bf6-7671-ace6-cf3a3598e592`
+- 当前 `session_id` 为 `null`，表示 N 轨道正式验收 session 尚未创建。
 
 ## 使用规则
 
-- 这是**当前活跃轨道**的专用验收会话状态
-- 不与临时分析会话混用
-- 不与一次性问答会话混用
-- 轨道切换时要同步更新
-- `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent` 的历史 session 均只作为归档背景
-- 如果 `.txt` 中不是有效 session id，Claude 必须新开或恢复正确的新轨道验收会话，并在成功后写回真实 session id
+- 这是**当前活跃轨道**的专用验收会话状态。
+- 不与临时分析会话混用。
+- 不与一次性问答会话混用。
+- 轨道切换时必须同步更新。
+- 历史轨道 session 只作为归档背景，不能作为当前轨道放行依据。
+- 如果 `.txt` 中不是有效 session id，Claude 必须新开或恢复正确的新轨道验收会话，并在成功后写回真实 session id。

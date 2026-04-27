@@ -22,10 +22,11 @@ SwiftSeek 已不是“从 P0 开始的新项目”。
 - `everything-ux-parity`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 - `everything-productization`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 - `everything-menubar-agent`：已完成，并在历史上拿到 `PROJECT COMPLETE`
+- `everything-filemanager-integration`：已完成，并在历史上拿到 `PROJECT COMPLETE`
 
 ### 当前继续推进的轨道
 - 当前活跃轨道由 `docs/stage_status.md` 决定
-- 如果 `docs/stage_status.md` 写的是 `everything-filemanager-integration`，你就继续做该轨道
+- 如果 `docs/stage_status.md` 写的是 `everything-dockless-hardening`，你就继续做该轨道
 - 历史 `PROJECT COMPLETE` 不是当前轨道的停止条件
 - 只有当前活跃轨道再次拿到新的 `PROJECT COMPLETE`，你才允许停
 
@@ -42,6 +43,8 @@ SwiftSeek 已不是“从 P0 开始的新项目”。
 如果状态文件缺失：
 - 可以创建或更新 `docs/agent-state/` 下的文档状态文件
 - 但不能回退到“默认只靠 `resume --last` 当主路径”的旧策略
+
+如果当前轨道是 `everything-dockless-hardening`，必须以真实代码、真实 package 脚本和真实 `.app` 行为为准。不要只复述 `everything-menubar-agent` 已完成；用户已经反馈 Dock 仍常驻，因此要重点审查 `scripts/package-app.sh`、`LSUIElement`、`NSApp.setActivationPolicy`、`dock_icon_visible`、Settings UI、Diagnostics、stale bundle 和 release checklist。
 
 ---
 
@@ -139,8 +142,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 `VERDICT: PROJECT COMPLETE`
 
 注意：
-- 历史 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization` 与 `everything-menubar-agent` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
-- 如果当前活跃轨道是 `everything-filemanager-integration`，那就必须等 `everything-filemanager-integration` 自己拿到新的 `PROJECT COMPLETE`
+- 历史 `v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent` 与 `everything-filemanager-integration` 的 `PROJECT COMPLETE` 都不算当前轨道停止条件
+- 如果当前活跃轨道是 `everything-dockless-hardening`，那就必须等 `everything-dockless-hardening` 自己拿到新的 `PROJECT COMPLETE`
 
 除此之外，以下都不是允许停下的理由：
 - “历史上已经完成过”
@@ -181,6 +184,8 @@ codex exec 'Read AGENTS.md and docs/stage_status.md. Perform acceptance for the 
 - `docs/everything_menubar_agent_taskbook.md`
 - `docs/everything_filemanager_integration_gap.md`
 - `docs/everything_filemanager_integration_taskbook.md`
+- `docs/everything_dockless_hardening_gap.md`
+- `docs/everything_dockless_hardening_taskbook.md`
 - `docs/agent-state/README.md`
 
 ---

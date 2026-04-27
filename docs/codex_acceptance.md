@@ -4,52 +4,38 @@
 
 ## 当前有效状态
 
-- 当前轨道：`everything-filemanager-integration`
-- 当前阶段：`M4`
-- 最新验收结论：`PROJECT COMPLETE`
-- 当前正式验收 session：`019dc959-3bf6-7671-ace6-cf3a3598e592`
-- 日期：2026-04-26
+- 当前轨道：`everything-dockless-hardening`
+- 当前阶段：`N1`
+- 最新验收结论：尚未验收
+- 当前正式验收 session：`PENDING_NEW_CODEX_ACCEPTANCE_SESSION`
+- 日期：2026-04-27
 
-## M4 最终验收结论
+## 新轨道立项原因
 
-`HEAD=101d0e902d9d536f1d7ab1a5831bd6f034247fcb` 通过 M4 最终验收。`everything-filemanager-integration` 轨道 M1-M4 全部通过，允许归档为 `PROJECT COMPLETE`。
+用户真实反馈：`everything-menubar-agent` 已归档后，实际使用中 SwiftSeek 仍常驻 Dock。历史文档中的“默认 no Dock”不能再作为当前事实。
 
-M4 通过依据：
+本轮代码优先审计确认：
 
-- M4 是 doc-only consolidation：`HEAD~1..HEAD` 只改 `README.md`、`docs/architecture.md`、`docs/known_issues.md`、`docs/release_checklist.md`、`docs/stage_status.md`，没有 `Sources/` 改动。
-- `README.md` 已说明文件管理器集成（M1-M4）：设置 → 显示位置、自定义 `.app`、父目录 / 文件本身、动态 button / menu / hint、fallback toast、Run Count invariant、无私有 API / bundle id / URL scheme 假设。
-- `docs/architecture.md` 已新增 `everything-filemanager-integration 收口（M1-M4）` 段，列 M1 / M2 / M3 / M4 交付与明确不做事项。
-- `docs/known_issues.md` 已把 productization、menubar-agent、filemanager-integration M1-M4 放入已完成形态收口，并保留真实边界：外部 app 是否选中文件由该 app 决定；不调私有 API；不假设 QSpace bundle id / URL scheme。
-- `docs/release_checklist.md` header 已升到 `K6 + L1-L4 + M1-M4 单页`，§5f 继续作为 reveal target 动态文案 / fallback / 诊断发布门禁。
-- `docs/stage_status.md` 已记录 M4 实现落地并翻到 `PROJECT COMPLETE`。
-- `ResultAction` case 仍名为 `.revealInFinder`；`recordOpen` 仍只在 `.open` 成功路径调用；M2 `finderFallbackURL(target:)` 原始目标 fallback 不变量仍有 smoke 覆盖。
-- 未发现 QSpace 私有 API、QSpace bundle id、QSpace URL scheme 或 AppleScript。
+- `scripts/package-app.sh` 仍写 `<key>LSUIElement</key><false/>`。
+- `Sources/SwiftSeek/App/AppDelegate.swift` 启动时先 `NSApp.setActivationPolicy(.accessory)`，DB 打开后读取 `dock_icon_visible`。
+- 如果 `dock_icon_visible=1`，AppDelegate 会切到 `.regular` 并记录 `Dock icon visible (user preference)`。
+- `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `dock_icon_visible` 设置，默认 false；true 表示下次启动显示 Dock。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有 Dock 显示复选框和重启说明，但没有完整 Dock 状态诊断 / 一键恢复菜单栏模式。
+- `Sources/SwiftSeekCore/Diagnostics.swift` 当前没有 Dock mode 专用块，不能直接展示 persisted setting、effective activation policy、Info.plist `LSUIElement`。
 
-## 本轮验证
+## N1 验收焦点
 
-已运行：
+N1 不要求最终隐藏 Dock，也不要求修改 package 默认策略。Codex 验收时只看：
 
-```bash
-HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox
-HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox SwiftSeekSmokeTest
-HOME=/tmp/swiftseek-home CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox
-plutil -p dist/SwiftSeek.app/Contents/Info.plist
-plutil -lint dist/SwiftSeek.app/Contents/Info.plist
-codesign -dv dist/SwiftSeek.app
-```
-
-观察结果：
-
-- `swift build --disable-sandbox`：通过。
-- `SwiftSeekSmokeTest`：256/256 通过，L1-L4 / K1-K6 / M1-M3 覆盖项仍通过。
-- `package-app.sh --sandbox`：通过。
-- `Info.plist`：`GitCommit=101d0e9`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`。
-- `codesign -dv`：`Signature=adhoc`、`Identifier=com.local.swiftseek`。
-- `git status --short`：仅有既存未跟踪 `.claude/`；本轮验收只改最终验收 / 状态文档。
+- Diagnostics 是否新增 Dock 状态块。
+- 启动日志是否解释 persisted setting、chosen activation policy、Info.plist `LSUIElement`。
+- `dock_icon_visible=1` 是否明确标为用户设置导致 Dock 出现。
+- smoke 是否覆盖 Dock setting default / round-trip / diagnostics 关键字段。
+- 文档是否仍诚实说明 N1 是诊断阶段，不是假装最终修复。
 
 ## 下一阶段
 
-None. `everything-filemanager-integration` 已完成。
+见 [docs/next_stage.md](next_stage.md)。当前下一阶段为 N1。
 
 ## 历史归档轨道
 
@@ -62,3 +48,9 @@ None. `everything-filemanager-integration` 已完成。
 - `everything-productization`：K1-K6 / PROJECT COMPLETE 2026-04-26，session `019dc54e-017d-7de3-a24f-35c23f09ce08`
 - `everything-menubar-agent`：L1-L4 / PROJECT COMPLETE 2026-04-26，session `019dc5fc-318e-7d31-bb00-2810eaf6642c`
 - `everything-filemanager-integration`：M1-M4 / PROJECT COMPLETE 2026-04-26，session `019dc959-3bf6-7671-ace6-cf3a3598e592`
+
+## 会话规则
+
+- `everything-dockless-hardening` 必须使用新的正式 Codex 验收 session。
+- 不得复用 `everything-filemanager-integration` 的完成 session `019dc959-3bf6-7671-ace6-cf3a3598e592`。
+- 新 session 创建后，必须同步更新 `docs/agent-state/codex-acceptance-session.txt` 与 `.json`。

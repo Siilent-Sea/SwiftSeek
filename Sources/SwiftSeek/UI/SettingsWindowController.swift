@@ -2130,10 +2130,15 @@ private final class AboutPane: NSViewController {
         // truth shared with smoke tests and any future CLI export.
         // Pass live SMAppService status via the LaunchAtLogin probe
         // so the report matches what the user sees in 设置 → 常规.
+        // N1: also pass an AppKit-bound Dock probe so the snapshot's
+        // "Dock 状态（N1）：" block reflects the live activation
+        // policy and Info.plist LSUIElement value, not just the
+        // persisted user setting.
         return Diagnostics.snapshot(
             database: database,
             launchAtLoginIntent: (try? database.getLaunchAtLoginRequested()) ?? false,
-            launchAtLoginSystemStatus: { LaunchAtLogin.isRegistered() }
+            launchAtLoginSystemStatus: { LaunchAtLogin.isRegistered() },
+            dockStatus: { AppDelegate.currentDockStatusReport() }
         )
     }
 }

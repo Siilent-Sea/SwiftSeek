@@ -4936,6 +4936,109 @@ reporter.check("M3 fallbackReason: composes with Finder fallback wording") {
                          "got '\(r)'")
 }
 
+// MARK: - N1 Dock status diagnostics (everything-dockless-hardening)
+
+reporter.check("N1 Diagnostics.snapshot fresh DB → Dock 状态 block + intended 隐藏 Dock") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let snap = Diagnostics.snapshot(database: db)
+    try reporter.require(snap.contains("Dock 状态（N1）："),
+                         "snapshot must contain 'Dock 状态（N1）：' marker")
+    try reporter.require(snap.contains("persisted dock_icon_visible：0 / 缺失"),
+                         "fresh DB must show '0 / 缺失' for dock_icon_visible; got snapshot:\n\(snap)")
+    try reporter.require(snap.contains("intended mode：隐藏 Dock"),
+                         "fresh DB intended mode must be '隐藏 Dock'")
+    try reporter.require(snap.contains("effective activation policy：—（headless"),
+                         "headless snapshot must mark activation policy as '—（headless ...）'")
+    try reporter.require(snap.contains("Info.plist LSUIElement：—（headless"),
+                         "headless snapshot must mark Info.plist LSUIElement as '—（headless ...）'")
+    try reporter.require(snap.contains("bundle path："),
+                         "snapshot must include 'bundle path：' line")
+    try reporter.require(snap.contains("executable path："),
+                         "snapshot must include 'executable path：' line")
+}
+
+reporter.check("N1 Diagnostics.snapshot reflects flipped dock_icon_visible=1") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setDockIconVisible(true)
+    let snap = Diagnostics.snapshot(database: db)
+    try reporter.require(snap.contains("persisted dock_icon_visible：1（用户希望显示 Dock）"),
+                         "after set true, dock_icon_visible line must show '1（用户希望显示 Dock）'")
+    try reporter.require(snap.contains("intended mode：显示 Dock"),
+                         "after set true, intended mode must be '显示 Dock'")
+}
+
+reporter.check("N1 Diagnostics.snapshot uses dockStatus probe for AppKit-bound fields") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let probe: Diagnostics.DockStatusProbe = {
+        Diagnostics.DockStatusReport(activationPolicyLabel: "accessory", lsUIElement: false)
+    }
+    let snap = Diagnostics.snapshot(database: db, dockStatus: probe)
+    try reporter.require(snap.contains("effective activation policy：accessory"),
+                         "probe label must surface verbatim; got:\n\(snap)")
+    try reporter.require(snap.contains("Info.plist LSUIElement：false"),
+                         "probe LSUIElement=false must surface as 'false' (not '—')")
+    try reporter.require(!snap.contains("Info.plist LSUIElement：—"),
+                         "with probe present, must NOT show '—' fallback")
+}
+
+reporter.check("N1 Diagnostics.snapshot probe with regular policy + LSUIElement=true") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    try db.setDockIconVisible(true)
+    let probe: Diagnostics.DockStatusProbe = {
+        Diagnostics.DockStatusReport(activationPolicyLabel: "regular", lsUIElement: true)
+    }
+    let snap = Diagnostics.snapshot(database: db, dockStatus: probe)
+    try reporter.require(snap.contains("effective activation policy：regular"),
+                         "regular policy must surface")
+    try reporter.require(snap.contains("Info.plist LSUIElement：true"),
+                         "LSUIElement=true must surface")
+    try reporter.require(snap.contains("intended mode：显示 Dock"),
+                         "intent should match the persisted setting")
+}
+
+reporter.check("N1 Diagnostics.snapshot probe LSUIElement=nil → '—（Info.plist 未声明该 key）'") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    let probe: Diagnostics.DockStatusProbe = {
+        Diagnostics.DockStatusReport(activationPolicyLabel: "accessory", lsUIElement: nil)
+    }
+    let snap = Diagnostics.snapshot(database: db, dockStatus: probe)
+    try reporter.require(snap.contains("Info.plist LSUIElement：—（Info.plist 未声明该 key）"),
+                         "nil LSUIElement must surface as '—（Info.plist 未声明该 key）'")
+}
+
+reporter.check("N1 DockStatusReport equality + value semantics") {
+    let a = Diagnostics.DockStatusReport(activationPolicyLabel: "accessory", lsUIElement: false)
+    let b = Diagnostics.DockStatusReport(activationPolicyLabel: "accessory", lsUIElement: false)
+    let c = Diagnostics.DockStatusReport(activationPolicyLabel: "regular", lsUIElement: false)
+    try reporter.require(a == b, "equal values must compare equal")
+    try reporter.require(a != c, "different policy must not be equal")
+}
+
 reporter.check("M3 Diagnostics.snapshot includes Reveal target block with current settings") {
     let dbDir = try makeTempDir()
     defer { cleanup(dbDir) }

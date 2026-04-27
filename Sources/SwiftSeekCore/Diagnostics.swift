@@ -15,13 +15,41 @@ public enum Diagnostics {
     /// never lies about Launch-at-Login state in headless contexts).
     public typealias LaunchAtLoginStatusProbe = () -> Bool?
 
+    /// N1 — caller-supplied probe of the AppKit-bound Dock state. The
+    /// GUI layer wires this to `NSApp.activationPolicy()` and
+    /// `Bundle.main.object(forInfoDictionaryKey: "LSUIElement")`; smoke
+    /// tests pass `nil` (which renders as "—（headless）" so the
+    /// report never lies about Dock state in headless contexts).
+    /// `lsUIElement` is `nil` when the key is absent / not Bool.
+    public typealias DockStatusProbe = () -> DockStatusReport?
+
+    /// N1 — what AppKit + Info.plist say about Dock visibility right
+    /// now. Pure value type so it lives in Core; the actual NSApp
+    /// access is done by the AppKit-side caller.
+    public struct DockStatusReport: Equatable, Sendable {
+        /// Activation policy label: "regular" / "accessory" /
+        /// "prohibited" / "unknown". Caller derives this from
+        /// `NSApp.activationPolicy()`.
+        public let activationPolicyLabel: String
+        /// Info.plist `LSUIElement` value. nil when the key is absent
+        /// (current package-app.sh default writes false explicitly so
+        /// nil-from-probe should be rare in shipped bundles).
+        public let lsUIElement: Bool?
+
+        public init(activationPolicyLabel: String, lsUIElement: Bool?) {
+            self.activationPolicyLabel = activationPolicyLabel
+            self.lsUIElement = lsUIElement
+        }
+    }
+
     /// Build the full diagnostics text. Each section catches its
     /// own DB read errors and surfaces them in a trailing block so
     /// one bad subquery never blanks the whole report — the K1
     /// AboutPane error-collection contract preserved.
     public static func snapshot(database: Database,
                                 launchAtLoginIntent: Bool? = nil,
-                                launchAtLoginSystemStatus: LaunchAtLoginStatusProbe? = nil) -> String {
+                                launchAtLoginSystemStatus: LaunchAtLoginStatusProbe? = nil,
+                                dockStatus: DockStatusProbe? = nil) -> String {
         var errors: [String] = []
         func safe<T>(_ label: String, default defaultValue: T, _ fn: () throws -> T) -> T {
             do { return try fn() } catch {
@@ -141,6 +169,33 @@ public enum Diagnostics {
                 : "  自定义 App 路径：\(revealTarget.customAppPath)")
             : "  自定义 App 路径：—（Finder 模式）"
 
+        // --- N1 Dock 状态 -------------------------------------------
+        // Surfaces every input that determines whether the Dock icon
+        // appears: persisted user intent (`dock_icon_visible` setting),
+        // intended mode label, the live `NSApp.activationPolicy()` (via
+        // probe so Core stays AppKit-free), and the Info.plist
+        // `LSUIElement` value. A bug-report copy can therefore
+        // distinguish stale-DB-from-old-test (dock_icon_visible=1) from
+        // a packaging mistake (LSUIElement=true with no probe).
+        let dockVisibleSetting = safe("getDockIconVisible", default: false) {
+            try database.getDockIconVisible()
+        }
+        let dockIntentLabel = dockVisibleSetting ? "显示 Dock" : "隐藏 Dock"
+        let dockReport: DockStatusReport? = dockStatus?()
+        let dockPolicyLabel: String
+        let dockLSUIElementLabel: String
+        if let r = dockReport {
+            dockPolicyLabel = r.activationPolicyLabel
+            if let v = r.lsUIElement {
+                dockLSUIElementLabel = v ? "true" : "false"
+            } else {
+                dockLSUIElementLabel = "—（Info.plist 未声明该 key）"
+            }
+        } else {
+            dockPolicyLabel = "—（headless 报告，无 AppKit 探测）"
+            dockLSUIElementLabel = "—（headless 报告，无 Bundle.main 探测）"
+        }
+
         // --- assemble ----------------------------------------------
         var out = """
         \(identity)
@@ -170,6 +225,14 @@ public enum Diagnostics {
           按钮文案：\(revealActionTitle)
           打开模式：\(revealOpenModeLabel)
         \(revealCustomPathLine)
+
+        Dock 状态（N1）：
+          persisted dock_icon_visible：\(dockVisibleSetting ? "1（用户希望显示 Dock）" : "0 / 缺失（用户希望隐藏 Dock，默认）")
+          intended mode：\(dockIntentLabel)
+          effective activation policy：\(dockPolicyLabel)
+          Info.plist LSUIElement：\(dockLSUIElementLabel)
+          bundle path：\(BuildInfo.bundlePath)
+          executable path：\(BuildInfo.executablePath)
 
         上次重建时间：\(lastAt)
         上次重建结果：\(lastResult)

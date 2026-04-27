@@ -1,5 +1,7 @@
 # SwiftSeek 安装 / 升级 / 回滚
 
+> 当前活跃轨道是 `everything-dockless-hardening`。历史 L1/L2 文档说明了 no-Dock 设计，但用户已反馈真实 `.app` 仍可能常驻 Dock。N 轨道完成前，遇到 Dock 常驻应同时检查 `Info.plist` 的 `LSUIElement`、DB 中 `dock_icon_visible`、启动日志和 bundle path，不要只按“默认 no Dock”判断。
+
 K4 流程文档。涵盖：本地构建产物如何安装到日常使用位置、升级时如何替换、回滚到旧版本时的数据库 schema 约束、Launch at Login 在未签名 / ad-hoc 构建下的真实边界、stale bundle / 多实例风险及排查路径。
 
 > 当前所有路径都是**未签名 / 未公证**本地交付。Apple Developer ID 签名、notarization、DMG、auto updater 都不在 SwiftSeek 当前轨道范围。
