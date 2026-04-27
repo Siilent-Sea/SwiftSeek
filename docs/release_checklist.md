@@ -46,11 +46,20 @@ swift run --disable-sandbox SwiftSeekSmokeTest
 ```bash
 HOME=/tmp/swiftseek-home \
 CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache \
-./scripts/package-app.sh --sandbox
+./scripts/package-app.sh --sandbox          # N2 默认 agent 模式，LSUIElement=true
 ```
 
 - [ ] 命令成功，输出 `[package-app.sh] === done ===`
 - [ ] `dist/SwiftSeek.app` 存在
+- [ ] 末尾输出包含 `mode: agent (no-Dock / menu bar agent (default))` 与 `LSUIElement: true`
+- [ ] 中段断言 `LSUIElement assertion OK (=true, mode=agent)` 出现
+
+如发布需要 Dock app 包（N2 显式 opt-in）：
+```bash
+./scripts/package-app.sh --sandbox --dock-app   # LSUIElement=false
+```
+- [ ] 末尾输出 `mode: dock_app (Dock app (opt-in via --dock-app))` 与 `LSUIElement: false`
+- [ ] 断言 `LSUIElement assertion OK (=false, mode=dock_app)` 出现
 
 ## 4. Bundle 文件结构 + 元数据
 
@@ -70,6 +79,7 @@ file dist/SwiftSeek.app/Contents/Resources/AppIcon.icns
   - [ ] `CFBundleIdentifier` = `com.local.swiftseek`（或自定义覆盖值）
   - [ ] `GitCommit` = 当前 `git rev-parse --short HEAD`
   - [ ] `BuildDate` ≈ 今天
+  - [ ] `LSUIElement` = `true`（默认 agent 包）或 `false`（`--dock-app` 包），与本次发布预期 mode 一致
 
 ## 5. App 启动 + Build Identity 三连
 

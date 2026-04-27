@@ -10,12 +10,18 @@
 - 在 `everything-dockless-hardening` 完成前，仓库不能再声称 Dock 隐藏已经完全稳定。
 - 当前应把“默认 no Dock”视为需要重新硬化的产品形态目标，而不是已无条件成立的事实。
 
-### 2. 当前 Dock 隐藏依赖 runtime activation policy 和持久化设置
+### 2. Dock 来源：plist + runtime activation policy + persisted setting（N2 已硬化默认包）
 
-- `scripts/package-app.sh` 仍写 `LSUIElement=false`，包体层面仍是普通 App。
+- `scripts/package-app.sh` 现已支持两种包模式：
+  - 默认（无 `--dock-app` 参数）→ `LSUIElement=true`（no-Dock / menu bar agent）。
+  - `--dock-app` → `LSUIElement=false`（Dock app）。
+  - 包脚本会打印 mode label / LSUIElement / GitCommit / bundle id / bundle path，并对 plist 实际值做断言失败即退出。
 - `AppDelegate.applicationDidFinishLaunching` 先调用 `NSApp.setActivationPolicy(.accessory)`，随后读取 DB 设置 `dock_icon_visible`。
-- 如果 DB 中 `dock_icon_visible=1`，AppDelegate 会调用 `NSApp.setActivationPolicy(.regular)`，Dock 图标会出现。
-- 这意味着 Dock 常驻可能来自旧 DB / 测试状态 / 用户曾勾选“显示 Dock 图标”，不一定是单纯的 package 脚本问题。
+- 如果 DB 中 `dock_icon_visible=1`，AppDelegate 会调用 `NSApp.setActivationPolicy(.regular)`，Dock 图标仍会出现 — 即使 plist `LSUIElement=true`，runtime activation policy 仍是真正的控制源。
+- 这意味着 Dock 常驻可能来自：
+  - 用 `--dock-app` 显式打包的 Dock app 包（plist 决定）；
+  - 默认包但 DB 中 `dock_icon_visible=1`（旧 DB / 测试状态 / 用户曾勾选）→ runtime 决定。
+- N3 之后会提供一键自救路径；N4 把所有组合纳入 release gate 手测。
 
 ### 3. Dock 根因排查（N1 已落地）
 
@@ -32,7 +38,7 @@
   ```bash
   plutil -p dist/SwiftSeek.app/Contents/Info.plist | grep LSUIElement
   ```
-- N1 不改 package 默认 `LSUIElement=false`，不强改用户 DB；只暴露真相。N2/N3/N4 处理默认包体硬化、设置页自救、release gate。
+- N1 只是诊断暴露，不改 package 默认；N2 起 package 默认改成 `LSUIElement=true`（agent），并支持 `--dock-app` 显式 Dock 包；N3/N4 处理设置页自救、release gate。
 
 ### 4. 设置页目前还不是完整自救入口
 

@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-dockless-hardening`
 - 当前阶段：`N2`
-- 当前状态：N1 已通过 Codex 验收，N2 待 Claude 执行
+- 当前状态：N2 实现已就位，待 Codex 验收
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -100,8 +100,27 @@
 - Codex 验收确认：build OK；SmokeTest 262/262；package-app OK；打包产物 `GitCommit=9741d52`、`LSUIElement=false`、`CFBundleIdentifier=com.local.swiftseek`；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
 - 受限沙箱不能做 GUI 启动 Console 手测；该项保留到 N4 release-time gate。
 
+## N2：默认无 Dock 的打包与启动策略硬化
+
+### N2 实现已落地（待 Codex 验收）
+
+- `scripts/package-app.sh`:
+  - 新增 `--dock-app` flag（与 `--no-dock` / `--agent` 别名同义切换）。默认未带 flag → `package_mode=agent`；带 `--dock-app` → `package_mode=dock_app`。
+  - 把 `LSUIElement` 写入 plist 时使用 `$LS_UI_ELEMENT_VALUE`（`<true/>` for agent, `<false/>` for dock_app）。
+  - 启动时打印 banner 三行：`N2 mode=...`、`LSUIElement=...`、`version=... commit=... build=... bundle_id=...`。
+  - plist 写完后做断言：`plutil -p` grep `"LSUIElement" => $LS_UI_ELEMENT_HUMAN`，不一致 exit 4。
+  - `=== done ===` 段额外打印：`mode`、`LSUIElement`、`commit`、`bundle id`、`bundle path`、`launch` 命令；并按 mode 给出对应 Dock 期望文案（agent 提醒"如果 dock_icon_visible=1 仍会出 Dock，是用户设置导致"，dock_app 提醒 Dock 应出现）。
+  - 帮助文本（`-h`/`--help`）已更新。
+  - `--sandbox` / `--no-sign` 与 mode flag 可组合。
+- AppDelegate / Diagnostics：N1 行为不变；启动日志 `Dock — Info.plist LSUIElement=...` 现在会读到 N2 写入的真实值（agent 包打 `LSUIElement=true`，dock_app 包打 `LSUIElement=false`）。
+- `docs/install.md`：默认形态段 + 一条命令打包段 + 实现方式段 同步 N2；解释 plist 与 runtime 双层来源以及"runtime 仍是真正控制源"。
+- `docs/release_checklist.md` §3：覆盖默认 agent 包断言 + `--dock-app` 包断言；§4 加 `LSUIElement` 字段对应预期 mode。
+- `docs/known_issues.md` §2 改写为 N2 已硬化默认包；§3 收尾改为指向 N3/N4。
+- 严格不改 `dock_icon_visible` 设置语义；不强改用户 DB；不做 N3 一键自救 UI；不动 release gate header（留给 N4）。
+- 验证：受限沙箱下 `swift build` OK；SmokeTest 262/262 不变；默认 `./scripts/package-app.sh --sandbox` → `LSUIElement=true` 断言通过；`./scripts/package-app.sh --sandbox --dock-app` → `LSUIElement=false` 断言通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
+- GUI 真实启动 Dock 可见性 / 菜单栏入口 / 设置 / 全局热键 / 退出 仍为 N4 release-time 手测，本阶段不假装已验证。
+
 ## 后续阶段概览
 
-- `N2`：默认无 Dock 的打包与启动策略硬化。
 - `N3`：设置页 Dock 模式修复与用户自救路径。
 - `N4`：真实 `.app` 手测 gate 与最终收口。
