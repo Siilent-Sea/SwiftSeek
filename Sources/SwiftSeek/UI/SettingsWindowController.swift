@@ -1495,6 +1495,23 @@ private final class MaintenancePane: NSViewController {
     /// N4 hotfix Q3: bump each `refreshStatsLabel()`; only the most
     /// recent dispatch's main-thread write-back is honored.
     private var statsGeneration: UInt64 = 0
+    /// N4 hotfix r5 (Codex partial-block): all `viewWillAppear` DB reads in
+    /// MaintenancePane are off-main. The motivating chain is:
+    ///   1. `refreshStatsLabel()` dispatches a multi-second `computeStats()`
+    ///      to `settingsDiagnosticsQueue`, which grabs `SQLITE_OPEN_FULLMUTEX`.
+    ///   2. main thread continues into `reflectCompactBackfillState` /
+    ///      `reflectUsageHistoryState` / `reflectQueryHistoryState`.
+    ///   3. Even small SELECTs there (`getIndexMode`, `isUsageHistoryEnabled`,
+    ///      `countRows`, `listSavedFilters`) need the same SQLite mutex →
+    ///      they sit on main thread waiting for the heavy bg `COUNT(*)` to
+    ///      release the mutex → user-visible Settings hang on a 3.4 GB DB.
+    /// Each reflect function now writes a placeholder, dispatches its DB read
+    /// to `settingsDiagnosticsQueue`, and gates the main-thread write-back on
+    /// a per-function generation token (so a fast tab switch / toggle click
+    /// never lets a stale read overwrite a fresher placeholder).
+    private var usageGeneration: UInt64 = 0
+    private var queryHistoryGeneration: UInt64 = 0
+    private var compactBackfillGeneration: UInt64 = 0
 
     private let rebuildButton = NSButton(title: "重建索引", target: nil, action: nil)
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -1897,35 +1914,75 @@ private final class MaintenancePane: NSViewController {
     }
 
     private func reflectCompactBackfillState() {
-        let mode: IndexMode = (try? database.getIndexMode()) ?? .compact
-        // In compact mode the button does work. In fullpath mode it's
-        // still visible but disabled so the user can see the affordance
-        // exists and understand why it's not available right now.
-        compactBackfillBtn.isEnabled = (mode == .compact)
-        compactBackfillBtn.toolTip = (mode == .compact)
-            ? "手动触发 / 继续 compact 回填（MigrationCoordinator.backfillCompact，resume:true）"
-            : "只在 Compact 模式下有意义。切换到 Compact 模式可用（常规 tab）。"
+        // N4 hotfix r5: getIndexMode is a small settings SELECT, but it
+        // shares SQLite FULLMUTEX with any background computeStats already
+        // in flight (refreshStatsLabel dispatches that on the same queue
+        // before we get here). Defer to bg + generation guard.
+        compactBackfillBtn.isEnabled = false
+        compactBackfillBtn.toolTip = "正在确认索引模式…"
+        compactBackfillGeneration &+= 1
+        let generation = compactBackfillGeneration
+        let db = database
+        settingsDiagnosticsQueue.async { [weak self] in
+            let mode: IndexMode = (try? db.getIndexMode()) ?? .compact
+            DispatchQueue.main.async {
+                guard let self = self,
+                      self.compactBackfillGeneration == generation else { return }
+                // In compact mode the button does work. In fullpath mode it's
+                // still visible but disabled so the user can see the affordance
+                // exists and understand why it's not available right now.
+                self.compactBackfillBtn.isEnabled = (mode == .compact)
+                self.compactBackfillBtn.toolTip = (mode == .compact)
+                    ? "手动触发 / 继续 compact 回填（MigrationCoordinator.backfillCompact，resume:true）"
+                    : "只在 Compact 模式下有意义。切换到 Compact 模式可用（常规 tab）。"
+            }
+        }
     }
 
     // MARK: - H4 usage history privacy controls
 
     private func reflectUsageHistoryState() {
-        let enabled: Bool
-        do {
-            enabled = try database.isUsageHistoryEnabled()
-        } catch {
-            NSLog("SwiftSeek: isUsageHistoryEnabled failed: \(error)")
-            enabled = true
+        // N4 hotfix r5: both `isUsageHistoryEnabled` (small SELECT) and
+        // `computeStats().fileUsageRowCount` (heavy COUNT) go off-main in
+        // a single bg dispatch. Even the "small" enabled-state read shares
+        // the same SQLite FULLMUTEX with any in-flight background
+        // computeStats from refreshStatsLabel / menubar refresh — keeping
+        // it on main let the read sit on the mutex for seconds. Generation
+        // token guards the main-thread write-back.
+        usageCheckbox.isEnabled = false
+        usageRowLabel.stringValue = "当前记录 …（统计加载中，不阻塞搜索）条 `.open` 历史（file_usage 表）。Run Count / 最近打开只包含通过 SwiftSeek 打开的文件，不读 macOS 全局。"
+        clearUsageBtn.isEnabled = false
+        usageGeneration &+= 1
+        let generation = usageGeneration
+        let db = database
+        settingsDiagnosticsQueue.async { [weak self] in
+            let enabled: Bool
+            do {
+                enabled = try db.isUsageHistoryEnabled()
+            } catch {
+                NSLog("SwiftSeek: isUsageHistoryEnabled failed: \(error)")
+                enabled = true
+            }
+            // N4 hotfix r5 (Codex non-blocker): use targeted COUNT(*) FROM
+            // file_usage instead of full `computeStats()` — file_usage is
+            // small even on a 3.4 GB index, and a full stats run was
+            // duplicating the 3.4 GB COUNT(*) FROM files that
+            // refreshStatsLabel had already dispatched ahead of us, so the
+            // usage placeholder otherwise sat behind two heavy bg jobs.
+            let count = (try? db.countRows(in: "file_usage")) ?? -1
+            DispatchQueue.main.async {
+                guard let self = self,
+                      self.usageGeneration == generation else { return }
+                self.usageCheckbox.isEnabled = true
+                self.usageCheckbox.state = enabled ? .on : .off
+                self.usageRowLabel.stringValue = "当前记录 \(DatabaseStats.humanCount(count)) 条 `.open` 历史（file_usage 表）。Run Count / 最近打开只包含通过 SwiftSeek 打开的文件，不读 macOS 全局。"
+                // If disabled, keep the clear button available so the user can
+                // still tidy up stale data after turning recording off. If the
+                // table is empty there's nothing to clear — disable the button
+                // so we don't no-op the user.
+                self.clearUsageBtn.isEnabled = count > 0
+            }
         }
-        usageCheckbox.state = enabled ? .on : .off
-        let stats = database.computeStats()
-        let count = stats.fileUsageRowCount
-        usageRowLabel.stringValue = "当前记录 \(DatabaseStats.humanCount(count)) 条 `.open` 历史（file_usage 表）。Run Count / 最近打开只包含通过 SwiftSeek 打开的文件，不读 macOS 全局。"
-        // If disabled, keep the clear button available so the user can
-        // still tidy up stale data after turning recording off. If the
-        // table is empty there's nothing to clear — disable the button
-        // so we don't no-op the user.
-        clearUsageBtn.isEnabled = count > 0
     }
 
     @objc private func onToggleUsageHistory(_ sender: NSButton) {
@@ -1944,38 +2001,59 @@ private final class MaintenancePane: NSViewController {
     // MARK: - J4 search history & saved filters
 
     private func reflectQueryHistoryState() {
-        let enabled: Bool
-        do { enabled = try database.isQueryHistoryEnabled() }
-        catch {
-            NSLog("SwiftSeek: isQueryHistoryEnabled failed: \(error)")
-            enabled = true
-        }
-        queryHistoryCheckbox.state = enabled ? .on : .off
-        let count = (try? database.countRows(in: "query_history")) ?? -1
-        queryHistoryStatsLabel.stringValue = "当前记录 \(DatabaseStats.humanCount(count)) 条查询历史。搜索历史和 Saved Filters 只保存在本地，不同步、不遥测、不读取系统级搜索历史。"
-        clearQueryHistoryBtn.isEnabled = count > 0
-        // Populate saved filters popup.
-        let filters = (try? database.listSavedFilters()) ?? []
+        // N4 hotfix r5: three DB calls (isQueryHistoryEnabled / countRows /
+        // listSavedFilters) all share SQLite FULLMUTEX with any background
+        // computeStats from refreshStatsLabel / menubar — single bg dispatch
+        // batches them all, generation token guards stale write-back.
+        queryHistoryCheckbox.isEnabled = false
+        queryHistoryStatsLabel.stringValue = "查询历史加载中…（不阻塞搜索）"
+        clearQueryHistoryBtn.isEnabled = false
         savedFiltersList.removeAllItems()
-        if filters.isEmpty {
-            savedFiltersList.addItem(withTitle: "—")
-            savedFiltersList.isEnabled = false
-            removeSavedFilterBtn.isEnabled = false
-            savedFiltersBox.stringValue = "暂无 Saved Filter。在搜索窗口里点“最近/收藏” → “保存当前查询…”，或者这里点“新建 Saved Filter…”。"
-        } else {
-            savedFiltersList.isEnabled = true
-            for f in filters {
-                let item = NSMenuItem(title: f.name, action: nil, keyEquivalent: "")
-                item.representedObject = f.query
-                item.toolTip = f.query
-                savedFiltersList.menu?.addItem(item)
+        savedFiltersList.addItem(withTitle: "加载中…")
+        savedFiltersList.isEnabled = false
+        removeSavedFilterBtn.isEnabled = false
+        queryHistoryGeneration &+= 1
+        let generation = queryHistoryGeneration
+        let db = database
+        settingsDiagnosticsQueue.async { [weak self] in
+            let enabled: Bool
+            do { enabled = try db.isQueryHistoryEnabled() }
+            catch {
+                NSLog("SwiftSeek: isQueryHistoryEnabled failed: \(error)")
+                enabled = true
             }
-            removeSavedFilterBtn.isEnabled = true
-            if let first = filters.first {
-                savedFiltersBox.stringValue = "已选：“\(first.name)” → \(first.query)"
+            let count = (try? db.countRows(in: "query_history")) ?? -1
+            let filters = (try? db.listSavedFilters()) ?? []
+            DispatchQueue.main.async {
+                guard let self = self,
+                      self.queryHistoryGeneration == generation else { return }
+                self.queryHistoryCheckbox.isEnabled = true
+                self.queryHistoryCheckbox.state = enabled ? .on : .off
+                self.queryHistoryStatsLabel.stringValue = "当前记录 \(DatabaseStats.humanCount(count)) 条查询历史。搜索历史和 Saved Filters 只保存在本地，不同步、不遥测、不读取系统级搜索历史。"
+                self.clearQueryHistoryBtn.isEnabled = count > 0
+                // Populate saved filters popup.
+                self.savedFiltersList.removeAllItems()
+                if filters.isEmpty {
+                    self.savedFiltersList.addItem(withTitle: "—")
+                    self.savedFiltersList.isEnabled = false
+                    self.removeSavedFilterBtn.isEnabled = false
+                    self.savedFiltersBox.stringValue = "暂无 Saved Filter。在搜索窗口里点“最近/收藏” → “保存当前查询…”，或者这里点“新建 Saved Filter…”。"
+                } else {
+                    self.savedFiltersList.isEnabled = true
+                    for f in filters {
+                        let item = NSMenuItem(title: f.name, action: nil, keyEquivalent: "")
+                        item.representedObject = f.query
+                        item.toolTip = f.query
+                        self.savedFiltersList.menu?.addItem(item)
+                    }
+                    self.removeSavedFilterBtn.isEnabled = true
+                    if let first = filters.first {
+                        self.savedFiltersBox.stringValue = "已选：“\(first.name)” → \(first.query)"
+                    }
+                    self.savedFiltersList.target = self
+                    self.savedFiltersList.action = #selector(self.onSavedFilterPicked(_:))
+                }
             }
-            savedFiltersList.target = self
-            savedFiltersList.action = #selector(onSavedFilterPicked(_:))
         }
     }
 
