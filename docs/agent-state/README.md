@@ -11,9 +11,9 @@
 ## 当前轨道
 
 - 当前活跃轨道：`everything-dockless-hardening`
-- 当前阶段：`N3`
+- 当前阶段：`N4`
 - 当前验收 session：`019dcd82-9d9c-7bb0-a06e-e2d98dab2d72`
-- 当前状态：N1、N2 已通过 Codex 验收，N3 待执行。
+- 当前状态：N1、N2、N3 已通过 Codex 验收，N4 待执行。
 - 要求：不得复用已归档 `everything-filemanager-integration` session `019dc959-3bf6-7671-ace6-cf3a3598e592`。
 
 ## 约定文件

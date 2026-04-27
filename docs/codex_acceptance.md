@@ -5,8 +5,8 @@
 ## 当前有效状态
 
 - 当前轨道：`everything-dockless-hardening`
-- 当前阶段：`N3`
-- 最新验收结论：`PASS`（N2 round 2）
+- 当前阶段：`N4`
+- 最新验收结论：`PASS`（N3 round 1）
 - 当前正式验收 session：`019dcd82-9d9c-7bb0-a06e-e2d98dab2d72`
 - 日期：2026-04-27
 
@@ -55,7 +55,7 @@
 
 ## 下一阶段
 
-见 [docs/next_stage.md](next_stage.md)。当前下一阶段为 N3。
+见 [docs/next_stage.md](next_stage.md)。当前下一阶段为 N4。
 
 ## N2 round 1 验收结论
 
@@ -89,6 +89,36 @@
 - HEAD `a74df5a` 未触及 `Sources/`；`dock_icon_visible` 默认 false、AppDelegate `.accessory` 默认 / `dock_icon_visible=1` 切 `.regular` 的决策树未变。
 - `swift build` 通过；`SwiftSeekSmokeTest` 为 `262/262`；默认 agent package 与 `--dock-app` package 均通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
 - GUI Dock 可见性仍未在沙箱中验证，保留到 N4 release-time 手测。
+
+## N3 round 1 验收结论
+
+结论：`PASS`
+
+验收依据：
+
+- `Sources/SwiftSeekCore/DockSettingsState.swift` 已新增 AppKit-free 状态模型与 `compose(...)` / `detailText(...)`，字段词汇与 N1 Diagnostics Dock 块对齐。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已在常规页 Dock 复选框下方增加详情块与 "恢复菜单栏模式（隐藏 Dock）" 按钮。
+- 恢复按钮只显式写 `dock_icon_visible=false`，失败弹 warning，成功弹重启说明；没有尝试 live `.regular` ↔ `.accessory` 切换。
+- `Sources/SwiftSeekSmokeTest/main.swift` 新增 8 个 N3 用例，完整 smoke 为 `270/270`。
+- `docs/install.md` 与 `docs/known_issues.md` 已补 N3 自救路径说明。
+
+边界确认：
+
+- N2 package mode 策略未变：默认 agent 包 `LSUIElement=true`，`--dock-app` 包 `LSUIElement=false`。
+- `SettingsKey.dockIconVisible` 仍存在，默认 false。
+- AppDelegate runtime activation policy 决策树未变。
+- N3 未静默重写 DB；除用户显式点击恢复按钮外不改 `dock_icon_visible`。
+- N4 release gate / final track wrap 未提前完成。
+
+本轮实际验证：
+
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox --scratch-path /tmp/swiftseek-build-n3r1`：通过。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox --scratch-path /tmp/swiftseek-smoke-n3r1 SwiftSeekSmokeTest`：`270/270` 通过。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox`：通过，`LSUIElement=true`，`GitCommit=98c11d3`，断言 OK。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox --dock-app`：通过，`LSUIElement=false`，断言 OK。
+- `plutil -lint dist/SwiftSeek.app/Contents/Info.plist`：OK。
+- `codesign -dv dist/SwiftSeek.app`：`Signature=adhoc`。
+- 受沙箱限制，未做 GUI 点击恢复按钮 / detail label 渲染 / 重启后 Dock 行为手测；这些留到 N4。
 
 ## 历史归档轨道
 
