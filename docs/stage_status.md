@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-dockless-hardening`
 - 当前阶段：`N2`
-- 当前状态：N2 实现已就位，待 Codex 验收
+- 当前状态：N2 round 1 Codex 验收未通过，待修复 help 文本与 release checklist 基准
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -102,7 +102,7 @@
 
 ## N2：默认无 Dock 的打包与启动策略硬化
 
-### N2 实现已落地（待 Codex 验收）
+### N2 round 1 验收结论：REJECT
 
 - `scripts/package-app.sh`:
   - 新增 `--dock-app` flag（与 `--no-dock` / `--agent` 别名同义切换）。默认未带 flag → `package_mode=agent`；带 `--dock-app` → `package_mode=dock_app`。
@@ -119,6 +119,8 @@
 - 严格不改 `dock_icon_visible` 设置语义；不强改用户 DB；不做 N3 一键自救 UI；不动 release gate header（留给 N4）。
 - 验证：受限沙箱下 `swift build` OK；SmokeTest 262/262 不变；默认 `./scripts/package-app.sh --sandbox` → `LSUIElement=true` 断言通过；`./scripts/package-app.sh --sandbox --dock-app` → `LSUIElement=false` 断言通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
 - GUI 真实启动 Dock 可见性 / 菜单栏入口 / 设置 / 全局热键 / 退出 仍为 N4 release-time 手测，本阶段不假装已验证。
+- 阻塞项：`./scripts/package-app.sh --help` 未列出 N2 alias `--no-dock` / `--agent`，不满足 N2 help text 交付要求。
+- 必须修复：补齐 help 文本中的 `--no-dock` / `--agent` 说明；同步把 `docs/release_checklist.md` §2 smoke 基准从 `256` 改为当前 `262`。
 
 ## 后续阶段概览
 

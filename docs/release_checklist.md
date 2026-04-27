@@ -39,7 +39,7 @@ swift run --disable-sandbox SwiftSeekSmokeTest
 ```
 
 - [ ] 末行 `Smoke total: N  pass: N  fail: 0`
-- [ ] 当前基准 N = **256**（everything-filemanager-integration M3 落地后），本轮总数不应少于 256
+- [ ] 当前基准 N = **262**（everything-dockless-hardening N1 落地后），本轮总数不应少于 262
 
 ## 3. 一条命令打包 .app
 

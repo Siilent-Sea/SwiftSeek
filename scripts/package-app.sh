@@ -4,10 +4,22 @@
 # Usage:
 #   ./scripts/package-app.sh                 # default: no-Dock / menu bar agent (LSUIElement=true)
 #   ./scripts/package-app.sh --dock-app      # opt-in: ordinary Dock app (LSUIElement=false)
+#   ./scripts/package-app.sh --no-dock       # explicit alias for the default agent / no-Dock mode
+#   ./scripts/package-app.sh --agent         # explicit alias for the default agent / no-Dock mode
 #   ./scripts/package-app.sh --sandbox       # restricted env (HOME +
 #                                             CLANG_MODULE_CACHE_PATH already
 #                                             set by the caller); combinable
 #   ./scripts/package-app.sh --no-sign       # skip codesign (quick iter)
+#
+# Mode flags are mutually exclusive in spirit:
+#   * default (no flag) / --no-dock / --agent → package_mode=agent
+#     (LSUIElement=true, runtime AppDelegate still applies activation
+#     policy from the dock_icon_visible setting)
+#   * --dock-app                               → package_mode=dock_app
+#     (LSUIElement=false; ordinary Dock-visible packaging that
+#     reproduces the historical L1/L2 build for QA / personal use)
+# Pass at most one of {--dock-app, --no-dock, --agent}; later flags
+# overwrite earlier ones with no warning.
 #
 # What it does (fresh-clone safe):
 #   1. swift build -c release
@@ -58,7 +70,10 @@ for arg in "$@"; do
         --dock-app) package_mode="dock_app" ;;
         --no-dock|--agent) package_mode="agent" ;;  # explicit alias for clarity in scripts / CI
         -h|--help)
-            sed -n '2,46p' "$0"
+            # Print the leading comment block that documents Usage,
+            # mode flags, what the script does, non-goals, and exit
+            # codes. Range covers the full prologue header.
+            sed -n '2,57p' "$0"
             exit 0
             ;;
         *)

@@ -6,7 +6,7 @@
 
 - 当前轨道：`everything-dockless-hardening`
 - 当前阶段：`N2`
-- 最新验收结论：`PASS`（N1）
+- 最新验收结论：`REJECT`（N2 round 1）
 - 当前正式验收 session：`be0f0316-31b1-479f-be88-6069e185762c`
 - 日期：2026-04-27
 
@@ -55,7 +55,28 @@
 
 ## 下一阶段
 
-见 [docs/next_stage.md](next_stage.md)。当前下一阶段为 N2。
+见 [docs/next_stage.md](next_stage.md)。当前下一阶段仍为 N2，需先补齐本轮阻塞项。
+
+## N2 round 1 验收结论
+
+结论：`REJECT`
+
+已通过的检查：
+
+- `scripts/package-app.sh` 已支持默认 `agent` 包和 `--dock-app` 包；默认包写 `LSUIElement=true`，Dock App 包写 `LSUIElement=false`。
+- 两种包都会打印 mode / `LSUIElement` / commit / bundle id / bundle path / launch 命令，并执行 `LSUIElement assertion OK (...)`。
+- `docs/install.md`、`docs/release_checklist.md`、`docs/known_issues.md` 已同步 N2 的 plist + runtime 双层来源。
+- HEAD 改动未触及 `Sources/`，`dock_icon_visible` 默认 false、AppDelegate `.accessory` 默认 / `dock_icon_visible=1` 切 `.regular` 的决策树未变。
+- `swift build` 通过；`SwiftSeekSmokeTest` 为 `262/262`；默认 agent package 和 `--dock-app` package 均通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
+
+阻塞项：
+
+- `./scripts/package-app.sh --help` 没有列出 N2 新增 alias `--no-dock` / `--agent`。脚本解析已接受这两个 alias，但 N2 交付要求包含“help text lists the new flags”，当前 help 只列出 `--dock-app`、`--sandbox`、`--no-sign`。
+
+必须修复：
+
+- 更新 `scripts/package-app.sh` 顶部 Usage / help 文本，明确列出 `--no-dock` 和 `--agent`，说明二者都是默认 agent / no-Dock 模式的显式 alias。
+- 顺手把 `docs/release_checklist.md` §2 smoke 基准从旧的 `256` 改为当前 `262`，避免下一轮 release checklist 和实际 smoke 输出冲突。
 
 ## 历史归档轨道
 
