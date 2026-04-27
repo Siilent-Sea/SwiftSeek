@@ -447,31 +447,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = item
 
         // Initial population so first hover (before menu open) and
-        // tooltip already reflect real state.
-        refreshMenubarStatus()
+        // tooltip already reflect real state. This pays a one-shot
+        // sync cost on app launch (≤ a few hundred ms even on 3.4 GB
+        // DB) so the very first menu open shows real numbers; later
+        // refreshes run async to keep the menu instant.
+        refreshMenubarStatus(synchronous: true)
     }
 
     /// L3: pull fresh state from Core's MenubarStatus formatter and
     /// shove it into the status-only menu items + button tooltip.
-    /// Called on installStatusItem (initial), `menuNeedsUpdate(_:)`
-    /// (every menu open), and from `reflectRebuildState(_:)` (so the
-    /// tooltip's index line stays current even while the menu is
-    /// closed).
-    fileprivate func refreshMenubarStatus() {
+    ///
+    /// N4 hotfix: `MenubarStatus.snapshot` calls `computeStats` (which
+    /// does `COUNT(*) FROM files` etc.) and `computeRootHealthReport`
+    /// per root. On a 3.4 GB DB the COUNT can take several seconds,
+    /// and running it on the main thread inside
+    /// `menuNeedsUpdate(_:)` blocks AppKit's menu render → the user
+    /// experiences a ~10s freeze every time they click the menubar
+    /// icon. Move the heavy snapshot to a background queue; the menu
+    /// opens instantly with the previous (cached) labels and the new
+    /// values land on the next refresh tick.
+    ///
+    /// `synchronous=true` is for the very first call (installStatusItem)
+    /// where we want real values before the menu can possibly be
+    /// opened — that's a one-shot startup cost.
+    fileprivate func refreshMenubarStatus(synchronous: Bool = false) {
         guard let db = database else {
             // Pre-DB state: leave the seeded "—" placeholders. Better
             // than crashing or pretending we have stats.
             statusItem?.button?.toolTip = "SwiftSeek 搜索"
             return
         }
-        let snapshot = MenubarStatus.snapshot(database: db,
-                                              indexingDescription: lastIndexingDescription)
-        statusBuildItem?.title = snapshot.buildSummary
-        statusIndexingItem?.title = "索引：\(snapshot.indexingDescription)"
-        statusModeItem?.title = "模式：\(snapshot.indexModeLabel)"
-        statusRootsItem?.title = "roots：\(snapshot.rootsLabel)"
-        statusDBItem?.title = snapshot.dbSizeLabel
-        statusItem?.button?.toolTip = MenubarStatus.tooltipText(snapshot: snapshot)
+        let indexing = lastIndexingDescription
+        let work: () -> Void = { [weak self] in
+            let snapshot = MenubarStatus.snapshot(database: db,
+                                                  indexingDescription: indexing)
+            let apply: () -> Void = {
+                guard let self = self else { return }
+                self.statusBuildItem?.title = snapshot.buildSummary
+                self.statusIndexingItem?.title = "索引：\(snapshot.indexingDescription)"
+                self.statusModeItem?.title = "模式：\(snapshot.indexModeLabel)"
+                self.statusRootsItem?.title = "roots：\(snapshot.rootsLabel)"
+                self.statusDBItem?.title = snapshot.dbSizeLabel
+                self.statusItem?.button?.toolTip = MenubarStatus.tooltipText(snapshot: snapshot)
+            }
+            if Thread.isMainThread {
+                apply()
+            } else {
+                DispatchQueue.main.async(execute: apply)
+            }
+        }
+        if synchronous {
+            work()
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async(execute: work)
+        }
     }
 
     private func reflectRebuildState(_ state: RebuildCoordinator.State) {

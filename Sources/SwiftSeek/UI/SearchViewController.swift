@@ -218,7 +218,17 @@ final class SearchViewController: NSViewController, NSTextFieldDelegate,
                                   action: #selector(showHistoryMenu(_:)))
         historyBtn.bezelStyle = .rounded
         historyBtn.toolTip = "最近查询、已保存的过滤器；保存当前查询；清空历史"
-        let stack = NSStackView(views: [openBtn, revealBtn, copyBtn, previewBtn, historyBtn, NSView(), statusLabel])
+        // N4 hotfix: in-panel "设置…" button so users don't depend on
+        // menubar status item (which can be slow to render on large DBs
+        // due to L3 menuNeedsUpdate computing stats / per-root health)
+        // and don't have to use Spotlight (macOS LSUIElement reopen
+        // path is unreliable for already-running .accessory apps).
+        let settingsBtn = NSButton(title: "设置…",
+                                   target: NSApp.delegate,
+                                   action: #selector(AppDelegate.showSettings(_:)))
+        settingsBtn.bezelStyle = .rounded
+        settingsBtn.toolTip = "打开 SwiftSeek 设置（避开菜单栏点击的等待）"
+        let stack = NSStackView(views: [openBtn, revealBtn, copyBtn, previewBtn, historyBtn, settingsBtn, NSView(), statusLabel])
         stack.orientation = .horizontal
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
