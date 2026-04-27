@@ -40,11 +40,17 @@
   ```
 - N1 只是诊断暴露，不改 package 默认；N2 起 package 默认改成 `LSUIElement=true`（agent），并支持 `--dock-app` 显式 Dock 包；N3/N4 处理设置页自救、release gate。
 
-### 4. 设置页目前还不是完整自救入口
+### 4. 设置页 Dock 自救入口（N3 已落地）
 
-- 设置页已有“在 Dock 显示 SwiftSeek 图标”复选框，并提示切换需重启。
-- 但它还没有一键“恢复菜单栏模式 / 隐藏 Dock”的强引导，也没有直接展示 effective activation policy 和 Info.plist `LSUIElement`。
-- 如果用户被 `dock_icon_visible=1` 污染，N3 前仍可能需要开发者指导排查。
+- 设置 → 常规 → "在 Dock 显示 SwiftSeek 图标" 复选框下方现在固定渲染一个等宽多行 detail 块：
+  - 用户意图：`用户希望显示 Dock` / `用户希望隐藏 Dock（默认）`
+  - effective activation policy：`accessory（菜单栏 agent）` / `regular（Dock 可见）` / `prohibited` / `unknown`
+  - Info.plist LSUIElement：`true（包体声明 agent）` / `false（包体允许 Dock）` / `—（Info.plist 未声明该 key）` / `—（headless 报告）`
+  - bundle path / executable path
+- 当 intent ≠ effective policy 时多打一行 `⚠️` 解释（例：`⚠️ 已勾选「在 Dock 显示」，但当前进程仍是菜单栏 agent；重启后生效` 或 `⚠️ 当前进程已是 .regular（Dock 可见），但 dock_icon_visible 已是 0`）。
+- 复选框 + detail 块下方加 "恢复菜单栏模式（隐藏 Dock）" 按钮：把 `dock_icon_visible` 显式写回 false，弹 NSAlert 提示退出 + 重新打开后生效；不动其他设置或索引数据。
+- 字段名与 `Diagnostics.snapshot` 的 N1 "Dock 状态（N1）：" 块保持同源词汇，便于复制诊断和 UI 互验。
+- N3 不改 N2 包模式策略；不静默改用户 DB（除按钮的显式 false 写入）；live `.regular` ↔ `.accessory` 切换仍不做（runtime transition 在 ad-hoc bundle 上不稳定，重启生效是诚实契约）。
 
 ### 5. release gate 仍需加强
 

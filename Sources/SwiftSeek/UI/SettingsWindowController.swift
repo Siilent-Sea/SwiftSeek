@@ -245,6 +245,16 @@ private final class GeneralPane: NSViewController {
     private let dockIconCheckbox = NSButton(checkboxWithTitle: "在 Dock 显示 SwiftSeek 图标（菜单栏入口仍保留）",
                                             target: nil, action: nil)
     private let dockIconNote = NSTextField(wrappingLabelWithString: "")
+    // N3 (everything-dockless-hardening): structured Dock state detail
+    // block + one-click "restore menu bar mode" rescue button.
+    // Detail label is multi-line and shows: summary line / 用户意图 /
+    // effective activation policy / Info.plist LSUIElement / bundle
+    // path / executable path / optional divergence warning. The button
+    // resets `dock_icon_visible` to false and pops an alert telling the
+    // user to relaunch.
+    private let dockDetailLabel = NSTextField(wrappingLabelWithString: "")
+    private let dockRestoreBtn = NSButton(title: "恢复菜单栏模式（隐藏 Dock）",
+                                          target: nil, action: nil)
 
     // M1 (everything-filemanager-integration): Reveal Target controls.
     // Top row: 显示位置 popup (Finder / 自定义 App) + 选择 App… button.
@@ -278,9 +288,11 @@ private final class GeneralPane: NSViewController {
     override func loadView() {
         // L2 grew the pane: extra Dock-visibility checkbox + multiline note;
         // bumped from 360 to 440. M1 grew it again with reveal target picker
-        // + app summary + open mode + multi-line note; bumped 440 → 580 so
-        // the bottom rows aren't clipped on first paint.
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 580))
+        // + app summary + open mode + multi-line note; bumped 440 → 580.
+        // N3 (everything-dockless-hardening) adds a Dock detail block + a
+        // "restore menu bar mode" button; bump 580 → 720 so the new rows
+        // aren't clipped on first paint.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 720))
 
         let title = NSTextField(labelWithString: "常规")
         title.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
@@ -402,6 +414,15 @@ private final class GeneralPane: NSViewController {
         dockIconNote.textColor = .secondaryLabelColor
         dockIconNote.stringValue = "默认不勾选：SwiftSeek 仅在菜单栏常驻，不出现在 Dock / Command+Tab。勾选后下次启动 SwiftSeek 会以普通 App 形态运行（保留菜单栏入口）。**切换需重启 SwiftSeek 生效**：菜单栏 → 退出 SwiftSeek → 重新打开 dist/SwiftSeek.app。"
 
+        // N3 Dock state detail block + restore button.
+        dockDetailLabel.translatesAutoresizingMaskIntoConstraints = false
+        dockDetailLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        dockDetailLabel.textColor = .secondaryLabelColor
+        dockRestoreBtn.translatesAutoresizingMaskIntoConstraints = false
+        dockRestoreBtn.target = self
+        dockRestoreBtn.action = #selector(onDockRestoreMenuBarMode(_:))
+        dockRestoreBtn.toolTip = "把 dock_icon_visible 设回 false（默认隐藏 Dock），并提示重启生效。不会动其他设置或索引数据。"
+
         // M1 reveal target row
         revealLabel.translatesAutoresizingMaskIntoConstraints = false
         revealPopup.translatesAutoresizingMaskIntoConstraints = false
@@ -449,6 +470,8 @@ private final class GeneralPane: NSViewController {
         root.addSubview(launchAtLoginNote)
         root.addSubview(dockIconCheckbox)
         root.addSubview(dockIconNote)
+        root.addSubview(dockDetailLabel)
+        root.addSubview(dockRestoreBtn)
         root.addSubview(revealTopRow)
         root.addSubview(revealAppSummary)
         root.addSubview(revealOpenModeRow)
@@ -499,7 +522,13 @@ private final class GeneralPane: NSViewController {
             dockIconNote.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             dockIconNote.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
 
-            revealTopRow.topAnchor.constraint(equalTo: dockIconNote.bottomAnchor, constant: 18),
+            dockDetailLabel.topAnchor.constraint(equalTo: dockIconNote.bottomAnchor, constant: 8),
+            dockDetailLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            dockDetailLabel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            dockRestoreBtn.topAnchor.constraint(equalTo: dockDetailLabel.bottomAnchor, constant: 8),
+            dockRestoreBtn.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+
+            revealTopRow.topAnchor.constraint(equalTo: dockRestoreBtn.bottomAnchor, constant: 18),
             revealTopRow.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             revealAppSummary.topAnchor.constraint(equalTo: revealTopRow.bottomAnchor, constant: 6),
             revealAppSummary.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
@@ -709,6 +738,54 @@ private final class GeneralPane: NSViewController {
                 ? "⚠️ 已勾选「在 Dock 显示」，但当前进程仍是菜单栏 agent 模式（`.accessory`）。请退出 SwiftSeek（菜单栏 → 退出）并重新启动后生效。"
                 : "⚠️ 已取消勾选，但当前进程仍以普通 App 形态运行（`.regular`）。请退出 SwiftSeek（菜单栏 → 退出）并重新启动后生效。"
         }
+        // N3: refresh the structured detail block + restore button
+        // visibility.
+        let status = DockSettingsState.compose(
+            dockIconVisibleSetting: intent,
+            activationPolicyLabel: AppDelegate.activationPolicyLabel(),
+            lsUIElement: AppDelegate.lsUIElementBool(),
+            bundlePath: BuildInfo.bundlePath,
+            executablePath: BuildInfo.executablePath
+        )
+        dockDetailLabel.stringValue = DockSettingsState.detailText(status)
+        // Show the rescue button whenever the user is in some "wants
+        // Dock" state OR the live process is .regular (i.e. there is
+        // something to flip back). Hiding it when intent is already
+        // false and the policy is already accessory keeps the page
+        // tidy for the no-Dock-default user who has nothing to fix.
+        let needsRescue = intent || (NSApp.activationPolicy() == .regular)
+        dockRestoreBtn.isHidden = !needsRescue
+        dockRestoreBtn.isEnabled = needsRescue
+    }
+
+    /// N3: one-click "restore menu bar mode (hide Dock)" rescue path.
+    /// Sets `dock_icon_visible` to false explicitly (no other DB
+    /// writes), refreshes the UI, and surfaces an NSAlert telling the
+    /// user to relaunch SwiftSeek for the activation policy to switch
+    /// back to `.accessory`. We do NOT attempt a live
+    /// `setActivationPolicy(.accessory)` flip — same rationale as
+    /// `onDockIconToggle`: ad-hoc / unsigned bundles are not reliable
+    /// across `.regular` ↔ `.accessory` transitions, so persisting
+    /// intent + relaunch is the honest contract.
+    @objc private func onDockRestoreMenuBarMode(_ sender: NSButton) {
+        do {
+            try database.setDockIconVisible(false)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "恢复菜单栏模式失败"
+            alert.informativeText = "无法把 dock_icon_visible 写回 false：\(error)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+            return
+        }
+        reflectDockIconState()
+        let alert = NSAlert()
+        alert.messageText = "已恢复菜单栏模式（dock_icon_visible=false）"
+        alert.informativeText = "下次启动 SwiftSeek 时 Dock 将不再出现。请通过菜单栏 → 退出 SwiftSeek，再重新打开 dist/SwiftSeek.app 或 /Applications/SwiftSeek.app 让设置生效。\n\n如果当前进程仍以 .regular 形态运行（Dock 仍可见），那是因为 activation policy 在已运行的进程上不能被安全切回；重启后即恢复 agent 形态。"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "好")
+        alert.runModal()
     }
 
     @objc private func onDockIconToggle(_ sender: NSButton) {

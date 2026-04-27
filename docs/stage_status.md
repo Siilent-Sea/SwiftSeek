@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-dockless-hardening`
 - 当前阶段：`N3`
-- 当前状态：N2 round 2 已通过 Codex 验收，N3 待 Claude 执行
+- 当前状态：N3 实现已就位，待 Codex 验收
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -131,7 +131,19 @@
 - `swift build` 通过；`SwiftSeekSmokeTest` 262/262；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
 - HEAD `a74df5a` 未修改 `Sources/`，没有改 `dock_icon_visible` 默认语义，没有强制 DB rewrite，没有实现 N3 一键恢复 UI。
 
+## N3：设置页 Dock 模式修复与用户自救路径
+
+### N3 实现已落地（待 Codex 验收）
+
+- 新增 `Sources/SwiftSeekCore/DockSettingsState.swift`（纯函数 / AppKit-free）：`Status` 结构（intent / effectivePolicy / plist / bundle / executable / divergenceWarning / summaryLine）+ `compose(...)` + `detailText(...)`。字段名与 `Diagnostics.snapshot` 的 N1 "Dock 状态（N1）：" 块同源词汇。
+- 偏离判定：`activationPolicyLabel == "regular" && !dock_icon_visible` → 多打 ⚠️ 解释 "已是 0，下次启动回 agent，可点恢复按钮"；`activationPolicyLabel == "accessory" && dock_icon_visible` → ⚠️ "重启后生效"。两端匹配时无 warning。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` `GeneralPane`：在 dockIconNote 之后新增 `dockDetailLabel`（等宽多行）+ `dockRestoreBtn`（"恢复菜单栏模式（隐藏 Dock）"）；`reflectDockIconState()` 调 `DockSettingsState.compose(...)` + `.detailText(...)` 写入 label，并按是否需要自救显示/隐藏按钮（`intent == true || policy == .regular`）；`onDockRestoreMenuBarMode(_:)` 写 `dock_icon_visible=false`，写失败弹 NSAlert，写成功弹"已恢复"提示并指引退出 + 重新打开。Pane 高度 580 → 720。
+- `Sources/SwiftSeekSmokeTest/main.swift`：8 个 N3 用例（默认 happy path / `dock_icon_visible=1` 与 accessory 偏离 / `dock_icon_visible=0` 与 regular 偏离 / 双 Dock-visible 一致 / nil policy headless / lsUIElement=nil + live policy 标 "Info.plist 未声明" / `detailText` 多行格式 / `setDockIconVisible(false)` round-trip 自救路径）。SmokeTest 总数 262 → 270。
+- `docs/install.md`：默认形态段补 "N3 一键恢复菜单栏模式（隐藏 Dock）" 子段，给完整恢复流程 + `--dock-app` 包识别提示。
+- `docs/known_issues.md` §4 改写为 N3 已落地，列字段词汇 / 按钮契约 / 不做 live policy 切换的诚实说明。
+- N3 严格不改 N2 包模式策略；不删 `dock_icon_visible`；不静默改用户 DB（按钮的显式 false 写入除外）；不实施 N4 release gate header；不引入 Finder 插件、QSpace 私有 API、URL scheme 猜测或新文件管理器集成 scope。
+- 验证：受限沙箱下 `swift build` OK；SmokeTest 270/270；package-app 默认 agent 模式仍可重复跑通；GUI 真实点击恢复按钮 / Settings detail 块 / 重启后行为留为 N4 release-time 手测。
+
 ## 后续阶段概览
 
-- `N3`：设置页 Dock 模式修复与用户自救路径。
 - `N4`：真实 `.app` 手测 gate 与最终收口。

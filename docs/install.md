@@ -124,6 +124,24 @@ open dist/SwiftSeek.app
 4. 这次 Dock 中会出现 SwiftSeek 图标；菜单栏图标同时保留
 5. 想关回菜单栏 agent 模式：再次取消勾选 → 退出 → 重新打开
 
+### N3 一键恢复菜单栏模式（隐藏 Dock）
+
+如果你的 SwiftSeek 莫名常驻 Dock（旧 DB 残留 `dock_icon_visible=1`、测试状态、误勾），N3 起设置页提供两块 UI：
+
+1. **Dock 状态详情**（复选框下方等宽块）：直接展示用户意图、effective activation policy、Info.plist LSUIElement、bundle path、executable path 与可能的 `⚠️` 偏离警告。这就是 `Diagnostics.snapshot` 的 N1 块的同源 UI 视图。
+2. **"恢复菜单栏模式（隐藏 Dock）" 按钮**：把 `dock_icon_visible` 显式写回 false，弹 NSAlert 提示重启生效。不动其他设置/索引数据，不需要手工改 SQLite。
+
+完整流程：
+1. 设置 → 常规 → 看 "Dock 状态详情" 确认是用户设置 / 包体 plist / runtime policy 哪一项导致 Dock 出现。
+2. 如果原因是用户设置（`用户意图：用户希望显示 Dock`），点"恢复菜单栏模式（隐藏 Dock）"。
+3. 菜单栏 → "退出 SwiftSeek" → 重新打开 dist/SwiftSeek.app（或 /Applications/SwiftSeek.app）。
+4. Dock 中应不再出现 SwiftSeek。设置页 detail 块的 effective policy 应回到 `accessory（菜单栏 agent）`，且不再有 ⚠️ 警告。
+
+如果 `Dock 状态详情` 显示 `Info.plist LSUIElement：false（包体允许 Dock）`，说明你正在跑一个 `--dock-app` 包；想完全隐藏 Dock 需要：
+1. 用 `./scripts/package-app.sh`（默认）重打 agent 包；
+2. 替换 `/Applications/SwiftSeek.app`；
+3. 重新打开。
+
 为什么需要重启而不是实时切：
 - macOS `NSApp.setActivationPolicy(.regular)` ↔ `.accessory` 在未签名 / ad-hoc bundle 上可能让主菜单、key window、Dock 状态不一致
 - 持久化意图 + 重启生效是当前轨道的诚实契约；UI note 会明确告诉用户需要重启

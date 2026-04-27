@@ -5031,6 +5031,155 @@ reporter.check("N1 Diagnostics.snapshot probe LSUIElement=nil → '—（Info.pl
                          "nil LSUIElement must surface as '—（Info.plist 未声明该 key）'")
 }
 
+// MARK: - N3 DockSettingsState (everything-dockless-hardening)
+
+reporter.check("N3 DockSettingsState: default fresh DB → 隐藏 Dock + accessory + LSUIElement true happy path") {
+    let s = DockSettingsState.compose(
+        dockIconVisibleSetting: false,
+        activationPolicyLabel: "accessory",
+        lsUIElement: true,
+        bundlePath: "/Applications/SwiftSeek.app",
+        executablePath: "/Applications/SwiftSeek.app/Contents/MacOS/SwiftSeek"
+    )
+    try reporter.require(s.intentLabel == "用户希望隐藏 Dock（默认）",
+                         "intent label mismatch: \(s.intentLabel)")
+    try reporter.require(s.effectivePolicyLabel == "accessory（菜单栏 agent）",
+                         "effective policy mismatch: \(s.effectivePolicyLabel)")
+    try reporter.require(s.plistLabel == "true（包体声明 agent）",
+                         "plist label mismatch: \(s.plistLabel)")
+    try reporter.require(s.bundlePathLabel == "/Applications/SwiftSeek.app",
+                         "bundle path mismatch")
+    try reporter.require(s.divergenceWarning == nil,
+                         "intent=false + accessory should not warn; got \(String(describing: s.divergenceWarning))")
+    try reporter.require(s.summaryLine.contains("✓ 当前以菜单栏 agent 形态运行"),
+                         "summary line mismatch: \(s.summaryLine)")
+}
+
+reporter.check("N3 DockSettingsState: dock_icon_visible=1 + accessory → divergence (need relaunch)") {
+    let s = DockSettingsState.compose(
+        dockIconVisibleSetting: true,
+        activationPolicyLabel: "accessory",
+        lsUIElement: true,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    try reporter.require(s.intentLabel == "用户希望显示 Dock",
+                         "intent label mismatch")
+    try reporter.require(s.divergenceWarning != nil,
+                         "should have warning when intent=true and effective=accessory")
+    try reporter.require(s.divergenceWarning?.contains("退出 SwiftSeek 并重新打开") == true,
+                         "warning should mention 退出 + 重新打开: \(String(describing: s.divergenceWarning))")
+}
+
+reporter.check("N3 DockSettingsState: dock_icon_visible=0 + regular → user 'just unticked' divergence") {
+    let s = DockSettingsState.compose(
+        dockIconVisibleSetting: false,
+        activationPolicyLabel: "regular",
+        lsUIElement: true,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    try reporter.require(s.divergenceWarning != nil,
+                         "should warn when intent=false but effective=regular")
+    try reporter.require(s.divergenceWarning?.contains("dock_icon_visible 已是 0") == true,
+                         "warning should mention dock_icon_visible 已是 0: \(String(describing: s.divergenceWarning))")
+    try reporter.require(s.summaryLine.contains("⚠️"),
+                         "summary should also flag the divergence")
+}
+
+reporter.check("N3 DockSettingsState: dock_icon_visible=1 + regular → matched 显示 Dock summary") {
+    let s = DockSettingsState.compose(
+        dockIconVisibleSetting: true,
+        activationPolicyLabel: "regular",
+        lsUIElement: false,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    try reporter.require(s.divergenceWarning == nil,
+                         "intent and policy match (both Dock-visible); no warning")
+    try reporter.require(s.summaryLine.contains("✓ 当前以普通 App 形态运行"),
+                         "summary should be matched 显示 Dock; got: \(s.summaryLine)")
+    try reporter.require(s.plistLabel == "false（包体允许 Dock）",
+                         "plist label false → 包体允许 Dock; got: \(s.plistLabel)")
+}
+
+reporter.check("N3 DockSettingsState: nil activation policy (headless) → '—（headless 报告）' for both policy + plist") {
+    let s = DockSettingsState.compose(
+        dockIconVisibleSetting: false,
+        activationPolicyLabel: nil,
+        lsUIElement: nil,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    try reporter.require(s.effectivePolicyLabel == "—（headless 报告）",
+                         "headless policy label: \(s.effectivePolicyLabel)")
+    try reporter.require(s.plistLabel == "—（headless 报告）",
+                         "headless plist label: \(s.plistLabel)")
+    try reporter.require(s.divergenceWarning == nil,
+                         "headless can't compute divergence; must not warn")
+}
+
+reporter.check("N3 DockSettingsState: lsUIElement=nil with live policy → '—（Info.plist 未声明该 key）'") {
+    let s = DockSettingsState.compose(
+        dockIconVisibleSetting: false,
+        activationPolicyLabel: "accessory",
+        lsUIElement: nil,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    try reporter.require(s.plistLabel == "—（Info.plist 未声明该 key）",
+                         "expected '—（Info.plist 未声明该 key）', got: \(s.plistLabel)")
+}
+
+reporter.check("N3 DockSettingsState.detailText composes 6+ lines + warning when present") {
+    let withWarn = DockSettingsState.compose(
+        dockIconVisibleSetting: true,
+        activationPolicyLabel: "accessory",
+        lsUIElement: true,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    let textWarn = DockSettingsState.detailText(withWarn)
+    try reporter.require(textWarn.contains("用户意图："), "detail text must contain 用户意图")
+    try reporter.require(textWarn.contains("effective activation policy："),
+                         "detail text must contain effective activation policy")
+    try reporter.require(textWarn.contains("Info.plist LSUIElement："),
+                         "detail text must contain Info.plist LSUIElement")
+    try reporter.require(textWarn.contains("bundle path：/x.app"),
+                         "detail text must contain bundle path with value")
+    try reporter.require(textWarn.contains("executable path：/x.app/Contents/MacOS/x"),
+                         "detail text must contain executable path with value")
+    try reporter.require(textWarn.contains("⚠️"),
+                         "detail text with warning must surface ⚠️")
+
+    let noWarn = DockSettingsState.compose(
+        dockIconVisibleSetting: false,
+        activationPolicyLabel: "accessory",
+        lsUIElement: true,
+        bundlePath: "/x.app",
+        executablePath: "/x.app/Contents/MacOS/x"
+    )
+    let textNoWarn = DockSettingsState.detailText(noWarn)
+    try reporter.require(!textNoWarn.contains("⚠️"),
+                         "matched intent + policy must NOT include warning ⚠️")
+}
+
+reporter.check("N3 setDockIconVisible(false) round-trip is the rescue path") {
+    let dbDir = try makeTempDir()
+    defer { cleanup(dbDir) }
+    let paths = try AppPaths.ensureSupportDirectory(override: dbDir)
+    let db = try Database.open(at: paths.databaseURL)
+    defer { db.close() }
+    try db.migrate()
+    // Simulate "stale state" — user previously toggled Dock visible.
+    try db.setDockIconVisible(true)
+    try reporter.require(try db.getDockIconVisible(), "preflight: should be true")
+    // Rescue path: explicit set false (what the new button does).
+    try db.setDockIconVisible(false)
+    try reporter.require(try !db.getDockIconVisible(),
+                         "after rescue, dock_icon_visible must be false")
+}
+
 reporter.check("N1 DockStatusReport equality + value semantics") {
     let a = Diagnostics.DockStatusReport(activationPolicyLabel: "accessory", lsUIElement: false)
     let b = Diagnostics.DockStatusReport(activationPolicyLabel: "accessory", lsUIElement: false)
