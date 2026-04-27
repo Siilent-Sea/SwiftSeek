@@ -5,8 +5,8 @@
 ## 当前活跃轨道
 
 - 当前活跃轨道：`everything-dockless-hardening`
-- 当前阶段：`N2`
-- 当前状态：N2 round 1 Codex 验收未通过，待修复 help 文本与 release checklist 基准
+- 当前阶段：`N3`
+- 当前状态：N2 round 2 已通过 Codex 验收，N3 待 Claude 执行
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -34,7 +34,7 @@
 
 ## 当前代码审计结论
 
-- `scripts/package-app.sh` 当前仍生成 `LSUIElement=false` 的 `Info.plist`，包体层面仍是普通 App。
+- `scripts/package-app.sh` N2 起默认生成 agent 包并写 `LSUIElement=true`；显式 `--dock-app` 生成普通 Dock App 包并写 `LSUIElement=false`。
 - `Sources/SwiftSeek/App/AppDelegate.swift` 启动时先调用 `NSApp.setActivationPolicy(.accessory)`，但 DB 打开后读取 `dock_icon_visible`；如果该设置为 `1`，会调用 `NSApp.setActivationPolicy(.regular)` 并让 Dock 出现。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `SettingsKey.dockIconVisible = "dock_icon_visible"`，默认缺失/`0` 为隐藏 Dock，`1` 为显示 Dock。
 - `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有“在 Dock 显示 SwiftSeek 图标”复选框，并明确切换需重启；N1 已让 About / Diagnostics 暴露完整 Dock 状态，但当前还没有一键恢复菜单栏模式。
@@ -121,6 +121,15 @@
 - GUI 真实启动 Dock 可见性 / 菜单栏入口 / 设置 / 全局热键 / 退出 仍为 N4 release-time 手测，本阶段不假装已验证。
 - 阻塞项：`./scripts/package-app.sh --help` 未列出 N2 alias `--no-dock` / `--agent`，不满足 N2 help text 交付要求。
 - 必须修复：补齐 help 文本中的 `--no-dock` / `--agent` 说明；同步把 `docs/release_checklist.md` §2 smoke 基准从 `256` 改为当前 `262`。
+
+### N2 round 2 验收结论：PASS
+
+- `scripts/package-app.sh --help` 已列出 `--dock-app`、`--no-dock`、`--agent`、`--sandbox`、`--no-sign`，并显示 mode flag 说明。
+- `docs/release_checklist.md` §2 smoke 基准已更新为 `262`。
+- 默认 `./scripts/package-app.sh --sandbox`：`N2 mode=agent`、`LSUIElement=true`、`GitCommit=a74df5a`、`LSUIElement assertion OK (=true, mode=agent)`。
+- `./scripts/package-app.sh --sandbox --dock-app`：`N2 mode=dock_app`、`LSUIElement=false`、`LSUIElement assertion OK (=false, mode=dock_app)`。
+- `swift build` 通过；`SwiftSeekSmokeTest` 262/262；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
+- HEAD `a74df5a` 未修改 `Sources/`，没有改 `dock_icon_visible` 默认语义，没有强制 DB rewrite，没有实现 N3 一键恢复 UI。
 
 ## 后续阶段概览
 

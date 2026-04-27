@@ -5,9 +5,9 @@
 ## 当前有效状态
 
 - 当前轨道：`everything-dockless-hardening`
-- 当前阶段：`N2`
-- 最新验收结论：`REJECT`（N2 round 1）
-- 当前正式验收 session：`be0f0316-31b1-479f-be88-6069e185762c`
+- 当前阶段：`N3`
+- 最新验收结论：`PASS`（N2 round 2）
+- 当前正式验收 session：`019dcd82-9d9c-7bb0-a06e-e2d98dab2d72`
 - 日期：2026-04-27
 
 ## 新轨道立项原因
@@ -16,7 +16,7 @@
 
 本轮代码优先审计确认：
 
-- `scripts/package-app.sh` 仍写 `<key>LSUIElement</key><false/>`。
+- `scripts/package-app.sh` 已在 N2 改为默认 agent 包写 `<key>LSUIElement</key><true/>`；`--dock-app` 显式写 `<false/>`。
 - `Sources/SwiftSeek/App/AppDelegate.swift` 启动时先 `NSApp.setActivationPolicy(.accessory)`，DB 打开后读取 `dock_icon_visible`。
 - 如果 `dock_icon_visible=1`，AppDelegate 会切到 `.regular` 并记录 `Dock icon visible (user preference)`。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `dock_icon_visible` 设置，默认 false；true 表示下次启动显示 Dock。
@@ -55,7 +55,7 @@
 
 ## 下一阶段
 
-见 [docs/next_stage.md](next_stage.md)。当前下一阶段仍为 N2，需先补齐本轮阻塞项。
+见 [docs/next_stage.md](next_stage.md)。当前下一阶段为 N3。
 
 ## N2 round 1 验收结论
 
@@ -78,6 +78,18 @@
 - 更新 `scripts/package-app.sh` 顶部 Usage / help 文本，明确列出 `--no-dock` 和 `--agent`，说明二者都是默认 agent / no-Dock 模式的显式 alias。
 - 顺手把 `docs/release_checklist.md` §2 smoke 基准从旧的 `256` 改为当前 `262`，避免下一轮 release checklist 和实际 smoke 输出冲突。
 
+## N2 round 2 验收结论
+
+结论：`PASS`
+
+验收依据：
+
+- `scripts/package-app.sh --help` 已列出 `--dock-app`、`--no-dock`、`--agent`、`--sandbox`、`--no-sign`，并新增 mode flag 说明。
+- `docs/release_checklist.md` §2 smoke 基准已更新为 `262`。
+- HEAD `a74df5a` 未触及 `Sources/`；`dock_icon_visible` 默认 false、AppDelegate `.accessory` 默认 / `dock_icon_visible=1` 切 `.regular` 的决策树未变。
+- `swift build` 通过；`SwiftSeekSmokeTest` 为 `262/262`；默认 agent package 与 `--dock-app` package 均通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
+- GUI Dock 可见性仍未在沙箱中验证，保留到 N4 release-time 手测。
+
 ## 历史归档轨道
 
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23
@@ -92,6 +104,6 @@
 
 ## 会话规则
 
-- `everything-dockless-hardening` 使用新的正式 Codex 验收 session `be0f0316-31b1-479f-be88-6069e185762c`。
+- `everything-dockless-hardening` 使用新的正式 Codex 验收 session `019dcd82-9d9c-7bb0-a06e-e2d98dab2d72`。
 - 不得复用 `everything-filemanager-integration` 的完成 session `019dc959-3bf6-7671-ace6-cf3a3598e592`。
 - `docs/agent-state/codex-acceptance-session.txt` 与 `.json` 必须继续指向当前轨道 session。

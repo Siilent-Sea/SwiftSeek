@@ -1,13 +1,13 @@
 {
   "track": "everything-dockless-hardening",
-  "stage": "N2",
-  "session_id": "be0f0316-31b1-479f-be88-6069e185762c",
-  "updated_at": "2026-04-27T14:14:11+0800",
+  "stage": "N3",
+  "session_id": "019dcd82-9d9c-7bb0-a06e-e2d98dab2d72",
+  "updated_at": "2026-04-27T14:19:46+0800",
   "purpose": "Active Codex acceptance state for everything-dockless-hardening. Do not reuse archived everything-filemanager-integration or everything-menubar-agent sessions.",
-  "last_verdict": "REJECT",
-  "last_verdict_round": "N2 round 1",
+  "last_verdict": "PASS",
+  "last_verdict_round": "N2 round 2",
   "last_verdict_date": "2026-04-27",
-  "passed_stages": ["N1"],
+  "passed_stages": ["N1", "N2"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -59,5 +59,5 @@
       "previous_session_id": "019dc959-3bf6-7671-ace6-cf3a3598e592"
     }
   ],
-  "notes": "N1 PASS at HEAD 9741d52. N2 round 1 at HEAD 6f5e4bf rejected because package-app.sh --help does not list the N2 --no-dock / --agent aliases, and release_checklist still names the old smoke baseline 256 instead of 262."
+  "notes": "N1 PASS at HEAD 9741d52. N2 PASS at HEAD a74df5a after package-app.sh help listed --no-dock / --agent aliases and release_checklist smoke baseline was corrected to 262. N3 is next: settings-page Dock mode recovery and user self-rescue path."
 }
