@@ -1,6 +1,22 @@
 import AppKit
 import SwiftSeekCore
 
+/// N4 hotfix Q2: serial queue for Settings-window DB stats / diagnostics.
+/// Both `AboutPane.reload()` and `MaintenancePane.refreshStatsLabel()`
+/// dispatch their `computeStats()` calls here so two Settings tabs can't
+/// pile up overlapping COUNT(*) on the same SQLite connection (a 3.4 GB
+/// DB makes any concurrent COUNT(*) compound the wait).
+///
+/// Menubar status uses a separate serial queue
+/// (`AppDelegate.menubarRefreshQueue`) because Swift can't reach a
+/// fileprivate symbol across files; the two queues can run concurrently
+/// with each other but each is serial internally → bounded to one
+/// COUNT(*) per queue, never three.
+private let settingsDiagnosticsQueue = DispatchQueue(
+    label: "swiftseek.settings.diagnostics",
+    qos: .userInitiated
+)
+
 /// Settings window. Holds four tabs (常规 / 索引范围 / 维护 / 关于) each of
 /// which writes straight through to the shared `Database` (for roots, excludes,
 /// hidden files toggle) or to the shared `RebuildCoordinator`.
@@ -1476,6 +1492,9 @@ extension IndexingPane: NSTableViewDataSource, NSTableViewDelegate {
 private final class MaintenancePane: NSViewController {
     private let database: Database
     private let rebuildCoordinator: RebuildCoordinator
+    /// N4 hotfix Q3: bump each `refreshStatsLabel()`; only the most
+    /// recent dispatch's main-thread write-back is honored.
+    private var statsGeneration: UInt64 = 0
 
     private let rebuildButton = NSButton(title: "重建索引", target: nil, action: nil)
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -1744,20 +1763,40 @@ private final class MaintenancePane: NSViewController {
     @objc private func onRefreshStats() { refreshStatsLabel() }
 
     private func refreshStatsLabel() {
-        let s = database.computeStats()
-        var lines: [String] = []
-        lines.append("main : \(DatabaseStats.humanBytes(s.mainFileBytes))   wal : \(DatabaseStats.humanBytes(s.walFileBytes))   shm : \(DatabaseStats.humanBytes(s.shmFileBytes))")
-        lines.append("pages: count=\(DatabaseStats.humanCount(s.pageCount)) size=\(DatabaseStats.humanBytes(s.pageSize))")
-        lines.append("files=\(DatabaseStats.humanCount(s.filesRowCount))   grams=\(DatabaseStats.humanCount(s.fileGramsRowCount))   bigrams=\(DatabaseStats.humanCount(s.fileBigramsRowCount))   file_usage=\(DatabaseStats.humanCount(s.fileUsageRowCount))")
-        lines.append("avg grams/file=\(DatabaseStats.humanAvg(s.avgGramsPerFile))   avg bigrams/file=\(DatabaseStats.humanAvg(s.avgBigramsPerFile))")
-        if let per = s.perTable, !per.isEmpty {
-            lines.append("per-table:")
-            for row in per.prefix(6) {
-                lines.append("  \(row.name): \(DatabaseStats.humanBytes(row.approxBytes))  pages=\(DatabaseStats.humanCount(row.pageCount))")
+        // N4 hotfix: same rationale as AboutPane.reload — computeStats
+        // runs COUNT(*) FROM files etc. and is multi-second on large
+        // DBs. Show a placeholder, do the work off-main, write back.
+        // The G1 维护 tab is the second most common slow path when
+        // J6 last-tab pointed here.
+        // Codex review (Q3): generation token guards against
+        // overlapping refresh clicks racing the main-thread write-back.
+        // Codex review (Q2): use the Settings-scope serial queue
+        // (shared with AboutPane.reload, NOT with menubar).
+        statsLabel.stringValue = "统计加载中…（首次进入或 DB 较大时会等待几秒；不阻塞搜索）"
+        statsGeneration &+= 1
+        let generation = statsGeneration
+        let db = database
+        settingsDiagnosticsQueue.async { [weak self] in
+            let s = db.computeStats()
+            var lines: [String] = []
+            lines.append("main : \(DatabaseStats.humanBytes(s.mainFileBytes))   wal : \(DatabaseStats.humanBytes(s.walFileBytes))   shm : \(DatabaseStats.humanBytes(s.shmFileBytes))")
+            lines.append("pages: count=\(DatabaseStats.humanCount(s.pageCount)) size=\(DatabaseStats.humanBytes(s.pageSize))")
+            lines.append("files=\(DatabaseStats.humanCount(s.filesRowCount))   grams=\(DatabaseStats.humanCount(s.fileGramsRowCount))   bigrams=\(DatabaseStats.humanCount(s.fileBigramsRowCount))   file_usage=\(DatabaseStats.humanCount(s.fileUsageRowCount))")
+            lines.append("avg grams/file=\(DatabaseStats.humanAvg(s.avgGramsPerFile))   avg bigrams/file=\(DatabaseStats.humanAvg(s.avgBigramsPerFile))")
+            if let per = s.perTable, !per.isEmpty {
+                lines.append("per-table:")
+                for row in per.prefix(6) {
+                    lines.append("  \(row.name): \(DatabaseStats.humanBytes(row.approxBytes))  pages=\(DatabaseStats.humanCount(row.pageCount))")
+                }
+                if per.count > 6 { lines.append("  … (+\(per.count - 6) more)") }
             }
-            if per.count > 6 { lines.append("  … (+\(per.count - 6) more)") }
+            let text = lines.joined(separator: "\n")
+            DispatchQueue.main.async {
+                guard let self = self,
+                      self.statsGeneration == generation else { return }
+                self.statsLabel.stringValue = text
+            }
         }
-        statsLabel.stringValue = lines.joined(separator: "\n")
     }
 
     @objc private func onCheckpoint() {
@@ -2129,6 +2168,12 @@ private final class AboutPane: NSViewController {
     /// users can paste version + commit + DB path + roots + last
     /// rebuild without screenshots.
     private let copyButton = NSButton(title: "复制诊断信息", target: nil, action: nil)
+    /// N4 hotfix Q3: bumps each `reload()`. The async snapshot job
+    /// captures the value at dispatch time and only writes back when
+    /// the current generation still matches — guarantees a fast
+    /// tab-switch can't let a stale snapshot overwrite a fresher
+    /// placeholder.
+    private var diagnosticsGeneration: UInt64 = 0
 
     init(database: Database) {
         self.database = database
@@ -2199,7 +2244,51 @@ private final class AboutPane: NSViewController {
         // SwiftSeek installs (`/Applications`, `~/code/...`,
         // `.build/release`) can see exactly which one launched.
         versionLabel.stringValue = BuildInfo.summary
-        diagnosticsLabel.stringValue = buildDiagnostics()
+        // N4 hotfix: Diagnostics.snapshot internally calls
+        // database.computeStats() which does COUNT(*) FROM files; on
+        // a 3.4 GB DB that takes several seconds and blocked the main
+        // thread — opening Settings (especially when J6 last-tab was
+        // 关于) hung the search panel + menubar for ~10s. Show a
+        // placeholder immediately, run the heavy snapshot off-main,
+        // write back when done.
+        //
+        // Codex review (Q1): pre-read AppKit / SMAppService probe
+        // inputs on the main thread BEFORE dispatching, so the
+        // background closure never touches NSApp.activationPolicy or
+        // SMAppService from off-main. DB-bound reads (getLaunchAtLoginRequested)
+        // intentionally stay inside the background closure (Codex
+        // round 2) so the main thread doesn't fight the SQLite
+        // FULLMUTEX with a concurrent background computeStats() that
+        // may already be in flight from MaintenancePane / menubar.
+        // Codex review (Q3): bump a generation token so a fast tab
+        // switch (About → 常规 → About) never lets a stale snapshot
+        // overwrite a fresher placeholder.
+        let launchSystemStatus = LaunchAtLogin.isRegistered()
+        let dockReport = AppDelegate.currentDockStatusReport()
+        diagnosticsLabel.stringValue = "诊断生成中…（首次进入或 DB 较大时会等待几秒；不阻塞搜索）"
+        diagnosticsGeneration &+= 1
+        let generation = diagnosticsGeneration
+        let db = database
+        // Codex review (Q2): About + Maintenance share this serial
+        // queue, so concurrent COUNT(*) on the same SQLite handle
+        // never piles up across the two Settings tabs. The menubar
+        // status path uses its own separate serial queue
+        // (AppDelegate.menubarRefreshQueue) — they each prevent
+        // self-overlap, which is the actual 3.4 GB DB pain.
+        settingsDiagnosticsQueue.async { [weak self] in
+            let launchIntent = (try? db.getLaunchAtLoginRequested()) ?? false
+            let snapshot = Diagnostics.snapshot(
+                database: db,
+                launchAtLoginIntent: launchIntent,
+                launchAtLoginSystemStatus: { launchSystemStatus },
+                dockStatus: { dockReport }
+            )
+            DispatchQueue.main.async {
+                guard let self = self,
+                      self.diagnosticsGeneration == generation else { return }
+                self.diagnosticsLabel.stringValue = snapshot
+            }
+        }
     }
 
     private func buildDiagnostics() -> String {

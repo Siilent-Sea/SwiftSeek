@@ -499,9 +499,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if synchronous {
             work()
         } else {
-            DispatchQueue.global(qos: .userInitiated).async(execute: work)
+            // Codex review round 2 (Q2 follow-up): use a separate serial
+            // queue from SettingsWindowController.settingsDiagnosticsQueue
+            // (cross-file fileprivate access not available in Swift). Each
+            // queue being serial → prevents self-overlap on the same SQLite
+            // handle, which is the actual 3.4 GB DB pain. The two queues can
+            // still run concurrently with each other, but at most one
+            // COUNT(*) is in flight per queue → bounded contention.
+            AppDelegate.menubarRefreshQueue.async(execute: work)
         }
     }
+
+    /// N4 hotfix Q2: serial queue for the menubar status snapshot path.
+    /// Same qos and label scheme as `swiftseek.settings.diagnostics`
+    /// (declared in SettingsWindowController.swift); intentionally a
+    /// separate Dispatch instance because Swift can't access a fileprivate
+    /// queue across files. Both queues being serial is the important
+    /// invariant — they each prevent self-overlap, which is the actual
+    /// 3.4 GB DB pain.
+    static let menubarRefreshQueue = DispatchQueue(
+        label: "swiftseek.menubar.diagnostics",
+        qos: .userInitiated
+    )
 
     private func reflectRebuildState(_ state: RebuildCoordinator.State) {
         guard let button = statusItem?.button else { return }
