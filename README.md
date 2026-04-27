@@ -42,7 +42,7 @@ macOS 原生本地极速文件搜索器。
 权威状态见 [docs/stage_status.md](docs/stage_status.md)。
 
 - 已归档轨道：`v1-baseline`、`everything-alignment`、`everything-performance`、`everything-footprint`、`everything-usage`、`everything-ux-parity`、`everything-productization`、`everything-menubar-agent`、`everything-filemanager-integration`
-- 当前活跃轨道：`everything-dockless-hardening`（N1-N3 已通过 Codex 验收，N4 最终收口待 Codex `PROJECT COMPLETE` 验收）
+- 当前活跃轨道：`everything-dockless-hardening`（N1-N4 已通过 Codex 验收，`PROJECT COMPLETE`）
 - Release gate：[docs/release_checklist.md](docs/release_checklist.md) + [docs/release_notes_template.md](docs/release_notes_template.md)
 - Dockless hardening 文档：[docs/everything_dockless_hardening_gap.md](docs/everything_dockless_hardening_gap.md) + [docs/everything_dockless_hardening_taskbook.md](docs/everything_dockless_hardening_taskbook.md)
 - File-manager integration 文档（归档）：[docs/everything_filemanager_integration_gap.md](docs/everything_filemanager_integration_gap.md) + [docs/everything_filemanager_integration_taskbook.md](docs/everything_filemanager_integration_taskbook.md)
@@ -169,4 +169,4 @@ AGENTS.md / CLAUDE.md
 ## 协作模式
 - Claude：主开发代理，负责实现、自检。
 - Codex：独立验收代理，负责 REJECT / PASS / 下一阶段任务书。
-- 最近完成的是 `everything-filemanager-integration`；后续新轨道仍以 `docs/stage_status.md` 为准，不能复用旧轨道的 `PROJECT COMPLETE`。
+- 最近完成的是 `everything-dockless-hardening`；后续新轨道仍以 `docs/stage_status.md` 为准，不能复用旧轨道的 `PROJECT COMPLETE`。

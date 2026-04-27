@@ -6,7 +6,7 @@
 
 - 当前轨道：`everything-dockless-hardening`
 - 当前阶段：`N4`
-- 最新验收结论：`PASS`（N3 round 1）
+- 最新验收结论：`PROJECT COMPLETE`（N4 final）
 - 当前正式验收 session：`019dcd82-9d9c-7bb0-a06e-e2d98dab2d72`
 - 日期：2026-04-27
 
@@ -20,7 +20,7 @@
 - `Sources/SwiftSeek/App/AppDelegate.swift` 启动时先 `NSApp.setActivationPolicy(.accessory)`，DB 打开后读取 `dock_icon_visible`。
 - 如果 `dock_icon_visible=1`，AppDelegate 会切到 `.regular` 并记录 `Dock icon visible (user preference)`。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `dock_icon_visible` 设置，默认 false；true 表示下次启动显示 Dock。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有 Dock 显示复选框和重启说明；N1 后已有完整 Dock 状态诊断，但还没有一键恢复菜单栏模式。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有 Dock 显示复选框、Dock 状态详情块和一键"恢复菜单栏模式（隐藏 Dock）"按钮。
 - `Sources/SwiftSeekCore/Diagnostics.swift` 已在 N1 增加 Dock mode 专用块，可直接展示 persisted setting、effective activation policy、Info.plist `LSUIElement`、bundle path、executable path。
 
 ## N1 验收结论
@@ -53,9 +53,9 @@
 - `codesign -dv dist/SwiftSeek.app`：`Signature=adhoc`。
 - 受当前沙箱限制，未做 GUI 启动 Console 手测；该项留到 N4 release-time 手测 gate。
 
-## 下一阶段
+## 当前结论
 
-见 [docs/next_stage.md](next_stage.md)。当前下一阶段为 N4。
+`everything-dockless-hardening` 已完成。N1 暴露 Dock 常驻根因，N2 硬化默认 agent 包，N3 增加 Settings 自救入口，N4 把真实 `.app` 手测收口为 release gate。
 
 ## N2 round 1 验收结论
 
@@ -120,6 +120,39 @@
 - `codesign -dv dist/SwiftSeek.app`：`Signature=adhoc`。
 - 受沙箱限制，未做 GUI 点击恢复按钮 / detail label 渲染 / 重启后 Dock 行为手测；这些留到 N4。
 
+## N4 final 验收结论
+
+结论：`PROJECT COMPLETE`
+
+验收依据：
+
+- `docs/release_checklist.md` 已升级为 "K6 + L1-L4 + M1-M4 + N1-N4 单页"，并新增 §5g "N1-N4 Dockless hardening 硬 gate"。该 gate 覆盖 fresh DB 默认 agent、`dock_icon_visible=1` 旧 DB、N3 恢复按钮、`--dock-app` 包、stale bundle、菜单栏入口 + `⌥Space` 热键 6 个 scenario。
+- `docs/install.md` 顶部告示和 "Dock 仍常驻 — 三步定位" 已同步 N1-N4 事实，包含启动日志矩阵、N3 自救、stale bundle 和重新打 agent 包路径。
+- `docs/known_issues.md` §1 已改为 "用户反馈 Dock 仍常驻（N1-N4 已硬化）"，默认隐藏 Dock 子段已同步 N2 默认 `LSUIElement=true`；旧的当前事实型 `LSUIElement=false` 叙述已移除。
+- `docs/manual_test.md` §33ad 已把 release checklist §5g 展开为 A-F 手测步骤和失败处置。
+- `docs/architecture.md` 已新增 "everything-dockless-hardening 收口（N1-N4）" 附录，列明每阶段交付和非目标。
+- `README.md` 已同步菜单栏 agent、当前限制和当前进度。
+
+边界确认：
+
+- N4 为 doc-only 收口；HEAD `5689a42` 未改 `Sources/`、`scripts/` 或 `Package.swift`。
+- `ResultAction` 仍保留 `.revealInFinder`；reveal 仍不计入 Run Count；M2 `finderFallbackURL` invariant 保留。
+- N2 package mode 策略未变：默认 agent 包 `LSUIElement=true`，`--dock-app` 包 `LSUIElement=false`。
+- N3 Settings Dock detail block 和恢复按钮保留。
+- `SettingsKey.dockIconVisible` 仍存在且默认 false；AppDelegate 仍默认 `.accessory`，只在 `dock_icon_visible=1` 时切 `.regular`。
+
+本轮实际验证：
+
+- `git rev-parse --short HEAD`：`5689a42`。
+- `git diff --name-only HEAD^ HEAD -- Sources scripts Package.swift`：无输出，确认 N4 未改代码 / 脚本。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift build --disable-sandbox --scratch-path /tmp/swiftseek-build-n3r1`：通过。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache swift run --disable-sandbox --scratch-path /tmp/swiftseek-smoke-n3r1 SwiftSeekSmokeTest`：`Smoke total: 270  pass: 270  fail: 0`。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox`：通过，agent mode，`LSUIElement=true`，`GitCommit=5689a42`，断言 OK。
+- `env CLANG_MODULE_CACHE_PATH=/tmp/swiftseek-clang-cache ./scripts/package-app.sh --sandbox --dock-app`：通过，dock_app mode，`LSUIElement=false`，断言 OK。
+- `plutil -lint dist/SwiftSeek.app/Contents/Info.plist`：OK。
+- `codesign -dv dist/SwiftSeek.app`：`Signature=adhoc`。
+- GUI Scenario A-F 仍是 release-time 手测 gate，已固化在 `docs/release_checklist.md` §5g 与 `docs/manual_test.md` §33ad；本次沙箱验收不假装完成 GUI 手测。
+
 ## 历史归档轨道
 
 - `v1-baseline`：P0-P6 / PROJECT COMPLETE 2026-04-23
@@ -131,6 +164,7 @@
 - `everything-productization`：K1-K6 / PROJECT COMPLETE 2026-04-26，session `019dc54e-017d-7de3-a24f-35c23f09ce08`
 - `everything-menubar-agent`：L1-L4 / PROJECT COMPLETE 2026-04-26，session `019dc5fc-318e-7d31-bb00-2810eaf6642c`
 - `everything-filemanager-integration`：M1-M4 / PROJECT COMPLETE 2026-04-26，session `019dc959-3bf6-7671-ace6-cf3a3598e592`
+- `everything-dockless-hardening`：N1-N4 / PROJECT COMPLETE 2026-04-27，session `019dcd82-9d9c-7bb0-a06e-e2d98dab2d72`
 
 ## 会话规则
 

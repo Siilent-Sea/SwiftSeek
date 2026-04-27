@@ -1,6 +1,6 @@
 # SwiftSeek Release Checklist（K6 + L1-L4 + M1-M4 + N1-N4 单页）
 
-> `everything-dockless-hardening` N1-N4 已落地（N4 待 Codex 最终验收）。Dock 是否隐藏现在是真实 `.app` release gate（§5g 共 6 个 scenario A-F），不再依赖历史 L1/L2 文档声明。每次发布必须把 §5g 全部 scenario 跑过。
+> `everything-dockless-hardening` N1-N4 已落地并通过 Codex 最终验收。Dock 是否隐藏现在是真实 `.app` release gate（§5g 共 6 个 scenario A-F），不再依赖历史 L1/L2 文档声明。每次发布必须把 §5g 全部 scenario 跑过。
 
 每次发布本地 ad-hoc bundle 前**必须**从干净 workspace 走完整张表。任何一项失败都不算 release-ready。
 

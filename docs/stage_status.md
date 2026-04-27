@@ -6,7 +6,7 @@
 
 - 当前活跃轨道：`everything-dockless-hardening`
 - 当前阶段：`N4`
-- 当前状态：N4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）
+- 当前状态：`PROJECT COMPLETE`（N1-N4 已通过 Codex 验收，2026-04-27）
 - 触发原因：用户真实反馈 `everything-menubar-agent` 完成后，打包运行的 SwiftSeek 仍然常驻 Dock。历史文档中的“默认 no Dock”不能再作为事实依据，必须按当前代码和真实 `.app` 验收。
 
 ## 历史归档轨道
@@ -20,6 +20,7 @@
 - `everything-productization`：已归档，历史 `PROJECT COMPLETE`
 - `everything-menubar-agent`：已归档，历史 `PROJECT COMPLETE`
 - `everything-filemanager-integration`：已归档，历史 `PROJECT COMPLETE`
+- `everything-dockless-hardening`：已完成，当前轨道 `PROJECT COMPLETE`
 
 这些归档结论只说明对应历史轨道完成，不会自动传递给 `everything-dockless-hardening`。
 
@@ -37,9 +38,9 @@
 - `scripts/package-app.sh` N2 起默认生成 agent 包并写 `LSUIElement=true`；显式 `--dock-app` 生成普通 Dock App 包并写 `LSUIElement=false`。
 - `Sources/SwiftSeek/App/AppDelegate.swift` 启动时先调用 `NSApp.setActivationPolicy(.accessory)`，但 DB 打开后读取 `dock_icon_visible`；如果该设置为 `1`，会调用 `NSApp.setActivationPolicy(.regular)` 并让 Dock 出现。
 - `Sources/SwiftSeekCore/SettingsTypes.swift` 已有 `SettingsKey.dockIconVisible = "dock_icon_visible"`，默认缺失/`0` 为隐藏 Dock，`1` 为显示 Dock。
-- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有“在 Dock 显示 SwiftSeek 图标”复选框，并明确切换需重启；N1 已让 About / Diagnostics 暴露完整 Dock 状态，但当前还没有一键恢复菜单栏模式。
+- `Sources/SwiftSeek/UI/SettingsWindowController.swift` 已有“在 Dock 显示 SwiftSeek 图标”复选框，并明确切换需重启；N3 已增加 Dock 状态详情块和“恢复菜单栏模式（隐藏 Dock）”按钮。
 - `Sources/SwiftSeekCore/Diagnostics.swift` 已显示 build identity、bundle、binary、DB、Launch at Login、Reveal target，并已在 N1 增加 Dock 状态块：persisted `dock_icon_visible`、intended mode、effective activation policy、Info.plist `LSUIElement`、bundle path、executable path。
-- `docs/release_checklist.md` 已有 no-Dock 手测，但它仍基于 L1/L2 的历史实现，不足以覆盖 fresh DB、`dock_icon_visible=1` 旧 DB、package plist 和 stale bundle 的硬验收组合。
+- `docs/release_checklist.md` §5g 已把 fresh DB、`dock_icon_visible=1` 旧 DB、N3 恢复、package plist、stale bundle、菜单栏入口和热键写成 N1-N4 硬验收组合。
 
 ## N1：Dock 常驻根因审计与诊断暴露
 
@@ -147,7 +148,7 @@
 
 ## N4：真实 `.app` 手测 gate 与最终收口
 
-### N4 实现已落地（待 Codex 最终验收）
+### N4 实现已落地（Codex 已验收）
 
 - `docs/release_checklist.md`：
   - header 升级为 "K6 + L1-L4 + M1-M4 + N1-N4 单页"，描述段重写指向 N1-N4 实际行为而非历史声明。
@@ -159,13 +160,13 @@
   - §1 改写为 "用户反馈 Dock 仍常驻（N1-N4 已硬化）"，列 N1-N4 各阶段交付。
   - "默认隐藏 Dock 图标" 子段同步 N2 默认 `LSUIElement=true` 事实，删去旧 "LSUIElement 一直是 false" 错误叙述。
 - `docs/architecture.md`：尾部新增 "everything-dockless-hardening 收口（N1-N4）" 段，按 N1/N2/N3/N4 列每阶段交付 + 当前轨道明确不做。
-- `README.md`：当前能力 "菜单栏 agent" 行更新为 L1-L4 历史 + N1-N4 已硬化；当前限制段同步 N1-N4 事实；当前进度 N1-N3 PASS + N4 等待 PROJECT COMPLETE。
-- `docs/stage_status.md`（本文件）N4 实现已落地段 + 状态翻为"N4 实现已就位，待 Codex 最终验收（PROJECT COMPLETE 候选）"。
+- `README.md`：当前能力 "菜单栏 agent" 行更新为 L1-L4 历史 + N1-N4 已硬化；当前限制段同步 N1-N4 事实；当前进度更新为 `everything-dockless-hardening` PROJECT COMPLETE。
+- `docs/stage_status.md`（本文件）N4 实现已落地段 + 状态翻为 `PROJECT COMPLETE`。
 - 不引入新代码（Sources/ 不变）；smoke 总数仍为 270；package-app 行为不变；ResultAction / Diagnostics / DockSettingsState 全部保留 N1-N3 PASS 时的契约。
 - 验证：受限沙箱下 `swift build` OK；SmokeTest 270/270；默认 `package-app.sh --sandbox` 与 `--dock-app` 包都通过；`plutil -lint` OK；`codesign -dv` 显示 `Signature=adhoc`。
 - GUI 真实 .app Scenario A-F 手测仍按 release_checklist §5g 与 manual_test §33ad 作为每次发布手测；N4 不假装已自动验证 GUI。
 
-如 Codex 接受 N4，本轨道 `everything-dockless-hardening` 满足 `PROJECT COMPLETE` 条件：N1 暴露根因 + N2 硬化默认包 + N3 设置页自救 + N4 release gate 收口；K1-K6 / L1-L4 / M1-M4 不回退。
+Codex 已接受 N4，本轨道 `everything-dockless-hardening` 满足 `PROJECT COMPLETE` 条件：N1 暴露根因 + N2 硬化默认包 + N3 设置页自救 + N4 release gate 收口；K1-K6 / L1-L4 / M1-M4 不回退。
 
 ## 后续阶段概览
 

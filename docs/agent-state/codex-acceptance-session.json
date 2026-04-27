@@ -2,12 +2,12 @@
   "track": "everything-dockless-hardening",
   "stage": "N4",
   "session_id": "019dcd82-9d9c-7bb0-a06e-e2d98dab2d72",
-  "updated_at": "2026-04-27T14:33:18+0800",
+  "updated_at": "2026-04-27T14:47:05+0800",
   "purpose": "Active Codex acceptance state for everything-dockless-hardening. Do not reuse archived everything-filemanager-integration or everything-menubar-agent sessions.",
-  "last_verdict": "PASS",
-  "last_verdict_round": "N3 round 1",
+  "last_verdict": "PROJECT COMPLETE",
+  "last_verdict_round": "N4 final",
   "last_verdict_date": "2026-04-27",
-  "passed_stages": ["N1", "N2", "N3"],
+  "passed_stages": ["N1", "N2", "N3", "N4"],
   "archived_tracks": [
     { "track": "v1-baseline", "final_verdict": "PROJECT COMPLETE", "date": "2026-04-23" },
     {
@@ -59,5 +59,5 @@
       "previous_session_id": "019dc959-3bf6-7671-ace6-cf3a3598e592"
     }
   ],
-  "notes": "N1 PASS at HEAD 9741d52. N2 PASS at HEAD a74df5a. N3 PASS at HEAD 98c11d3 with DockSettingsState, Settings Dock detail block, restore-menu-bar button, and SmokeTest 270/270. N4 is next: real app release gate and final track wrap."
+  "notes": "N1 PASS at HEAD 9741d52. N2 PASS at HEAD a74df5a. N3 PASS at HEAD 98c11d3 with DockSettingsState, Settings Dock detail block, restore-menu-bar button, and SmokeTest 270/270. N4 PROJECT COMPLETE at HEAD 5689a42 with doc-only release gate consolidation and no Sources/scripts/Package changes."
 }
